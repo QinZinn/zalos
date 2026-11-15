@@ -161,8 +161,8 @@ Rectangle {
             fillMode: Image.PreserveAspectFit
             smooth: true
             mipmap: true
-            sourceSize.width: 4096
-            sourceSize.height: 4096
+            sourceSize.width: 2048
+            sourceSize.height: 2048
             scale: root.zoom
             rotation: root.angle
             Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }

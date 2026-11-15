@@ -53,7 +53,7 @@ public:
     QString searchQuery() const { return m_query; }
     QVariantList birthdayStickers() const { return m_birthday; }
 
-    QVariantMap info(const QString& stickerId) const { return m_info.value(stickerId); }
+    QVariantMap info(const QString& stickerId) const { ensureCacheLoaded(); return m_info.value(stickerId); }
     void remember(const QVariantMap& info);
     void setCacheFile(const QString& path);
 
@@ -84,13 +84,15 @@ private:
     void busy(int delta);
     QVariantList recent() const;
     void saveCache();
-    void loadCache();
+    void ensureCacheLoaded() const;
+    void loadCache() const;
 
     Hooks m_hooks;
     QList<int> m_personal;
     QHash<int, QVariantMap> m_catalog;
     QHash<int, QVariantList> m_byCategory;
-    QHash<QString, QVariantMap> m_info;
+    mutable QHash<QString, QVariantMap> m_info;
+    mutable bool m_cacheLoaded{false};
     QVariantList m_stickers;
     int m_current{kRecentId};
     QString m_query;

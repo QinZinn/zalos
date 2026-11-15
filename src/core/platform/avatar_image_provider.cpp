@@ -1,6 +1,7 @@
 #include "avatar_image_provider.h"
 
 #include <QDateTime>
+#include <QFileInfo>
 
 #include <QBuffer>
 #include <QCache>
@@ -30,11 +31,24 @@ namespace {
 
 constexpr int kDefaultDiameter = 96;
 constexpr int kDefaultCoverWidth = 0;
-constexpr int kMaxMemCacheKiB = 16 * 1024;
+constexpr int kMaxAvatarCacheKiB = 8 * 1024;
+constexpr int kMaxMediaCacheKiB = 16 * 1024;
+constexpr int kMaxCachedMediaImageKiB = 4 * 1024;
 constexpr int kRetryDelayMs = 750;
+constexpr qint64 kTouchIntervalSecs = 24 * 3600;
 
 QMutex s_memCacheMutex;
-QCache<QString, QImage> s_memCache(kMaxMemCacheKiB);
+QCache<QString, QImage> s_avatarMemCache(kMaxAvatarCacheKiB);
+QCache<QString, QImage> s_mediaMemCache(kMaxMediaCacheKiB);
+
+QNetworkAccessManager* sharedNam() {
+    static QPointer<QNetworkAccessManager> s_nam;
+    if (!s_nam) {
+        s_nam = new QNetworkAccessManager(QCoreApplication::instance());
+        s_nam->setTransferTimeout(30000);
+    }
+    return s_nam;
+}
 
 class AvatarResponse : public QQuickImageResponse {
 public:
@@ -58,31 +72,72 @@ public:
 
         if (url.isLocalFile() || url.scheme() == "qrc") {
             const QString path = url.isLocalFile() ? url.toLocalFile() : ":" + url.path();
-            QFile file(path);
-            if (!file.open(QIODevice::ReadOnly)) {
-                failWith(QStringLiteral("cannot read %1").arg(path));
-                return;
-            }
-            const QImage local = AvatarImageProvider::decodeScaled(&file, m_diameter, m_circular);
-            if (local.isNull()) failWith(QStringLiteral("not a decodable image"));
-            else finishWith(local);
+            const int diameter = m_diameter;
+            const bool circularFlag = m_circular;
+            const QString memKey = m_memKey;
+            QPointer<AvatarResponse> self(this);
+            decodePool().start([self, path, diameter, circularFlag, memKey]() {
+                QImage shaped;
+                QString error;
+                if (!AvatarImageProvider::lookupMemCache(memKey, &shaped)) {
+                    QFile file(path);
+                    if (!file.open(QIODevice::ReadOnly)) {
+                        error = QStringLiteral("cannot read %1").arg(path);
+                    } else {
+                        const QImage decoded = AvatarImageProvider::decodeScaled(&file, diameter, circularFlag);
+                        shaped = shape(decoded, diameter, circularFlag);
+                        if (!shaped.isNull()) AvatarImageProvider::insertMemCache(memKey, shaped);
+                        else error = QStringLiteral("not a decodable image");
+                    }
+                }
+                QMetaObject::invokeMethod(QCoreApplication::instance(), [self, shaped, error]() {
+                    if (!self) return;
+                    if (shaped.isNull()) self->failWith(error);
+                    else self->deliver(shaped);
+                }, Qt::QueuedConnection);
+            });
             return;
         }
-        if (QFile::exists(cachePath)) {
-            QFile cachedFile(cachePath);
-            if (cachedFile.open(QIODevice::ReadOnly)) {
-                const QImage cached = AvatarImageProvider::decodeScaled(&cachedFile, m_diameter, m_circular);
-                cachedFile.close();
-                if (!cached.isNull()) {
-                    QFile touched(cachePath);
-                    if (touched.open(QIODevice::ReadWrite)) {
-                        touched.setFileTime(QDateTime::currentDateTime(), QFileDevice::FileModificationTime);
+        if (QFileInfo::exists(cachePath)) {
+            const int diameter = m_diameter;
+            const bool circularFlag = m_circular;
+            const QString memKey = m_memKey;
+            QPointer<AvatarResponse> self(this);
+            decodePool().start([self, nam, url, cachePath, diameter, circularFlag, memKey]() {
+                QImage shaped;
+                if (!AvatarImageProvider::lookupMemCache(memKey, &shaped)) {
+                    QFile cachedFile(cachePath);
+                    if (cachedFile.open(QIODevice::ReadOnly)) {
+                        const QImage decoded = AvatarImageProvider::decodeScaled(&cachedFile, diameter, circularFlag);
+                        cachedFile.close();
+                        shaped = shape(decoded, diameter, circularFlag);
+                        if (!shaped.isNull()) {
+                            AvatarImageProvider::insertMemCache(memKey, shaped);
+                            const QDateTime now = QDateTime::currentDateTime();
+                            if (QFileInfo(cachePath).lastModified().secsTo(now) > kTouchIntervalSecs) {
+                                QFile touched(cachePath);
+                                if (touched.open(QIODevice::ReadWrite)) {
+                                    touched.setFileTime(now, QFileDevice::FileModificationTime);
+                                }
+                            }
+                        }
                     }
-                    finishWith(cached);
-                    return;
                 }
-            }
+                QMetaObject::invokeMethod(QCoreApplication::instance(), [self, nam, url, cachePath, shaped]() {
+                    if (!self) return;
+                    if (!shaped.isNull()) {
+                        self->deliver(shaped);
+                        return;
+                    }
+                    self->startNetworkFetch(nam, url, cachePath);
+                }, Qt::QueuedConnection);
+            });
+            return;
         }
+        startNetworkFetch(nam, url, cachePath);
+    }
+
+    void startNetworkFetch(QNetworkAccessManager* nam, const QUrl& url, const QString& cachePath) {
         if (!url.isValid() || !url.scheme().startsWith("http")) {
             failWith(QStringLiteral("unsupported URL"));
             return;
@@ -154,13 +209,22 @@ public:
                 }
                 QVector<QImage> images(specs.size());
                 if (decodable) {
+                    QHash<QString, QImage> decodedBySpec;
                     for (int i = 0; i < specs.size(); ++i) {
+                        auto it = decodedBySpec.constFind(specs[i].memKey);
+                        if (it != decodedBySpec.constEnd()) {
+                            images[i] = *it;
+                            continue;
+                        }
                         QByteArray copy = bytes;
                         QBuffer buf(&copy);
                         buf.open(QIODevice::ReadOnly);
                         const QImage decoded = AvatarImageProvider::decodeScaled(&buf, specs[i].diameter, specs[i].circular);
                         images[i] = shape(decoded, specs[i].diameter, specs[i].circular);
-                        if (!images[i].isNull()) AvatarImageProvider::insertMemCache(specs[i].memKey, images[i]);
+                        if (!images[i].isNull()) {
+                            AvatarImageProvider::insertMemCache(specs[i].memKey, images[i]);
+                            decodedBySpec.insert(specs[i].memKey, images[i]);
+                        }
                     }
                 }
                 QMetaObject::invokeMethod(QCoreApplication::instance(), [specs, images, decodable]() {
@@ -237,16 +301,13 @@ private:
 }
 
 AvatarImageProvider::AvatarImageProvider(bool circular)
-    : m_nam(new QNetworkAccessManager), m_circular(circular) {
-    m_nam->setTransferTimeout(30000);
+    : m_circular(circular) {
 }
 
-AvatarImageProvider::~AvatarImageProvider() {
-    m_nam->deleteLater();
-}
+AvatarImageProvider::~AvatarImageProvider() = default;
 
 QQuickImageResponse* AvatarImageProvider::requestImageResponse(const QString& id, const QSize& requestedSize) {
-    return new AvatarResponse(m_nam, id, requestedSize, m_circular);
+    return new AvatarResponse(sharedNam(), id, requestedSize, m_circular);
 }
 
 QString AvatarImageProvider::cacheDirectory() {
@@ -260,7 +321,8 @@ QString AvatarImageProvider::cacheDirectory() {
 
 bool AvatarImageProvider::lookupMemCache(const QString& key, QImage* out) {
     QMutexLocker locker(&s_memCacheMutex);
-    QImage* img = s_memCache.object(key);
+    auto& cache = key.contains(QLatin1Char('@')) ? s_avatarMemCache : s_mediaMemCache;
+    QImage* img = cache.object(key);
     if (img && !img->isNull()) {
         if (out) *out = *img;
         return true;
@@ -270,13 +332,18 @@ bool AvatarImageProvider::lookupMemCache(const QString& key, QImage* out) {
 
 void AvatarImageProvider::insertMemCache(const QString& key, const QImage& image) {
     if (image.isNull()) return;
+    const int costKiB = qMax<qsizetype>(1, image.sizeInBytes() / 1024);
+    const bool isAvatar = key.contains(QLatin1Char('@'));
+    if (!isAvatar && costKiB > kMaxCachedMediaImageKiB) return;
     QMutexLocker locker(&s_memCacheMutex);
-    s_memCache.insert(key, new QImage(image), qMax<qsizetype>(1, image.sizeInBytes() / 1024));
+    auto& cache = isAvatar ? s_avatarMemCache : s_mediaMemCache;
+    cache.insert(key, new QImage(image), costKiB);
 }
 
 void AvatarImageProvider::clearMemCache() {
     QMutexLocker locker(&s_memCacheMutex);
-    s_memCache.clear();
+    s_avatarMemCache.clear();
+    s_mediaMemCache.clear();
 }
 
 QImage AvatarImageProvider::decodeScaled(QIODevice* device, int targetWidth, bool circular) {

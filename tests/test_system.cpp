@@ -1744,8 +1744,15 @@ private slots:
         RG::markAttempt(RP::Backend::Vulkan); // launch dies before the first frame...
         QVERIFY(RG::vulkanFailedBefore());    // ...the next launch sees it
         QVERIFY(RG::vulkanFailedBefore());    // and keeps remembering it
+        s.setValue("render/guardVersion", 1);
+        s.setValue("render/vulkanBroken", true);
+        s.sync();
+        QVERIFY(!RG::vulkanFailedBefore());
+        s.sync();
+        QCOMPARE(s.value("render/guardVersion").toInt(), 2);
         s.remove("render/vulkanBroken");
         s.remove("render/pending");
+        s.remove("render/guardVersion");
     }
 
     // The audio backend is only loaded by the first sound.
@@ -5195,6 +5202,111 @@ private slots:
 
         client.closeBusinessTools();
         QCOMPARE(client.showBusinessToolsModal(), false);
+    }
+
+    void testGroupAOptimizationsLockIn() {
+        AvatarImageProvider::clearMemCache();
+        QImage avatarImg(48, 48, QImage::Format_ARGB32);
+        avatarImg.fill(Qt::red);
+        AvatarImageProvider::insertMemCache(QStringLiteral("https://zadn.vn/ava.jpg@48c"), avatarImg);
+
+        QImage hugeMedia(1200, 1200, QImage::Format_ARGB32);
+        hugeMedia.fill(Qt::green);
+        AvatarImageProvider::insertMemCache(QStringLiteral("https://zadn.vn/huge.jpg#1200n"), hugeMedia);
+        QImage probeOut;
+        QVERIFY(!AvatarImageProvider::lookupMemCache(QStringLiteral("https://zadn.vn/huge.jpg#1200n"), &probeOut));
+
+        QImage chunkMedia(880, 880, QImage::Format_ARGB32);
+        chunkMedia.fill(Qt::blue);
+        for (int i = 0; i < 6; ++i) {
+            AvatarImageProvider::insertMemCache(QStringLiteral("https://zadn.vn/m%1.jpg#880n").arg(i), chunkMedia);
+        }
+        QVERIFY(AvatarImageProvider::lookupMemCache(QStringLiteral("https://zadn.vn/ava.jpg@48c"), &probeOut));
+        QCOMPARE(probeOut.size(), QSize(48, 48));
+        AvatarImageProvider::clearMemCache();
+
+        ZaloClient client;
+        const QJsonObject staticWebp{
+            {"msgId", "7101"}, {"uidFrom", "u-p1"}, {"idTo", "u-me"},
+            {"msgType", "chat.photo"}, {"ts", "1700000000000"},
+            {"content", QJsonObject{{"href", "https://example.invalid/static.webp"},
+                                    {"thumb", "https://example.invalid/static.webp"}}}
+        };
+        const MessageItem webpItem = client.toMessageItemForTesting(staticWebp, false);
+        QCOMPARE(webpItem.messageType, QStringLiteral("image"));
+        QVERIFY(webpItem.extra.value("animatedUrl").toString().isEmpty());
+
+        const QJsonObject animGif{
+            {"msgId", "7102"}, {"uidFrom", "u-p1"}, {"idTo", "u-me"},
+            {"msgType", "chat.photo"}, {"ts", "1700000000001"},
+            {"content", QJsonObject{{"href", "https://example.invalid/anim.gif"},
+                                    {"thumb", "https://example.invalid/anim.jpg"}}}
+        };
+        const MessageItem gifItem = client.toMessageItemForTesting(animGif, false);
+        QCOMPARE(gifItem.messageType, QStringLiteral("image"));
+        QCOMPARE(gifItem.extra.value("animatedUrl").toString(), QStringLiteral("https://example.invalid/anim.gif"));
+
+        {
+            ZaloOfflineStore store;
+            store.bindOwner(QStringLiteral("u-ts-owner"));
+            store.clearCache();
+            store.bindOwner(QStringLiteral("u-ts-owner"));
+            QCOMPARE(store.ownerUid(), QStringLiteral("u-ts-owner"));
+
+            MessageItem item;
+            item.id = QStringLiteral("msg-ts-901");
+            item.cliMsgId = QStringLiteral("cli-ts-901");
+            item.senderId = QStringLiteral("u-ts-peer");
+            item.text = QStringLiteral("indexed ts check");
+            item.ts = 1700000123456LL;
+            QVERIFY(store.saveMessage(QStringLiteral("u-ts-peer"), item));
+
+            QString convOut;
+            QCOMPARE(store.messageTs(QStringLiteral("msg-ts-901"), &convOut), 1700000123456LL);
+            QCOMPARE(convOut, QStringLiteral("u-ts-peer"));
+            convOut.clear();
+            QCOMPARE(store.messageTs(QStringLiteral("cli-ts-901"), &convOut), 1700000123456LL);
+            QCOMPARE(convOut, QStringLiteral("u-ts-peer"));
+            store.clearCache();
+        }
+
+        {
+            Zalos::Core::Call::CameraSender sender;
+            QVideoSink previewSink;
+            QSignalSpy previewSpy(&previewSink, &QVideoSink::videoFrameChanged);
+            QSignalSpy encodeSpy(&sender, &Zalos::Core::Call::CameraSender::frameEncoded);
+            sender.setPreviewSink(&previewSink);
+            sender.setEncodingEnabled(false);
+            QCOMPARE(sender.encodingEnabled(), false);
+
+            QVideoFrame frame(QVideoFrameFormat(QSize(640, 360), QVideoFrameFormat::Format_YUV420P));
+            QVERIFY(frame.map(QVideoFrame::WriteOnly));
+            for (int p = 0; p < frame.planeCount(); ++p) {
+                memset(frame.bits(p), 128, size_t(frame.mappedBytes(p)));
+            }
+            frame.unmap();
+
+            sender.processFrame(frame);
+            QCOMPARE(previewSpy.count(), 1);
+            QCOMPARE(encodeSpy.count(), 0);
+
+            sender.setEncodingEnabled(true);
+            QCOMPARE(sender.encodingEnabled(), true);
+            if (Zalos::Core::Call::OpenH264::instance().available()) {
+                sender.processFrame(frame);
+                QCOMPARE(encodeSpy.count(), 1);
+                QCOMPARE(encodeSpy.first().at(0).toBool(), true);
+            }
+        }
+
+        {
+            Zalos::Core::Media::VoiceRecorder recorder;
+            const bool hasHwMic = !QDir(QStringLiteral("/dev/snd")).entryList({QStringLiteral("pcm*c")}, QDir::System).isEmpty();
+            if (!hasHwMic) {
+                QCOMPARE(recorder.available(), false);
+                QCOMPARE(recorder.unavailableReason(), QStringLiteral("no_microphone"));
+            }
+        }
     }
 };
 

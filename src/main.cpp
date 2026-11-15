@@ -15,8 +15,11 @@
 #include <QImage>
 #include <QProcess>
 #include <QStandardPaths>
+#include <QSet>
 #include <iostream>
 #include <cstdio>
+#include <fstream>
+#include <string>
 
 #include "core/network/zalo_client.h"
 #include "core/platform/theme_manager.h"
@@ -29,6 +32,11 @@
 
 #ifdef __GLIBC__
 #include <malloc.h>
+#endif
+#ifdef __linux__
+#include <sys/mman.h>
+#include <sys/prctl.h>
+#include <unistd.h>
 #endif
 
 namespace {
@@ -130,6 +138,144 @@ void configureInputMethod() {
     }
 }
 
+void ensureSymlink(const QString& target, const QString& linkPath) {
+    const QFileInfo info(linkPath);
+    if (info.isSymLink()) {
+        if (info.symLinkTarget() == target && QFileInfo::exists(target)) return;
+        QFile::remove(linkPath);
+    } else if (info.exists()) {
+        return;
+    }
+    QFile::link(target, linkPath);
+}
+
+void setupMinimalPluginPath() {
+    QStringList srcDirs;
+    const QString systemPlugins = QLibraryInfo::path(QLibraryInfo::PluginsPath);
+    if (!systemPlugins.isEmpty() && QFileInfo::exists(systemPlugins)) {
+        srcDirs << systemPlugins;
+    }
+    const QString extraPlugins = qEnvironmentVariable("QT_PLUGIN_PATH");
+    if (!extraPlugins.isEmpty()) {
+        for (const QString& dir : extraPlugins.split(QDir::listSeparator(), Qt::SkipEmptyParts)) {
+            if (QFileInfo::exists(dir) && !srcDirs.contains(dir)) srcDirs << dir;
+        }
+    }
+    if (srcDirs.isEmpty()) return;
+
+    QString runtimeBase = qEnvironmentVariable("XDG_RUNTIME_DIR");
+    if (runtimeBase.isEmpty() || !QFileInfo::exists(runtimeBase)) {
+        runtimeBase = QDir::tempPath();
+    }
+#ifdef __linux__
+    const QString uidStr = QString::number(quint64(::getuid()));
+#else
+    const QString uidStr = QStringLiteral("0");
+#endif
+    const QString runtimeDir = runtimeBase + QStringLiteral("/zalos-qt-plugins-%1-%2")
+                                                 .arg(uidStr, QString::fromLatin1(qVersion()));
+    QDir root(runtimeDir);
+    if (!root.exists() && !root.mkpath(QStringLiteral("."))) return;
+
+    const QSet<QString> allowedImagePlugins{
+        QStringLiteral("libqjpeg.so"),
+        QStringLiteral("libqgif.so"),
+        QStringLiteral("libqwebp.so"),
+        QStringLiteral("libqsvg.so"),
+        QStringLiteral("libqico.so"),
+        QStringLiteral("kimg_jxl.so"),
+        QStringLiteral("libqjxl.so")
+    };
+    const QSet<QString> allowedPlatformThemes{
+        QStringLiteral("libqxdgdesktopportal.so")
+    };
+
+    auto syncFilteredDir = [&](const QString& subName, const QSet<QString>& allowed) {
+        QDir subDir(runtimeDir + QLatin1Char('/') + subName);
+        if (!subDir.exists() && !subDir.mkpath(QStringLiteral("."))) return;
+        for (const QFileInfo& entry : subDir.entryInfoList(QDir::Files | QDir::System | QDir::NoDotAndDotDot)) {
+            if (!allowed.contains(entry.fileName()) || (entry.isSymLink() && !QFileInfo::exists(entry.symLinkTarget()))) {
+                QFile::remove(entry.absoluteFilePath());
+            }
+        }
+        for (const QString& base : srcDirs) {
+            const QDir srcSub(base + QLatin1Char('/') + subName);
+            if (!srcSub.exists()) continue;
+            for (const QFileInfo& f : srcSub.entryInfoList(QDir::Files | QDir::NoDotAndDotDot)) {
+                if (allowed.contains(f.fileName())) {
+                    ensureSymlink(f.absoluteFilePath(), subDir.filePath(f.fileName()));
+                }
+            }
+        }
+    };
+
+    syncFilteredDir(QStringLiteral("imageformats"), allowedImagePlugins);
+    syncFilteredDir(QStringLiteral("platformthemes"), allowedPlatformThemes);
+
+    for (const QFileInfo& entry : root.entryInfoList(QDir::Dirs | QDir::System | QDir::NoDotAndDotDot)) {
+        if (entry.isSymLink() && !QFileInfo::exists(entry.symLinkTarget())) {
+            QFile::remove(entry.absoluteFilePath());
+        }
+    }
+
+    for (const QString& base : srcDirs) {
+        const QDir src(base);
+        for (const QFileInfo& sub : src.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot)) {
+            const QString name = sub.fileName();
+            if (name == QLatin1String("styles") || name == QLatin1String("imageformats")
+                || name == QLatin1String("platformthemes")) {
+                continue;
+            }
+            ensureSymlink(sub.absoluteFilePath(), root.filePath(name));
+        }
+    }
+
+    qputenv("QT_PLUGIN_PATH", runtimeDir.toUtf8());
+    QCoreApplication::setLibraryPaths({runtimeDir});
+}
+
+void markColdAnonymousMappings() {
+#ifdef __linux__
+    constexpr int kMadvCold = 20;
+    std::ifstream maps("/proc/self/maps");
+    std::string line;
+    while (std::getline(maps, line)) {
+        const size_t sp1 = line.find(' ');
+        if (sp1 == std::string::npos) continue;
+        const size_t sp2 = line.find(' ', sp1 + 1);
+        if (sp2 == std::string::npos) continue;
+        if (sp2 - sp1 - 1 != 4 || line.compare(sp1 + 1, 4, "rw-p") != 0) continue;
+
+        const size_t dash = line.find('-');
+        if (dash == std::string::npos || dash >= sp1) continue;
+
+        size_t pos = sp2 + 1;
+        for (int field = 0; field < 3 && pos != std::string::npos; ++field) {
+            while (pos < line.size() && line[pos] == ' ') ++pos;
+            if (field == 2) break;
+            pos = line.find(' ', pos);
+        }
+        if (pos == std::string::npos) continue;
+        if (line[pos] != '0' || (pos + 1 < line.size() && line[pos + 1] != ' ')) continue;
+        pos = line.find_first_not_of(' ', pos + 1);
+        const std::string path = (pos != std::string::npos) ? line.substr(pos) : std::string();
+        if (!path.empty() && path != "[heap]") continue;
+
+        unsigned long start = 0;
+        unsigned long end = 0;
+        try {
+            start = std::stoul(line.substr(0, dash), nullptr, 16);
+            end = std::stoul(line.substr(dash + 1, sp1 - dash - 1), nullptr, 16);
+        } catch (...) {
+            continue;
+        }
+        if (end > start && end - start >= 65536UL) {
+            ::madvise(reinterpret_cast<void*>(start), size_t(end - start), kMadvCold);
+        }
+    }
+#endif
+}
+
 }
 
 int main(int argc, char* argv[]) {
@@ -137,6 +283,10 @@ int main(int argc, char* argv[]) {
     mallopt(M_ARENA_MAX, 2);
     mallopt(M_MMAP_THRESHOLD, 256 * 1024);
     mallopt(M_TRIM_THRESHOLD, 512 * 1024);
+#endif
+#ifdef __linux__
+    constexpr int kPrSetMemoryMerge = 67;
+    ::prctl(kPrSetMemoryMerge, 1, 0, 0, 0);
 #endif
 
     QCoreApplication::setOrganizationName("Zalos");
@@ -162,7 +312,6 @@ int main(int argc, char* argv[]) {
     using Zalos::Core::Platform::RenderProfile;
     const RenderProfile renderProfile = RenderProfile::decide(RenderProfile::probeSystem());
     renderProfile.apply();
-    Zalos::Core::Platform::RenderGuard::markAttempt(renderProfile.backend);
     std::cerr << "[zalos] renderer: " << RenderProfile::backendName(renderProfile.backend).toStdString()
               << " (" << renderProfile.reason.toStdString() << ")" << std::endl;
 
@@ -184,6 +333,7 @@ int main(int argc, char* argv[]) {
     }
 
     configureInputMethod();
+    setupMinimalPluginPath();
 
     QApplication app(argc, argv);
     app.setApplicationName("Zalos");
@@ -304,11 +454,22 @@ int main(int argc, char* argv[]) {
     engine.load(QUrl(QStringLiteral("qrc:/Zalos/src/qml/Main.qml")));
 #endif
 
+    QObject::connect(&app, &QCoreApplication::aboutToQuit, []() {
+        Zalos::Core::Platform::RenderGuard::markFirstFrame();
+    });
+
     for (QObject* obj : engine.rootObjects()) {
         auto* window = qobject_cast<QQuickWindow*>(obj);
         if (!window) continue;
+        auto attemptMarked = std::make_shared<bool>(false);
+        auto firstFrameSwapped = std::make_shared<bool>(false);
+        if (window->isVisible()) {
+            *attemptMarked = true;
+            Zalos::Core::Platform::RenderGuard::markAttempt(renderProfile.backend);
+        }
         auto firstFrame = std::make_shared<QMetaObject::Connection>();
-        *firstFrame = QObject::connect(window, &QQuickWindow::frameSwapped, window, [firstFrame]() {
+        *firstFrame = QObject::connect(window, &QQuickWindow::frameSwapped, window, [firstFrame, firstFrameSwapped]() {
+            *firstFrameSwapped = true;
             Zalos::Core::Platform::RenderGuard::markFirstFrame();
             QObject::disconnect(*firstFrame);
         });
@@ -322,8 +483,19 @@ int main(int argc, char* argv[]) {
             engine.trimComponentCache();
             engine.collectGarbage();
             window->releaseResources();
+#ifdef __GLIBC__
+            malloc_trim(0);
+#endif
+            markColdAnonymousMappings();
         });
-        QObject::connect(window, &QWindow::visibleChanged, bgTrimTimer, [bgTrimTimer](bool visible) {
+        zaloClient->setWindowVisible(window->isVisible());
+        QObject::connect(window, &QWindow::visibleChanged, bgTrimTimer,
+                         [bgTrimTimer, zaloClient, attemptMarked, firstFrameSwapped, renderProfile](bool visible) {
+            if (visible && !*attemptMarked && !*firstFrameSwapped) {
+                *attemptMarked = true;
+                Zalos::Core::Platform::RenderGuard::markAttempt(renderProfile.backend);
+            }
+            zaloClient->setWindowVisible(visible);
             if (visible) bgTrimTimer->stop();
             else bgTrimTimer->start();
         });

@@ -321,7 +321,7 @@ ZaloClient::ZaloClient(QObject* parent)
             refreshSentFriendRequests();
         }
         refreshFriendRequests();
-        refreshContacts();
+        m_friendEventDebounce->start();
     });
     connect(session, &ZaloSession::mobileSyncControlReceived, this, &ZaloClient::handleMobileSyncControl);
     m_historySync = new Sync::MobileHistorySync(session, this);
@@ -596,6 +596,16 @@ ZaloClient::ZaloClient(QObject* parent)
     m_presenceTimer = new QTimer(this);
     m_presenceTimer->setInterval(45000);
     connect(m_presenceTimer, &QTimer::timeout, this, &ZaloClient::refreshPresence);
+
+    m_friendEventDebounce = new QTimer(this);
+    m_friendEventDebounce->setSingleShot(true);
+    m_friendEventDebounce->setInterval(1000);
+    connect(m_friendEventDebounce, &QTimer::timeout, this, &ZaloClient::refreshContacts);
+
+    m_rebuildContactsTimer = new QTimer(this);
+    m_rebuildContactsTimer->setSingleShot(true);
+    m_rebuildContactsTimer->setInterval(40);
+    connect(m_rebuildContactsTimer, &QTimer::timeout, this, &ZaloClient::rebuildContactsNow);
 
     m_typingTimer = new QTimer(this);
     m_typingTimer->setInterval(1000);
@@ -893,7 +903,7 @@ void ZaloClient::onSessionLoggedIn() {
     loadLabels();
     refreshPresence();
     refreshFriendRequests();
-    m_presenceTimer->start();
+    if (m_windowVisible) m_presenceTimer->start();
     session->connectRealtime();
 }
 
@@ -1016,6 +1026,9 @@ void ZaloClient::logout() {
     m_currentConvAvatar.clear();
     m_users.clear();
     m_groups.clear();
+    m_groupVersions.clear();
+    m_groupRosters.clear();
+    m_groupMembersCache.clear();
     m_friendIds.clear();
     m_groupIds.clear();
     m_pendingUserLookups.clear();
@@ -1047,6 +1060,8 @@ void ZaloClient::logout() {
     m_friendRequests.clear();
     m_currentLastOnline = 0;
     m_presenceTimer->stop();
+    if (m_friendEventDebounce) m_friendEventDebounce->stop();
+    if (m_rebuildContactsTimer) m_rebuildContactsTimer->stop();
     m_conversationModel->clearAll();
     m_messageModel->clearAll();
     m_contactModel->clearAll();
@@ -1115,6 +1130,8 @@ void ZaloClient::loadAccountData() {
     session->fetchFriends([this, finishJob](bool ok, const QJsonValue& data, const QString&, int) {
         if (ok) {
             m_friendsKnown = true;
+            if (m_offlineStore) m_offlineStore->beginBatch();
+            m_conversationModel->beginBatch();
             for (const QJsonValue& v : data.toArray()) {
                 const QJsonObject u = v.toObject();
                 const QString uid = idOf(u.value("userId"));
@@ -1125,6 +1142,9 @@ void ZaloClient::loadAccountData() {
                 applyProfileToConversation(uid);
                 persistProfile(uid, false);
             }
+            m_conversationModel->endBatch();
+            if (m_offlineStore) m_offlineStore->endBatch();
+            m_groupMembersCache.clear();
             rebuildContacts();
         }
         finishJob();
@@ -1132,9 +1152,19 @@ void ZaloClient::loadAccountData() {
 
     session->fetchGroupIds([this, finishJob](bool ok, const QJsonValue& data, const QString&, int) {
         if (ok) {
-            QStringList ids = data.toObject().value("gridVerMap").toObject().keys();
-            for (const QString& id : ids) m_groupIds.insert(id);
-            loadGroupInfo(ids);
+            const QJsonObject gridMap = data.toObject().value("gridVerMap").toObject();
+            QStringList changedIds;
+            for (auto it = gridMap.constBegin(); it != gridMap.constEnd(); ++it) {
+                const QString id = it.key();
+                m_groupIds.insert(id);
+                const QString ver = it.value().toVariant().toString();
+                if (ver.isEmpty() || !m_groups.contains(id) || !m_groupRosters.contains(id)
+                    || m_groupVersions.value(id) != ver) {
+                    changedIds << id;
+                    if (!ver.isEmpty()) m_groupVersions.insert(id, ver);
+                }
+            }
+            if (!changedIds.isEmpty()) loadGroupInfo(changedIds);
         }
         finishJob();
     });
@@ -1188,13 +1218,19 @@ void ZaloClient::loadAccountData() {
 void ZaloClient::loadGroupInfo(const QStringList& groupIds) {
     for (int i = 0; i < groupIds.size(); i += kGroupInfoBatch) {
         const QStringList batch = groupIds.mid(i, kGroupInfoBatch);
-        m_apiClient->session()->fetchGroupInfo(batch, [this](bool ok, const QJsonValue& data, const QString&, int) {
-            if (ok) applyGroupInfo(data.toObject().value("gridInfoMap").toObject());
+        m_apiClient->session()->fetchGroupInfo(batch, [this, batch](bool ok, const QJsonValue& data, const QString&, int) {
+            if (ok) {
+                applyGroupInfo(data.toObject().value("gridInfoMap").toObject());
+            } else {
+                for (const QString& id : batch) m_groupVersions.remove(id);
+            }
         });
     }
 }
 
 void ZaloClient::applyGroupInfo(const QJsonObject& map) {
+    if (m_offlineStore) m_offlineStore->beginBatch();
+    m_conversationModel->beginBatch();
     for (auto it = map.begin(); it != map.end(); ++it) {
         const QJsonObject g = it.value().toObject();
         QString avatar = g.value("avt").toString();
@@ -1221,10 +1257,13 @@ void ZaloClient::applyGroupInfo(const QJsonObject& map) {
         if (!roster.creator.isEmpty() && !roster.members.contains(roster.creator)) roster.members.prepend(roster.creator);
         if (!roster.members.isEmpty()) {
             m_groupRosters.insert(it.key(), roster);
+            m_groupMembersCache.remove(it.key());
             emit groupMembersChanged(it.key());
         }
         updateGroupComposite(it.key());
     }
+    m_conversationModel->endBatch();
+    if (m_offlineStore) m_offlineStore->endBatch();
     rebuildContacts();
 }
 
@@ -1274,6 +1313,7 @@ void ZaloClient::lookupCompositeMembers() {
             for (auto g = m_groupRosters.cbegin(); g != m_groupRosters.cend(); ++g) {
                 if (m_groups.value(g.key()).avatar.isEmpty()) updateGroupComposite(g.key());
             }
+            m_groupMembersCache.clear();
             m_messageModel->refreshSenders();
         }
         if (!m_compositeLookups.isEmpty()) QTimer::singleShot(200, this, &ZaloClient::lookupCompositeMembers);
@@ -1286,6 +1326,8 @@ QVariantList ZaloClient::groupMembers(const QString& groupId) {
         if (m_isLoggedIn) loadGroupInfo({groupId});
         return {};
     }
+    const auto cached = m_groupMembersCache.constFind(groupId);
+    if (cached != m_groupMembersCache.cend()) return *cached;
     const GroupRoster& roster = m_groupRosters[groupId];
     QVariantList owner, admins, members;
     bool missing = false;
@@ -1295,12 +1337,16 @@ QVariantList ZaloClient::groupMembers(const QString& groupId) {
         if (name.isEmpty() && !isMe) missing = true;
         const QString role = id == roster.creator ? QStringLiteral("owner")
                              : roster.admins.contains(id) ? QStringLiteral("admin") : QStringLiteral("member");
-        const QVariantMap entry{{"id", id}, {"name", name}, {"avatar", isMe ? m_userAvatar : m_users.value(id).avatar},
+        const QVariantMap entry{{"id", id}, {"name", name},
+                                {"foldedName", Models::foldForSearch(name)},
+                                {"avatar", isMe ? m_userAvatar : m_users.value(id).avatar},
                                 {"role", role}, {"isMe", isMe}};
         (role == "owner" ? owner : role == "admin" ? admins : members).append(entry);
     }
     if (missing) resolveGroupMembers(groupId);
-    return owner + admins + members;
+    const QVariantList result = owner + admins + members;
+    m_groupMembersCache.insert(groupId, result);
+    return result;
 }
 
 QString ZaloClient::myGroupRole(const QString& groupId) const {
@@ -1359,6 +1405,7 @@ void ZaloClient::setGroupDeputy(const QString& groupId, const QString& memberId,
             }
             if (add) m_groupRosters[groupId].admins.insert(memberId);
             else m_groupRosters[groupId].admins.remove(memberId);
+            m_groupMembersCache.remove(groupId);
             emit groupMembersChanged(groupId);
             emit notice(add ? L("Đã thêm phó nhóm", "Deputy added") : L("Đã gỡ quyền phó nhóm", "Deputy removed"));
         });
@@ -1375,6 +1422,7 @@ void ZaloClient::transferGroupOwner(const QString& groupId, const QString& membe
             }
             m_groupRosters[groupId].creator = memberId;
             m_groupRosters[groupId].admins.remove(memberId);
+            m_groupMembersCache.remove(groupId);
             emit groupMembersChanged(groupId);
             loadGroupInfo({groupId});
             emit notice(L("Đã chuyển quyền trưởng nhóm", "Ownership transferred"));
@@ -1392,7 +1440,9 @@ void ZaloClient::disperseGroup(const QString& groupId) {
         m_conversationModel->removeConversation(groupId);
         m_groupIds.remove(groupId);
         m_groups.remove(groupId);
+        m_groupVersions.remove(groupId);
         m_groupRosters.remove(groupId);
+        m_groupMembersCache.remove(groupId);
         if (m_offlineStore) m_offlineStore->deleteConversation(groupId);
         rebuildContacts();
         emit notice(L("Đã giải tán nhóm", "Group disbanded"));
@@ -1802,6 +1852,7 @@ void ZaloClient::resolveUnknownUsers() {
                 persistProfile(uid, false);
             }
             m_conversationModel->endBatch();
+            m_groupMembersCache.clear();
             m_messageModel->refreshSenders();
         }
         QStringList missing;
@@ -1834,6 +1885,7 @@ void ZaloClient::resolveUnknownUsers() {
                 }
             }
             m_conversationModel->endBatch();
+            m_groupMembersCache.clear();
             m_messageModel->refreshSenders();
         });
     });
@@ -1848,22 +1900,32 @@ void ZaloClient::queueUnknownSenders(int first, int last) {
         m_pendingUserLookups.insert(uid);
         queued = true;
     };
-    for (int row = qMax(0, first); row <= last && row < m_messageModel->rowCount(); ++row) {
-        const QModelIndex idx = m_messageModel->index(row);
-        maybeQueue(idx.data(Models::MessageModel::SenderIdRole).toString());
-        const QString msgId = idx.data(Models::MessageModel::IdRole).toString();
-        const QJsonObject raw = m_rawMessages.value(msgId);
-        if (!raw.isEmpty()) {
-            maybeQueue(idOf(raw.value("quote").toObject().value("ownerId")));
-            for (const QJsonValue& mv : raw.value("mentions").toArray()) {
-                maybeQueue(idOf(mv.toObject().value("uid")));
-            }
+    const auto& thread = m_messageModel->threadOf(m_currentConvId);
+    for (int row = qMax(0, first); row <= last && row < thread.size(); ++row) {
+        const auto& item = thread.at(row);
+        maybeQueue(item.senderId);
+        for (const auto& men : item.mentions) {
+            maybeQueue(men.uid);
+        }
+        if (!m_rawMessages.isEmpty()) {
+            const QJsonObject raw = m_rawMessages.value(item.id);
+            if (!raw.isEmpty()) maybeQueue(idOf(raw.value("quote").toObject().value("ownerId")));
         }
     }
     if (queued && m_isLoggedIn) m_userLookupTimer->start();
 }
 
 void ZaloClient::rebuildContacts() {
+    if (m_friendIds.size() + m_groups.size() <= 50) {
+        if (m_rebuildContactsTimer) m_rebuildContactsTimer->stop();
+        rebuildContactsNow();
+        return;
+    }
+    if (m_rebuildContactsTimer && !m_rebuildContactsTimer->isActive())
+        m_rebuildContactsTimer->start();
+}
+
+void ZaloClient::rebuildContactsNow() {
     QVector<Models::ContactItem> items;
     items.reserve(m_friendIds.size() + m_groups.size());
     for (const QString& uid : m_friendIds) {
@@ -2047,7 +2109,7 @@ Models::MessageItem ZaloClient::toMessageItem(const QJsonObject& msg, bool isGro
         if (item.mediaUrl.isEmpty()) item.mediaUrl = item.href;
         item.text = captionOf(obj);
         const QString hrefPath = QUrl(item.href).path().toLower();
-        if (!item.href.isEmpty() && (type == "chat.gif" || hrefPath.endsWith(".gif") || hrefPath.endsWith(".webp")))
+        if (!item.href.isEmpty() && (type == "chat.gif" || hrefPath.endsWith(".gif")))
             item.extra.insert("animatedUrl", item.href);
         label = L("[Hình ảnh]", "[Photo]");
     } else if (type == "share.file") {
@@ -2464,6 +2526,7 @@ void ZaloClient::handleIncomingMessages(const QJsonArray& messages, bool isGroup
     QHash<QString, QVector<QPair<Models::MessageItem, QJsonObject>>> coldThreads;
     QJsonArray receiptCandidates;
     QHash<QString, QPair<QString, QString>> recalls;
+    if (m_offlineStore) m_offlineStore->beginBatch();
     for (const QJsonValue& v : messages) {
         const QJsonObject msg = v.toObject();
         const QString target = undoTargetOf(msg);
@@ -2569,7 +2632,6 @@ void ZaloClient::handleIncomingMessages(const QJsonArray& messages, bool isGroup
         }
     }
 
-    if (m_offlineStore) m_offlineStore->beginBatch();
     for (auto it = coldThreads.cbegin(); it != coldThreads.cend(); ++it) {
         for (const auto& [item, raw] : it.value()) m_offlineStore->saveMessage(it.key(), item, raw, isGroup);
         m_offlineStore->saveConversation(m_conversationModel->conversation(it.key()));
@@ -3165,7 +3227,9 @@ void ZaloClient::deleteConversation(const QString& id) {
         m_markedUnread.remove(id);
         m_groupIds.remove(id);
         m_groups.remove(id);
+        m_groupVersions.remove(id);
         m_groupRosters.remove(id);
+        m_groupMembersCache.remove(id);
         if (m_offlineStore) m_offlineStore->deleteConversation(id);
         m_readOnlyThreads.remove(id);
         saveReadOnlyThreads();
@@ -3396,6 +3460,8 @@ void ZaloClient::evictColdThreads(int maxResident) {
     for (auto it = m_messageThread.begin(); it != m_messageThread.end();) {
         if (evicted.contains(it.value())) {
             m_rawMessages.remove(it.key());
+            m_reactions.remove(it.key());
+            m_seenSent.remove(it.key());
             it = m_messageThread.erase(it);
         } else {
             ++it;
@@ -3415,13 +3481,30 @@ void ZaloClient::trimMemoryForBackground() {
         m_rawMessages.squeeze();
         evictColdThreads(m_currentConvId.isEmpty() ? 0 : 1);
     }
+    m_groupMembersCache.clear();
     if (m_storage) {
         m_storage->cleanAvatarMemory();
         Platform::StorageManager::cleanTemporaryFiles();
     }
     m_typingUser.clear();
     m_typingUntil.clear();
+    if (m_seenSent.size() > 5000) {
+        m_seenSent.clear();
+        m_seenSent.squeeze();
+    }
     releaseFreedMemory();
+}
+
+void ZaloClient::setWindowVisible(bool visible) {
+    if (m_windowVisible == visible) return;
+    m_windowVisible = visible;
+    if (!m_presenceTimer) return;
+    if (visible && m_isLoggedIn) {
+        refreshPresence();
+        if (!m_presenceTimer->isActive()) m_presenceTimer->start();
+    } else {
+        m_presenceTimer->stop();
+    }
 }
 
 void ZaloClient::rememberMessageId(const QString& msgId) {
@@ -3868,6 +3951,9 @@ void ZaloClient::handleGroupControl(const QString& act, const QJsonObject& data)
             m_conversationModel->removeConversation(gid);
             m_groupIds.remove(gid);
             m_groups.remove(gid);
+            m_groupVersions.remove(gid);
+            m_groupRosters.remove(gid);
+            m_groupMembersCache.remove(gid);
             if (m_offlineStore) m_offlineStore->deleteConversation(gid);
             rebuildContacts();
             return;
@@ -3882,6 +3968,7 @@ void ZaloClient::handleGroupControl(const QString& act, const QJsonObject& data)
                 if (act == "add_admin") m_groupRosters[gid].admins.insert(id);
                 else m_groupRosters[gid].admins.remove(id);
             }
+            m_groupMembersCache.remove(gid);
             emit groupMembersChanged(gid);
         }
         addSystemNotice(gid, true, act == "add_admin"
@@ -4489,7 +4576,8 @@ void ZaloClient::viewProfile(const QString& userId) {
                 m_users[userId] = {name, m_activeProfile.avatar, 0};
                 persistProfile(userId, false);
                 if (m_conversationModel->contains(userId)) applyProfileToConversation(userId);
-                m_messageModel->refreshSenders();
+                m_groupMembersCache.clear();
+            m_messageModel->refreshSenders();
             }
             noteAccountFlags(userId, p);
         };
@@ -5006,6 +5094,7 @@ void ZaloClient::changeFriendAlias(const QString& friendId, const QString& newAl
                 return;
             }
             m_aliases.remove(friendId);
+            m_groupMembersCache.clear();
             applyProfileToConversation(friendId);
             rebuildContacts();
             emit notice(L("Đã xóa biệt danh", "Alias removed"));
@@ -5019,6 +5108,7 @@ void ZaloClient::changeFriendAlias(const QString& friendId, const QString& newAl
             return;
         }
         m_aliases.insert(friendId, clean);
+        m_groupMembersCache.clear();
         applyProfileToConversation(friendId);
         rebuildContacts();
         emit notice(L("Đã cập nhật biệt danh bạn bè", "Friend alias updated"));
@@ -6368,6 +6458,9 @@ void ZaloClient::removeMyReaction(const QString& msgId) {
 }
 
 void ZaloClient::handleReactions(const QJsonArray& reactions, bool isGroup) {
+    if (reactions.isEmpty()) return;
+    if (m_offlineStore) m_offlineStore->beginBatch();
+    QHash<QString, QString> dirty;
     for (const QJsonValue& v : reactions) {
         const QJsonObject r = v.toObject();
         QString uidFrom = idOf(r.value("uidFrom"));
@@ -6403,8 +6496,12 @@ void ZaloClient::handleReactions(const QJsonArray& reactions, bool isGroup) {
                 if (self) dropPendingReaction(msgId, icon);
                 addReactionEvent(msgId, uidFrom, icon, id, ts);
             }
-            refreshReactionSummary(m_messageThread.value(msgId, thread == "0" ? m_myUid : thread), msgId);
+            dirty.insert(msgId, m_messageThread.value(msgId, thread == "0" ? m_myUid : thread));
         }
+    }
+    if (m_offlineStore) m_offlineStore->endBatch();
+    for (auto it = dirty.cbegin(); it != dirty.cend(); ++it) {
+        refreshReactionSummary(it.value(), it.key());
     }
 }
 
@@ -6519,25 +6616,30 @@ QStringList ZaloClient::searchConversationMessages(const QString& query) {
     const QString convId = m_currentConvId;
     if (convId.isEmpty() || query.trimmed().isEmpty()) return ids;
     QSet<QString> seen;
+    QHash<QString, qint64> tsOf;
     if (cacheUsable()) {
         const auto hits = m_offlineStore->searchMessages(query, convId, 500);
         for (auto it = hits.crbegin(); it != hits.crend(); ++it) {
-            if (!seen.contains(it->msgId)) { seen.insert(it->msgId); ids << it->msgId; }
+            if (!seen.contains(it->msgId)) {
+                seen.insert(it->msgId);
+                ids << it->msgId;
+                tsOf.insert(it->msgId, it->ts);
+            }
         }
     }
     const QList<int> rows = m_messageModel->searchMessages(query);
     QStringList extra;
     for (int row : rows) {
-        const QString id = m_messageModel->data(m_messageModel->index(row, 0), Models::MessageModel::IdRole).toString();
-        if (!id.isEmpty() && !seen.contains(id)) { seen.insert(id); extra << id; }
+        const QModelIndex idx = m_messageModel->index(row, 0);
+        const QString id = m_messageModel->data(idx, Models::MessageModel::IdRole).toString();
+        if (!id.isEmpty() && !seen.contains(id)) {
+            seen.insert(id);
+            extra << id;
+            tsOf.insert(id, m_messageModel->data(idx, Models::MessageModel::TimestampRole).toLongLong());
+        }
     }
     if (extra.isEmpty()) return ids;
     ids << extra;
-    QHash<QString, qint64> tsOf;
-    for (const QString& id : ids) {
-        const QVariantMap m = m_messageModel->getMessageById(id);
-        tsOf.insert(id, m.isEmpty() && cacheUsable() ? m_offlineStore->messageTs(id) : m.value("ts").toLongLong());
-    }
     std::stable_sort(ids.begin(), ids.end(), [&tsOf](const QString& a, const QString& b) { return tsOf.value(a) < tsOf.value(b); });
     return ids;
 }
@@ -6638,70 +6740,69 @@ void ZaloClient::sendSeenForCurrent() {
 
 void ZaloClient::sendSeenFor(const QString& convId, bool isGroup) {
     if (!m_isLoggedIn || m_blockSeen || convId.isEmpty()) return;
-    QList<QPair<qint64, QString>> candidates;
-    for (auto it = m_messageThread.cbegin(); it != m_messageThread.cend(); ++it) {
-        if (it.value() != convId || m_seenSent.contains(it.key())) continue;
-        const QJsonObject raw = rawMessage(it.key());
-        const QString from = idOf(raw.value("uidFrom"));
-        if (raw.isEmpty() || from == "0" || from == m_myUid) continue;
-        candidates.append({raw.value("ts").toVariant().toLongLong(), it.key()});
-    }
-    std::sort(candidates.begin(), candidates.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
+    if (m_seenSent.size() > 5000) m_seenSent.clear();
     QJsonArray unseen;
-    for (const auto& c : candidates) {
+    const auto& thread = m_messageModel->threadOf(convId);
+    for (auto it = thread.crbegin(); it != thread.crend(); ++it) {
         if (unseen.size() >= 50) break;
-        unseen.append(rawMessage(c.second));
-        m_seenSent.insert(c.second);
-    }
-    if (unseen.isEmpty()) {
-        const auto& thread = m_messageModel->threadOf(convId);
-        for (auto it = thread.crbegin(); it != thread.crend(); ++it) {
-            if (unseen.size() >= 50) break;
-            if (it->isMine || it->isRecalled || m_seenSent.contains(it->id)) continue;
-            bool ok = false;
-            qulonglong idNum = it->id.toULongLong(&ok);
-            if (!ok || idNum == 0) continue;
-            QJsonObject fallbackItem{
-                {"cliMsgId", it->cliMsgId.isEmpty() ? it->id : it->cliMsgId},
-                {"msgId", it->id},
-                {"uidFrom", it->senderId.isEmpty() ? convId : it->senderId},
-                {"idTo", isGroup ? convId : QStringLiteral("0")},
-                {"msgType", it->messageType.isEmpty() ? QStringLiteral("webchat") : it->messageType},
-                {"st", 0},
-                {"at", 0},
-                {"cmd", 510},
-                {"ts", it->ts}
-            };
-            unseen.append(fallbackItem);
-            m_seenSent.insert(it->id);
+        if (it->isMine || it->isRecalled || m_seenSent.contains(it->id)) continue;
+        if (it->senderId == QLatin1String("0") || it->senderId == m_myUid) continue;
+        bool ok = false;
+        const qulonglong idNum = it->id.toULongLong(&ok);
+        if (!ok || idNum == 0) continue;
+        if (!m_rawMessages.isEmpty()) {
+            const QJsonObject raw = m_rawMessages.value(it->id);
+            if (!raw.isEmpty()) {
+                unseen.append(raw);
+                m_seenSent.insert(it->id);
+                continue;
+            }
         }
+        QJsonObject item{
+            {"cliMsgId", it->cliMsgId.isEmpty() ? it->id : it->cliMsgId},
+            {"msgId", it->id},
+            {"uidFrom", it->senderId.isEmpty() ? convId : it->senderId},
+            {"idTo", isGroup ? convId : QStringLiteral("0")},
+            {"msgType", it->messageType.isEmpty() ? QStringLiteral("webchat") : it->messageType},
+            {"st", 0},
+            {"at", 0},
+            {"cmd", 510},
+            {"ts", it->ts}
+        };
+        unseen.append(item);
+        m_seenSent.insert(it->id);
     }
     if (unseen.isEmpty()) return;
     m_apiClient->session()->sendSeen(convId, isGroup, unseen, [](bool, const QJsonValue&, const QString&, int) {});
 }
 
 void ZaloClient::refreshPresence() {
-    if (!m_isLoggedIn) return;
+    if (!m_isLoggedIn || !m_windowVisible) return;
     m_apiClient->session()->fetchFriendOnlines([this](bool ok, const QJsonValue& data, const QString&, int) {
-        if (!ok) return;
+        if (!ok || !m_windowVisible) return;
         QSet<QString> online;
         for (const QJsonValue& v : data.toObject().value("onlines").toArray()) {
             online.insert(idOf(v.toObject().value("userId")));
         }
-        m_onlineIds = online;
-        m_conversationModel->setOnlineIds(online);
-        m_contactModel->setOnlineIds(online);
-        emit conversationStatusChanged();
+        if (m_onlineIds != online) {
+            m_onlineIds = online;
+            m_conversationModel->setOnlineIds(online);
+            m_contactModel->setOnlineIds(online);
+            emit conversationStatusChanged();
+        }
 
         if (!m_currentConvId.isEmpty() && !currentConversationIsGroup() && !m_onlineIds.contains(m_currentConvId)) {
-            m_apiClient->session()->fetchLastOnline(m_currentConvId, [this](bool ok2, const QJsonValue& data2, const QString&, int) {
-                if (!ok2) return;
+            m_apiClient->session()->fetchLastOnline(m_currentConvId, [this, convId = m_currentConvId](bool ok2, const QJsonValue& data2, const QString&, int) {
+                if (!ok2 || convId != m_currentConvId) return;
                 const QJsonObject obj = data2.toObject();
                 if (!obj.value("settings").toObject().value("show_online_status").toBool(true)) return;
                 qint64 ts = obj.value("lastOnline").toVariant().toLongLong();
                 if (ts > 0 && ts < 10000000000LL) ts *= 1000;
-                m_currentLastOnline = ts > 0 && ts < kMinPlausibleEpochMs ? -1 : ts;
-                emit conversationStatusChanged();
+                const qint64 nextLast = ts > 0 && ts < kMinPlausibleEpochMs ? -1 : ts;
+                if (m_currentLastOnline != nextLast) {
+                    m_currentLastOnline = nextLast;
+                    emit conversationStatusChanged();
+                }
             });
         }
     });

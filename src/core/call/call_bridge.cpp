@@ -40,8 +40,13 @@ QString randomToken() {
 
 CallBridge::CallBridge(Network::ZaloSession* session, QObject* parent)
     : QObject(parent), m_session(session) {
+    m_idleShutdownTimer = new QTimer(this);
+    m_idleShutdownTimer->setSingleShot(true);
+    m_idleShutdownTimer->setInterval(1500);
+    connect(m_idleShutdownTimer, &QTimer::timeout, this, [this] {
+        if (phase().isEmpty() || phase() == QLatin1String("ended")) shutdown();
+    });
     refreshAvailability();
-    startVideoPipeline();
 }
 
 CallBridge::~CallBridge() {
@@ -201,6 +206,7 @@ void CallBridge::setProfileResolver(std::function<QPair<QString, QString>(const 
 }
 
 bool CallBridge::ensureEngine() {
+    if (m_idleShutdownTimer) m_idleShutdownTimer->stop();
     if (m_process) return true;
     refreshAvailability();
     if (!isAvailable()) return false;
@@ -300,6 +306,7 @@ bool CallBridge::ensureEngine() {
 }
 
 void CallBridge::shutdown() {
+    if (m_idleShutdownTimer) m_idleShutdownTimer->stop();
     if (m_process) {
         QProcess* p = m_process;
         m_process = nullptr;
@@ -567,6 +574,7 @@ void CallBridge::startVoiceCall(const QString& peerId, const QString& peerName, 
 
 void CallBridge::startVideoCall(const QString& peerId, const QString& peerName, const QString& peerAvatar) {
     if (!m_activePeer.isEmpty() || !ensureEngine()) return;
+    startVideoPipeline();
     m_activePeer = peerId;
     m_activeOutgoing = true;
     m_isVideoMode = true;
@@ -585,6 +593,7 @@ void CallBridge::startVideoCall(const QString& peerId, const QString& peerName, 
 void CallBridge::startGroupCall(const QString& groupId, const QString& groupName, const QString& groupAvatar,
                                const QVariantList& members, bool isVideo) {
     if (!m_activePeer.isEmpty() || !ensureEngine()) return;
+    if (isVideo) startVideoPipeline();
     m_activePeer = groupId;
     m_activeOutgoing = true;
     m_isVideoMode = isVideo;
@@ -659,7 +668,9 @@ void CallBridge::setLocalVideoSink(QVideoSink* sink) {
 
 void CallBridge::applyCamera(bool on) {
     if (on) {
+        startVideoPipeline();
         QString error;
+        cameraSender()->setEncodingEnabled(phase() == QLatin1String("connected"));
         if (!cameraSender()->start(&error)) {
             m_cameraError = error;
             on = false;
@@ -704,7 +715,10 @@ void CallBridge::drainUiBuffer() {
             const QByteArray payload = m_uiBuffer.left(m_uiSkipBytes);
             m_uiBuffer.remove(0, m_uiSkipBytes);
             m_uiSkipBytes = 0;
-            emit videoFrameReceived(m_lastVideoKey, m_lastVideoCodec, payload, m_lastVideoSrc);
+            if (m_lastVideoSrc == 0) {
+                startVideoPipeline();
+                emit videoFrameReceived(m_lastVideoKey, m_lastVideoCodec, payload, m_lastVideoSrc);
+            }
         }
         const int nl = m_uiBuffer.indexOf('\n');
         if (nl < 0) return;
@@ -733,6 +747,13 @@ void CallBridge::onUiLine(const QByteArray& line) {
     if (type == "state") {
         const QString previous = phase();
         m_ui = msg;
+        if (m_cameraSender) {
+            const bool connected = phase() == QLatin1String("connected");
+            m_cameraSender->setEncodingEnabled(connected);
+            if (connected && previous != QLatin1String("connected") && m_cameraOn) {
+                m_cameraSender->requestKeyFrame();
+            }
+        }
         if (msg.contains("video")) {
             m_isVideoMode = msg.value("video").toBool();
             if (m_isVideoMode && !m_cameraOffAnnounced && msg.value("phase").toString() != QLatin1String("incoming")) {
@@ -756,7 +777,11 @@ void CallBridge::onUiLine(const QByteArray& line) {
                            {"text", msg.value("text")}, {"statusCode", msg.value("statusCode")},
                            {"statusParams", msg.value("statusParams")}};
         m_isVideoMode = false;
+        if (m_cameraSender) m_cameraSender->stop();
+        m_cameraOn = false;
         emit stateChanged();
+        emit cameraStateChanged();
+        if (m_process && m_idleShutdownTimer) m_idleShutdownTimer->start();
     }
 }
 
@@ -781,6 +806,7 @@ void CallBridge::resetUi() {
 
 void CallBridge::accept(bool camStartOff) {
     const bool cam = !camStartOff && m_isVideoMode && cameraAvailable();
+    if (m_isVideoMode) startVideoPipeline();
     m_cameraOn = cam;
     m_cameraOffAnnounced = false;
     sendUi({{"action", "accept"}, {"camStartOff", camStartOff || !cam}});

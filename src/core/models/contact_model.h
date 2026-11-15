@@ -18,6 +18,7 @@ struct ContactItem {
     int memberCount{0};
     QString category{"friends"};
     QString subtitle;
+    QString foldedName;
 };
 
 class ContactModel : public QAbstractListModel {
@@ -52,9 +53,9 @@ public:
     QString activeCategory() const { return m_activeCategory; }
     QString searchQuery() const { return m_searchQuery; }
     int count() const { return m_filteredItems.size(); }
-    int friendCount() const;
-    int groupCount() const;
-    int inviteCount() const;
+    int friendCount() const { return m_friendCount; }
+    int groupCount() const { return m_groupCount; }
+    int inviteCount() const { return m_inviteCount; }
 
     Q_INVOKABLE void setCategoryFilter(const QString& category);
     Q_INVOKABLE void setSearchFilter(const QString& query);
@@ -70,11 +71,16 @@ signals:
 
 private:
     void applyFilter();
+    void publishFiltered(QVector<ContactItem> next);
+    void recomputeCounts();
 
     QVector<ContactItem> m_allItems;
     QVector<ContactItem> m_filteredItems;
     QString m_activeCategory{"friends"};
     QString m_searchQuery{""};
+    int m_friendCount{0};
+    int m_groupCount{0};
+    int m_inviteCount{0};
 };
 
 }

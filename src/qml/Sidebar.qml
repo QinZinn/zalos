@@ -3,6 +3,7 @@ import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Templates as T
 import QtQuick.Layouts
+import QtQuick.Window
 import Zalos
 
 Rectangle {
@@ -214,6 +215,9 @@ Rectangle {
                                 if (text.length === 0) {
                                     searchDebounce.stop();
                                     ZaloClient.conversationModel.setSearchFilter("");
+                                    ZaloClient.messageSearch.setQuery("");
+                                    ZaloClient.peopleSearch.setQuery("");
+                                    ZaloClient.hiddenSearch.setQuery("");
                                 } else {
                                     searchDebounce.restart();
                                 }
@@ -221,7 +225,12 @@ Rectangle {
                             Timer {
                                 id: searchDebounce
                                 interval: 150
-                                onTriggered: ZaloClient.conversationModel.setSearchFilter(searchInput.text)
+                                onTriggered: {
+                                    ZaloClient.conversationModel.setSearchFilter(searchInput.text);
+                                    ZaloClient.messageSearch.setQuery(searchInput.text);
+                                    ZaloClient.peopleSearch.setQuery(searchInput.text);
+                                    ZaloClient.hiddenSearch.setQuery(searchInput.text);
+                                }
                             }
                             onActiveFocusChanged: if (activeFocus && ZaloClient.hiddenUnread) ZaloClient.dismissHiddenUnread()
                             Keys.onEscapePressed: { text = ""; focus = false; }
@@ -440,7 +449,7 @@ Rectangle {
                             onTriggered: { ZaloClient.conversationModel.setLabelFilter(0); labelFilterMenu.close(); }
                         }
                         Repeater {
-                            model: ZaloClient.labels.labels
+                            model: labelFilterMenu.opened ? ZaloClient.labels.labels : []
                             LabelMenuRow {
                                 id: labelRow
                                 required property var modelData
@@ -615,7 +624,7 @@ Rectangle {
             property double now: Date.now()
             Timer {
                 interval: 60000
-                running: convList.visible
+                running: convList.visible && (Window.window ? (Window.window.visible && Window.window.visibility !== Window.Minimized) : true)
                 repeat: true
                 onTriggered: convList.now = Date.now()
             }
@@ -835,14 +844,6 @@ Rectangle {
             }
         }
 
-        Connections {
-            target: searchInput
-            function onTextChanged() {
-                ZaloClient.messageSearch.setQuery(searchInput.text);
-                ZaloClient.peopleSearch.setQuery(searchInput.text);
-                ZaloClient.hiddenSearch.setQuery(searchInput.text);
-            }
-        }
         Text {
             visible: root.searching && ZaloClient.peopleSearch.count > 0
             Layout.fillWidth: true
@@ -1080,10 +1081,10 @@ Rectangle {
                 onTriggered: { ZaloClient.muteConversationFor(root.menuConv.id, 0); convMenu.close(); }
             }
             Repeater {
-                model: [ { vi: "Tắt thông báo 1 giờ", en: "Mute for 1 hour", s: 3600 },
+                model: convMenu.opened ? [ { vi: "Tắt thông báo 1 giờ", en: "Mute for 1 hour", s: 3600 },
                          { vi: "Tắt thông báo 4 giờ", en: "Mute for 4 hours", s: 14400 },
                          { vi: "Tắt đến 8 giờ sáng", en: "Mute until 8 AM", s: -2 },
-                         { vi: "Tắt cho đến khi mở lại", en: "Mute until I turn it back on", s: -1 } ]
+                         { vi: "Tắt cho đến khi mở lại", en: "Mute until I turn it back on", s: -1 } ] : []
                 ZMenuRow {
                     required property var modelData
                     visible: root.menuConv.isMuted !== true
@@ -1109,7 +1110,7 @@ Rectangle {
                 color: ThemeManager.secondaryTextColor
             }
             Repeater {
-                model: ZaloClient.labels.loaded ? ZaloClient.labels.labels : []
+                model: (convMenu.opened && ZaloClient.labels.loaded) ? ZaloClient.labels.labels : []
                 LabelMenuRow {
                     required property var modelData
                     dotColor: modelData.color

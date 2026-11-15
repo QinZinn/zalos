@@ -7,8 +7,12 @@
 #include <QProcessEnvironment>
 #include <QDBusConnection>
 #include <QDBusMessage>
-#include <QDBusReply>
+#include <QDBusPendingCall>
+#include <QDBusPendingCallWatcher>
+#include <QDBusPendingReply>
+#include <QDBusVariant>
 #include <QDBusArgument>
+#include <QPointer>
 #include <QPalette>
 #include <QSettings>
 #include <QFile>
@@ -27,6 +31,16 @@ ThemeManager::ThemeManager(QObject* parent)
     });
     QSettings settings("Zalos", "ZalosApp");
     m_themeMode = settings.value("appearance/themeMode", 2).toInt();
+    m_systemIsDark = settings.value("appearance/cachedSystemDark", false).toBool();
+    const QString cachedAccent = settings.value("appearance/cachedAccentColor").toString();
+    if (!cachedAccent.isEmpty()) {
+        const QColor c(cachedAccent);
+        if (c.isValid()) m_systemAccentColor = c;
+    }
+    const QString cachedFont = settings.value("appearance/cachedSystemFont").toString();
+    if (!cachedFont.isEmpty() && QFontDatabase::hasFamily(cachedFont)) {
+        setSystemFontFamily(cachedFont);
+    }
 
     initSystemThemeDetection();
     detectSystemFont();
@@ -483,8 +497,31 @@ void ThemeManager::watchKdeGlobals() {
     if (QDir(dir).exists()) m_kdeWatcher->addPath(dir);
 }
 
+void ThemeManager::applySystemAccentColor(const QColor& detectedAccent) {
+    QColor next = detectedAccent;
+    if (!next.isValid()) {
+        QFile kdeGlobals(kdeGlobalsPath());
+        if (kdeGlobals.open(QIODevice::ReadOnly)) next = kdeAccentFromGlobals(kdeGlobals.readAll());
+    }
+    if (!next.isValid()) {
+        QColor highlight = m_systemPalette.color(QPalette::Highlight);
+        if (highlight.isValid() && highlight != Qt::black && highlight != Qt::white) {
+            next = highlight;
+        }
+    }
+    if (next.isValid() && next != m_systemAccentColor) {
+        m_systemAccentColor = next;
+        emit systemAccentColorChanged(m_systemAccentColor);
+        if (m_themeMode == 2) {
+            emit themeColorsChanged();
+        }
+    }
+}
+
 void ThemeManager::detectSystemAccentColor() {
-    QColor detectedAccent;
+    if (!m_systemAccentColor.isValid()) {
+        applySystemAccentColor(QColor());
+    }
 
     QDBusMessage msg = QDBusMessage::createMethodCall(
         "org.freedesktop.portal.Desktop",
@@ -494,45 +531,39 @@ void ThemeManager::detectSystemAccentColor() {
     );
     msg << "org.freedesktop.appearance" << "accent-color";
 
-    QDBusReply<QDBusVariant> reply = QDBusConnection::sessionBus().call(msg);
-    if (reply.isValid()) {
-        QVariant v = reply.value().variant();
-        if (v.canConvert<QDBusVariant>()) {
-            v = v.value<QDBusVariant>().variant();
-        }
-        if (v.canConvert<QDBusArgument>()) {
-            const QDBusArgument arg = v.value<QDBusArgument>();
-            if (arg.currentType() == QDBusArgument::StructureType) {
-                double r = 0, g = 0, b = 0;
-                arg.beginStructure();
-                arg >> r >> g >> b;
-                arg.endStructure();
-                if (r >= 0.0 && r <= 1.0 && g >= 0.0 && g <= 1.0 && b >= 0.0 && b <= 1.0) {
-                    detectedAccent = QColor::fromRgbF(r, g, b);
+    QDBusPendingCall pending = QDBusConnection::sessionBus().asyncCall(msg, 3000);
+    auto* watcher = new QDBusPendingCallWatcher(pending, this);
+    QPointer<ThemeManager> self(this);
+    connect(watcher, &QDBusPendingCallWatcher::finished, this, [self, watcher]() {
+        watcher->deleteLater();
+        if (!self) return;
+        QColor detectedAccent;
+        QDBusPendingReply<QDBusVariant> reply = *watcher;
+        if (reply.isValid()) {
+            QVariant v = reply.value().variant();
+            if (v.canConvert<QDBusVariant>()) {
+                v = v.value<QDBusVariant>().variant();
+            }
+            if (v.canConvert<QDBusArgument>()) {
+                const QDBusArgument arg = v.value<QDBusArgument>();
+                if (arg.currentType() == QDBusArgument::StructureType) {
+                    double r = 0, g = 0, b = 0;
+                    arg.beginStructure();
+                    arg >> r >> g >> b;
+                    arg.endStructure();
+                    if (r >= 0.0 && r <= 1.0 && g >= 0.0 && g <= 1.0 && b >= 0.0 && b <= 1.0) {
+                        detectedAccent = QColor::fromRgbF(r, g, b);
+                    }
                 }
             }
         }
-    }
-
-    if (!detectedAccent.isValid()) {
-        QFile kdeGlobals(kdeGlobalsPath());
-        if (kdeGlobals.open(QIODevice::ReadOnly)) detectedAccent = kdeAccentFromGlobals(kdeGlobals.readAll());
-    }
-
-    if (!detectedAccent.isValid()) {
-        QColor highlight = m_systemPalette.color(QPalette::Highlight);
-        if (highlight.isValid() && highlight != Qt::black && highlight != Qt::white) {
-            detectedAccent = highlight;
+        if (detectedAccent.isValid()) {
+            QSettings("Zalos", "ZalosApp").setValue("appearance/cachedAccentColor", detectedAccent.name());
+            self->applySystemAccentColor(detectedAccent);
+        } else {
+            self->applySystemAccentColor(QColor());
         }
-    }
-
-    if (detectedAccent.isValid() && detectedAccent != m_systemAccentColor) {
-        m_systemAccentColor = detectedAccent;
-        emit systemAccentColorChanged(m_systemAccentColor);
-        if (m_themeMode == 2) {
-            emit themeColorsChanged();
-        }
-    }
+    });
 }
 
 void ThemeManager::detectKdeTheme() {
@@ -542,12 +573,24 @@ void ThemeManager::detectKdeTheme() {
     const bool dark = kdeDarkFromGlobals(file.readAll(), &known);
     if (!known) return;
     m_systemIsDark = dark;
+    QSettings("Zalos", "ZalosApp").setValue("appearance/cachedSystemDark", m_systemIsDark);
     if (m_themeMode == 2) setDarkMode(m_systemIsDark);
 }
 
-void ThemeManager::detectGnomeOrPortalTheme() {
-    detectSystemAccentColor();
+void ThemeManager::applyPortalDarkMode(bool dark) {
+    m_systemIsDark = dark;
+    QSettings("Zalos", "ZalosApp").setValue("appearance/cachedSystemDark", m_systemIsDark);
+    if (m_themeMode == 2) setDarkMode(m_systemIsDark);
+}
 
+void ThemeManager::fallbackLocalDarkMode() {
+    const QString gtkTheme = qEnvironmentVariable("GTK_THEME");
+    if (!gtkTheme.isEmpty()) {
+        applyPortalDarkMode(gtkTheme.contains("dark", Qt::CaseInsensitive));
+    }
+}
+
+void ThemeManager::detectGnomeOrPortalTheme() {
     QDBusMessage msg = QDBusMessage::createMethodCall(
         "org.freedesktop.portal.Desktop",
         "/org/freedesktop/portal/desktop",
@@ -556,58 +599,54 @@ void ThemeManager::detectGnomeOrPortalTheme() {
     );
     msg << "org.freedesktop.appearance" << "color-scheme";
 
-    QDBusReply<QDBusVariant> reply = QDBusConnection::sessionBus().call(msg);
-    if (reply.isValid()) {
-        QVariant v = reply.value().variant();
-        if (v.canConvert<QDBusVariant>()) {
-            v = v.value<QDBusVariant>().variant();
-        }
-        bool ok = false;
-        uint value = v.toUInt(&ok);
-        if (ok) {
-            if (value == 1) {
-                m_systemIsDark = true;
-                if (m_themeMode == 2) setDarkMode(true);
-                return;
-            } else if (value == 2) {
-                m_systemIsDark = false;
-                if (m_themeMode == 2) setDarkMode(false);
+    QDBusPendingCall pending = QDBusConnection::sessionBus().asyncCall(msg, 3000);
+    auto* watcher = new QDBusPendingCallWatcher(pending, this);
+    QPointer<ThemeManager> self(this);
+    connect(watcher, &QDBusPendingCallWatcher::finished, this, [self, watcher]() {
+        watcher->deleteLater();
+        if (!self) return;
+        QDBusPendingReply<QDBusVariant> reply = *watcher;
+        if (reply.isValid()) {
+            QVariant v = reply.value().variant();
+            if (v.canConvert<QDBusVariant>()) {
+                v = v.value<QDBusVariant>().variant();
+            }
+            bool ok = false;
+            const uint value = v.toUInt(&ok);
+            if (ok && (value == 1 || value == 2)) {
+                self->applyPortalDarkMode(value == 1);
                 return;
             }
         }
-    }
 
-    QDBusMessage gnomePortalMsg = QDBusMessage::createMethodCall(
-        "org.freedesktop.portal.Desktop",
-        "/org/freedesktop/portal/desktop",
-        "org.freedesktop.portal.Settings",
-        "Read"
-    );
-    gnomePortalMsg << "org.gnome.desktop.interface" << "color-scheme";
+        QDBusMessage gnomePortalMsg = QDBusMessage::createMethodCall(
+            "org.freedesktop.portal.Desktop",
+            "/org/freedesktop/portal/desktop",
+            "org.freedesktop.portal.Settings",
+            "Read"
+        );
+        gnomePortalMsg << "org.gnome.desktop.interface" << "color-scheme";
 
-    QDBusReply<QDBusVariant> gnomePortalReply = QDBusConnection::sessionBus().call(gnomePortalMsg);
-    if (gnomePortalReply.isValid()) {
-        QVariant v = gnomePortalReply.value().variant();
-        if (v.canConvert<QDBusVariant>()) {
-            v = v.value<QDBusVariant>().variant();
-        }
-        QString scheme = v.toString();
-        if (!scheme.isEmpty()) {
-            m_systemIsDark = scheme.contains("dark", Qt::CaseInsensitive);
-            if (m_themeMode == 2) {
-                setDarkMode(m_systemIsDark);
+        QDBusPendingCall gnomePending = QDBusConnection::sessionBus().asyncCall(gnomePortalMsg, 3000);
+        auto* gnomeWatcher = new QDBusPendingCallWatcher(gnomePending, self);
+        connect(gnomeWatcher, &QDBusPendingCallWatcher::finished, self, [self, gnomeWatcher]() {
+            gnomeWatcher->deleteLater();
+            if (!self) return;
+            QDBusPendingReply<QDBusVariant> gnomeReply = *gnomeWatcher;
+            if (gnomeReply.isValid()) {
+                QVariant v = gnomeReply.value().variant();
+                if (v.canConvert<QDBusVariant>()) {
+                    v = v.value<QDBusVariant>().variant();
+                }
+                const QString scheme = v.toString();
+                if (!scheme.isEmpty()) {
+                    self->applyPortalDarkMode(scheme.contains("dark", Qt::CaseInsensitive));
+                    return;
+                }
             }
-            return;
-        }
-    }
-
-    const QString gtkTheme = qEnvironmentVariable("GTK_THEME");
-    if (!gtkTheme.isEmpty()) {
-        m_systemIsDark = gtkTheme.contains("dark", Qt::CaseInsensitive);
-        if (m_themeMode == 2) {
-            setDarkMode(m_systemIsDark);
-        }
-    }
+            self->fallbackLocalDarkMode();
+        });
+    });
 }
 
 QString ThemeManager::familyFromFontSpec(const QString& spec) {
@@ -626,7 +665,25 @@ QString ThemeManager::familyFromFontSpec(const QString& spec) {
 }
 
 void ThemeManager::detectSystemFont() {
-    QString detectedFont;
+    auto applyLocalFont = [this]() {
+        QString detectedFont;
+        QFile kdeGlobals(kdeGlobalsPath());
+        if (kdeGlobals.open(QIODevice::ReadOnly)) {
+            const QString kdeFont = kdeValue(kdeGlobals.readAll(), QStringLiteral("General"), QStringLiteral("font"));
+            if (!kdeFont.isEmpty()) detectedFont = familyFromFontSpec(kdeFont);
+        }
+        if (!detectedFont.isEmpty() && !QFontDatabase::hasFamily(detectedFont)) {
+            qInfo() << "System font family" << detectedFont << "is not installed; using the default font";
+            detectedFont.clear();
+        }
+        if (detectedFont.isEmpty()) detectedFont = QGuiApplication::font().family();
+        if (detectedFont.isEmpty()) detectedFont = "Noto Sans";
+        setSystemFontFamily(detectedFont);
+    };
+
+    if (m_systemFontFamily.isEmpty()) {
+        applyLocalFont();
+    }
 
     QDBusMessage msg = QDBusMessage::createMethodCall(
         "org.freedesktop.portal.Desktop",
@@ -636,30 +693,22 @@ void ThemeManager::detectSystemFont() {
     );
     msg << "org.gnome.desktop.interface" << "font-name";
 
-    QDBusReply<QDBusVariant> reply = QDBusConnection::sessionBus().call(msg);
-    if (reply.isValid()) detectedFont = familyFromFontSpec(reply.value().variant().toString());
-
-    if (detectedFont.isEmpty()) {
-        QFile kdeGlobals(kdeGlobalsPath());
-        if (kdeGlobals.open(QIODevice::ReadOnly)) {
-            const QString kdeFont = kdeValue(kdeGlobals.readAll(), QStringLiteral("General"), QStringLiteral("font"));
-            if (!kdeFont.isEmpty()) detectedFont = familyFromFontSpec(kdeFont);
+    QDBusPendingCall pending = QDBusConnection::sessionBus().asyncCall(msg, 3000);
+    auto* watcher = new QDBusPendingCallWatcher(pending, this);
+    QPointer<ThemeManager> self(this);
+    connect(watcher, &QDBusPendingCallWatcher::finished, this, [self, watcher, applyLocalFont]() {
+        watcher->deleteLater();
+        if (!self) return;
+        QString detectedFont;
+        QDBusPendingReply<QDBusVariant> reply = *watcher;
+        if (reply.isValid()) detectedFont = familyFromFontSpec(reply.value().variant().toString());
+        if (!detectedFont.isEmpty() && QFontDatabase::hasFamily(detectedFont)) {
+            QSettings("Zalos", "ZalosApp").setValue("appearance/cachedSystemFont", detectedFont);
+            self->setSystemFontFamily(detectedFont);
+        } else {
+            applyLocalFont();
         }
-    }
-
-    if (!detectedFont.isEmpty() && !QFontDatabase::hasFamily(detectedFont)) {
-        qInfo() << "System font family" << detectedFont << "is not installed; using the default font";
-        detectedFont.clear();
-    }
-
-    if (detectedFont.isEmpty()) {
-        detectedFont = QGuiApplication::font().family();
-    }
-    if (detectedFont.isEmpty()) {
-        detectedFont = "Noto Sans";
-    }
-
-    setSystemFontFamily(detectedFont);
+    });
 }
 
 }

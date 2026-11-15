@@ -246,9 +246,17 @@ QVector<MobileHistorySync::BackupConversation> MobileHistorySync::readBackupDire
                     row.text = firstColumn(rec, q, {"MsgContent", "Message"});
                     row.ttl = firstColumn(rec, q, {"TTL"}).toLongLong();
                     const int bin = rec.indexOf(QStringLiteral("BinNet"));
-                    if (bin >= 0) row.binNet = q.value(bin).toByteArray();
+                    if (bin >= 0) {
+                        const QByteArray rawBin = q.value(bin).toByteArray();
+                        if (!rawBin.isEmpty()) {
+                            row.parsedBin = Crypto::DbCross::parseBinNet(
+                                reinterpret_cast<const uint8_t*>(rawBin.constData()),
+                                static_cast<size_t>(rawBin.size()));
+                            row.hasParsedBin = true;
+                        }
+                    }
                     if (row.globalMsgId.isEmpty() && row.cliMsgId.isEmpty()) continue;
-                    conv.rows.append(row);
+                    conv.rows.append(std::move(row));
                 }
             } else if (error && error->isEmpty() && !db.isOpen()) {
                 *error = db.lastError().text();
@@ -262,12 +270,16 @@ QVector<MobileHistorySync::BackupConversation> MobileHistorySync::readBackupDire
 }
 
 QJsonArray MobileHistorySync::toMessages(const BackupConversation& conv, const QHash<QString, QString>& ids,
-                                         const QString& myPlainUid, const QString& myNoisedUid, int* skipped) {
+                                         const QString& myPlainUid, const QString& myNoisedUid, int* skipped,
+                                         int startRow, int maxRows) {
     QJsonArray out;
     int skip = 0;
     const QString thread = ids.value(conv.plainId);
+    const int totalRows = static_cast<int>(conv.rows.size());
+    const int begin = qMax(0, startRow);
+    const int end = (maxRows < 0) ? totalRows : qMin(totalRows, begin + maxRows);
     if (thread.isEmpty()) {
-        if (skipped) *skipped += conv.rows.size();
+        if (skipped) *skipped += qMax(0, end - begin);
         return out;
     }
     auto noised = [&](const QString& plain) -> QString {
@@ -276,7 +288,8 @@ QJsonArray MobileHistorySync::toMessages(const BackupConversation& conv, const Q
         return ids.value(plain);
     };
 
-    for (const BackupRow& row : conv.rows) {
+    for (int rowIdx = begin; rowIdx < end; ++rowIdx) {
+        const BackupRow& row = conv.rows.at(rowIdx);
         if (isSkippedType(row.msgType)) {
             ++skip;
             continue;
@@ -302,8 +315,12 @@ QJsonArray MobileHistorySync::toMessages(const BackupConversation& conv, const Q
             continue;
         }
 
-        const auto bin = Crypto::DbCross::parseBinNet(reinterpret_cast<const uint8_t*>(row.binNet.constData()),
-                                                     static_cast<size_t>(row.binNet.size()));
+        Crypto::BinNetMessage fallbackBin;
+        if (!row.hasParsedBin && !row.binNet.isEmpty()) {
+            fallbackBin = Crypto::DbCross::parseBinNet(reinterpret_cast<const uint8_t*>(row.binNet.constData()),
+                                                       static_cast<size_t>(row.binNet.size()));
+        }
+        const Crypto::BinNetMessage& bin = row.hasParsedBin ? row.parsedBin : fallbackBin;
         const QString type = typeName(row.msgType);
         QJsonValue content;
         if (type == QLatin1String("webchat") || bin.attachs.empty()) {
@@ -417,6 +434,9 @@ void MobileHistorySync::cancel() {
     cleanup();
     m_conversations.clear();
     m_ids.clear();
+    m_importIndex = 0;
+    m_importRowOffset = 0;
+    m_currentConvImported = false;
     if (m_state != Idle) setState(Idle, QString(), 0);
 }
 
@@ -720,10 +740,7 @@ void MobileHistorySync::resolveIdsAndImport() {
                 && isDigits(row.senderId)) {
                 users.insert(row.senderId);
             }
-            if (!row.binNet.isEmpty()) {
-                const auto bin = Crypto::DbCross::parseBinNet(
-                    reinterpret_cast<const uint8_t*>(row.binNet.constData()),
-                    static_cast<size_t>(row.binNet.size()));
+            const auto collectBinRefs = [&](const Crypto::BinNetMessage& bin) {
                 if (bin.quote.ownerId > 0) {
                     const QString qOwner = QString::number(bin.quote.ownerId);
                     if (qOwner != m_myPlainUid) users.insert(qOwner);
@@ -734,6 +751,13 @@ void MobileHistorySync::resolveIdsAndImport() {
                         if (mUid != m_myPlainUid) users.insert(mUid);
                     }
                 }
+            };
+            if (row.hasParsedBin) {
+                collectBinRefs(row.parsedBin);
+            } else if (!row.binNet.isEmpty()) {
+                collectBinRefs(Crypto::DbCross::parseBinNet(
+                    reinterpret_cast<const uint8_t*>(row.binNet.constData()),
+                    static_cast<size_t>(row.binNet.size())));
             }
         }
     }
@@ -784,6 +808,8 @@ void MobileHistorySync::resolveIdsAndImport() {
             return;
         }
         m_importIndex = 0;
+        m_importRowOffset = 0;
+        m_currentConvImported = false;
         m_importedMessages = 0;
         m_importedConversations = 0;
         m_skipped = 0;
@@ -803,6 +829,7 @@ void MobileHistorySync::resolveIdsAndImport() {
 }
 
 void MobileHistorySync::importNextChunk() {
+    constexpr int kRowsPerTick = 300;
     if (m_importIndex >= m_conversations.size()) {
         cleanup();
         m_conversations.clear();
@@ -813,18 +840,35 @@ void MobileHistorySync::importNextChunk() {
         setState(Done, status, 100);
         return;
     }
-    const BackupConversation& conv = m_conversations.at(m_importIndex++);
-    const QJsonArray messages = toMessages(conv, m_ids, m_myPlainUid, m_myNoisedUid, &m_skipped);
-    if (!messages.isEmpty()) emit messagesImported(messages, conv.isGroup);
+    BackupConversation& conv = m_conversations[m_importIndex];
+    const int totalRows = static_cast<int>(conv.rows.size());
+    const QJsonArray messages = toMessages(conv, m_ids, m_myPlainUid, m_myNoisedUid, &m_skipped,
+                                           m_importRowOffset, kRowsPerTick);
     if (!messages.isEmpty()) {
+        emit messagesImported(messages, conv.isGroup);
         m_importedMessages += messages.size();
-        m_importedConversations++;
+        if (!m_currentConvImported) {
+            m_importedConversations++;
+            m_currentConvImported = true;
+        }
     }
-    const int progress = 70 + int(29.0 * double(m_importIndex) / double(qMax(1, int(m_conversations.size()))));
+    m_importRowOffset = qMin(totalRows, m_importRowOffset + kRowsPerTick);
+    const double convFrac = totalRows > 0 ? double(m_importRowOffset) / double(totalRows) : 1.0;
+    const int displayConv = qMin<int>(m_importIndex + 1, m_conversations.size());
+    if (m_importRowOffset >= totalRows) {
+        conv.rows.clear();
+        conv.rows.squeeze();
+        m_importIndex++;
+        m_importRowOffset = 0;
+        m_currentConvImported = false;
+    }
+    const double doneRatio = (double(m_importIndex) + (m_importRowOffset > 0 ? convFrac : 0.0))
+                             / double(qMax(1, int(m_conversations.size())));
+    const int progress = 70 + int(29.0 * doneRatio);
     setState(Importing, L("Đang nhập tin nhắn (%1/%2 hội thoại)...", "Importing messages (%1/%2 conversations)...")
-                            .arg(m_importIndex).arg(m_conversations.size()), progress);
+                            .arg(displayConv).arg(m_conversations.size()), progress);
     const quint64 gen = m_generation;
-    const int delayMs = (messages.size() > 500) ? 25 : (messages.size() > 100 ? 10 : 2);
+    const int delayMs = (messages.size() > 100) ? 10 : 2;
     QTimer::singleShot(delayMs, this, [this, gen]() {
         if (gen == m_generation) importNextChunk();
     });

@@ -15,7 +15,9 @@
 #include <QNetworkCookie>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QPointer>
 #include <QSaveFile>
+#include <QThreadPool>
 #include <QUrl>
 #include <QWebSocket>
 #include <QtEndian>
@@ -70,7 +72,7 @@ ZaloSession::ZaloSession(QNetworkAccessManager* nam, SessionCookieJar* jar, QObj
             m_ws->deleteLater();
             m_ws = nullptr;
             m_realtimeReady = false;
-            if (!m_secretKey.isEmpty()) QTimer::singleShot(5000, this, &ZaloSession::connectRealtime);
+            scheduleWsReconnect();
         }, Qt::QueuedConnection);
     });
 
@@ -99,6 +101,14 @@ void ZaloSession::reset() {
     m_loginInfo = {};
     m_serverSettings = {};
     m_extraVer = {};
+    m_wsReconnectAttempts = 0;
+}
+
+void ZaloSession::scheduleWsReconnect() {
+    if (m_secretKey.isEmpty()) return;
+    const int shift = qMin(m_wsReconnectAttempts++, 3);
+    const int delayMs = qMin(30000, 5000 * (1 << shift));
+    QTimer::singleShot(delayMs, this, &ZaloSession::connectRealtime);
 }
 
 QString ZaloSession::phonebookVersion() const {
@@ -387,19 +397,53 @@ void ZaloSession::handleApiReply(QNetworkReply* reply, Callback cb) {
         cb(true, rawData, QString(), 0);
         return;
     }
-    bool ok = false;
-    const QByteArray plain = ZaloCrypto::decodeAES(m_secretKey, rawData.toString(), &ok);
-    const QJsonObject inner = QJsonDocument::fromJson(plain).object();
-    if (!ok || inner.isEmpty()) {
-        cb(false, {}, QStringLiteral("decrypt_failed"), -1);
+    struct DecodedApiReply {
+        bool ok{false};
+        bool innerEmpty{true};
+        int innerCode{-1};
+        QJsonValue data;
+        QString errMsg;
+    };
+    const auto decodePayload = [](const auto& key, const QString& payload) {
+        DecodedApiReply res;
+        const QByteArray plain = ZaloCrypto::decodeAES(key, payload, &res.ok);
+        const QJsonObject inner = QJsonDocument::fromJson(plain).object();
+        res.innerEmpty = inner.isEmpty();
+        if (!res.ok || res.innerEmpty) return res;
+        res.innerCode = inner.value("error_code").toInt(-1);
+        res.errMsg = inner.value("error_message").toString();
+        res.data = (res.innerCode == 0) ? parseMaybeJsonString(inner.value("data")) : inner.value("data");
+        return res;
+    };
+    const auto dispatchReply = [](const Callback& fn, const DecodedApiReply& res) {
+        if (!res.ok || res.innerEmpty) {
+            fn(false, {}, QStringLiteral("decrypt_failed"), -1);
+            return;
+        }
+        if (res.innerCode != 0) {
+            fn(false, res.data, res.errMsg, res.innerCode);
+            return;
+        }
+        fn(true, res.data, QString(), 0);
+    };
+    const QString encoded = rawData.toString();
+    if (encoded.size() > 32768) {
+        const auto secretKey = m_secretKey;
+        QPointer<ZaloSession> self(this);
+        QThreadPool::globalInstance()->start([self, secretKey, encoded, cb, decodePayload, dispatchReply]() {
+            const DecodedApiReply res = decodePayload(secretKey, encoded);
+            if (!self) return;
+            QMetaObject::invokeMethod(
+                self,
+                [self, secretKey, cb, res, dispatchReply]() {
+                    if (!self || self->m_secretKey != secretKey) return;
+                    dispatchReply(cb, res);
+                },
+                Qt::QueuedConnection);
+        });
         return;
     }
-    const int innerCode = inner.value("error_code").toInt(-1);
-    if (innerCode != 0) {
-        cb(false, inner.value("data"), inner.value("error_message").toString(), innerCode);
-        return;
-    }
-    cb(true, parseMaybeJsonString(inner.value("data")), QString(), 0);
+    dispatchReply(cb, decodePayload(m_secretKey, encoded));
 }
 
 void ZaloSession::fetchAccountInfo(Callback cb) {
@@ -822,6 +866,8 @@ void ZaloSession::uploadChunks(const QString& threadId, bool isGroup, const QStr
     baseParams[isGroup ? "grid" : "toid"] = threadId;
     if (kind == UploadKind::Voice) baseParams["fileType"] = fileName.endsWith(".amr") ? "amr" : "aac";
 
+    auto md5 = std::make_shared<QCryptographicHash>(QCryptographicHash::Md5);
+    auto hashedChunk = std::make_shared<int>(0);
     auto uploadOne = std::make_shared<std::function<void(int)>>();
     const std::weak_ptr<std::function<void(int)>> weakUpload = uploadOne;
     *uploadOne = [=, this](int index) {
@@ -846,6 +892,10 @@ void ZaloSession::uploadChunks(const QString& threadId, bool isGroup, const QStr
             delete multi;
             cb(false, {}, QStringLiteral("file_unreadable"), -1);
             return;
+        }
+        if (!isImage && *hashedChunk == index) {
+            md5->addData(chunk);
+            ++(*hashedChunk);
         }
         part.setBody(chunk);
         multi->append(part);
@@ -894,9 +944,7 @@ void ZaloSession::uploadChunks(const QString& threadId, bool isGroup, const QStr
                     cb(false, {}, QStringLiteral("upload_rejected"), -1);
                     return;
                 }
-                QCryptographicHash md5(QCryptographicHash::Md5);
-                if (source->seek(0)) md5.addData(source.get());
-                const QString checksum = QString::fromLatin1(md5.result().toHex());
+                const QString checksum = QString::fromLatin1(md5->result().toHex());
                 source->close();
                 auto awaitFileDone = [this, cb](const QString& fid, std::function<void(const QJsonObject&)> onDone) {
                     const auto early = m_earlyFileDone.constFind(fid);
@@ -1763,6 +1811,7 @@ void ZaloSession::removeFriend(const QString& userId, Callback cb) {
 
 void ZaloSession::probeRealtime() {
     if (m_secretKey.isEmpty()) return;
+    m_wsReconnectAttempts = 0;
     if (!m_ws) {
         logRealtime(QStringLiteral("probe: no socket, connecting now"));
         connectRealtime();
@@ -1808,7 +1857,7 @@ void ZaloSession::connectRealtime() {
         if (closeCode == 3000 || m_secretKey.isEmpty()) return;
         const QJsonArray all = m_loginInfo.value("zpw_ws").toArray();
         m_wsUrlIndex = all.isEmpty() ? 0 : (m_wsUrlIndex + 1) % all.size();
-        QTimer::singleShot(5000, this, &ZaloSession::connectRealtime);
+        scheduleWsReconnect();
     });
 
     const QString base = urls.at(qMin(m_wsUrlIndex, int(urls.size()) - 1)).toString();
@@ -1942,6 +1991,7 @@ void ZaloSession::onWsBinary(const QByteArray& frame) {
         const int interval = m_serverSettings.value("features").toObject().value("socket").toObject()
                                  .value("ping_interval").toInt(60000);
         m_pingTimer.start(qMax(10000, interval));
+        m_wsReconnectAttempts = 0;
         m_realtimeReady = true;
         emit realtimeStateChanged(true);
         pullServerQueues();

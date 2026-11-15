@@ -258,6 +258,7 @@ private:
     void postMultipartFile(const QString& url, const QJsonObject& params, const QByteArray& content, Callback cb);
     void requestServerInfo();
     void sendWs(int cmd, int subCmd, QJsonObject data, const QString& reqIdKey = QStringLiteral("req_id"));
+    void scheduleWsReconnect();
     void onWsBinary(const QByteArray& frame);
 #ifdef ZALOS_TESTING
 public:
@@ -288,6 +289,7 @@ private:
     QString m_cipherKey;
     bool m_realtimeReady{false};
     int m_wsUrlIndex{0};
+    int m_wsReconnectAttempts{0};
     int m_wsRequestId{0};
     QList<QPair<int, int>> m_serverQueues;
     QHash<int, int> m_pullPages;

@@ -429,10 +429,9 @@ bool DbCross::decompressAndDecryptZdb4(
     };
     std::ifstream f(inputPath, std::ios::binary | std::ios::ate);
     if (!f.is_open()) return fail("cannot open backup file");
-    const size_t size = static_cast<size_t>(f.tellg());
-    f.seekg(0, std::ios::beg);
-    std::vector<uint8_t> full(size);
-    if (!f.read(reinterpret_cast<char*>(full.data()), static_cast<std::streamsize>(size))) return fail("cannot read backup file");
+    const std::streamoff endPos = f.tellg();
+    if (endPos < 0) return fail("cannot read backup file");
+    const size_t size = static_cast<size_t>(endPos);
     if (size < 32) return fail("backup file too small");
 
     struct Span { size_t off; size_t len; };
@@ -445,45 +444,79 @@ bool DbCross::decompressAndDecryptZdb4(
     if (spans.empty()) return fail("ciphertext is not AES block aligned");
 
     const auto key = deriveAes256Key(privateKeyStr);
-    std::vector<uint8_t> pt;
+    const uint8_t iv0[16] = {0};
+    Span matched{0, 0};
     bool magic = false;
     for (const Span& sp : spans) {
-        std::vector<uint8_t> ct(full.begin() + static_cast<ptrdiff_t>(sp.off),
-                                full.begin() + static_cast<ptrdiff_t>(sp.off + sp.len));
-        std::vector<uint8_t> tmp;
-        if (!decryptAes256CbcChunkedResetIv(ct, key, tmp)) {
-            const uint8_t iv0[16] = {0};
-            aes256cbc_decrypt_nopad(ct, key, iv0, tmp);
+        const size_t probeLen = std::min<size_t>(sp.len, 64);
+        std::vector<uint8_t> ct(probeLen);
+        f.clear();
+        f.seekg(static_cast<std::streamoff>(sp.off), std::ios::beg);
+        if (!f.read(reinterpret_cast<char*>(ct.data()), static_cast<std::streamsize>(probeLen))) {
+            return fail("cannot read backup file");
         }
-        if (tmp.size() >= 18 && std::memcmp(tmp.data(), "ZDB4.0", 6) == 0) {
-            pt = std::move(tmp);
+        std::vector<uint8_t> tmp;
+        if (aes256cbc_decrypt_nopad(ct, key, iv0, tmp) && tmp.size() >= 18
+            && std::memcmp(tmp.data(), "ZDB4.0", 6) == 0) {
+            matched = sp;
             magic = true;
             break;
         }
     }
     if (!magic) return fail("wrong key or not a ZDB4.0 backup");
 
-    size_t off = 14;
-    const uint32_t fileCount = read_u32_be(pt.data() + off);
-    off += 4;
+    constexpr size_t kChunkSize = 0x10000;
+    size_t ctRemaining = matched.len;
+    std::vector<uint8_t> ctChunk;
+    std::vector<uint8_t> ptChunk;
+    size_t ptPos = 0;
+    f.clear();
+    f.seekg(static_cast<std::streamoff>(matched.off), std::ios::beg);
+
+    auto nextPlainChunk = [&]() -> bool {
+        if (ctRemaining == 0) return false;
+        const size_t n = std::min(ctRemaining, kChunkSize);
+        ctChunk.resize(n);
+        if (!f.read(reinterpret_cast<char*>(ctChunk.data()), static_cast<std::streamsize>(n))) return false;
+        ctRemaining -= n;
+        ptChunk.clear();
+        ptPos = 0;
+        return aes256cbc_decrypt_nopad(ctChunk, key, iv0, ptChunk);
+    };
+    auto readPlainBytes = [&](uint8_t* dst, size_t count) -> bool {
+        size_t got = 0;
+        while (got < count) {
+            if (ptPos >= ptChunk.size() && !nextPlainChunk()) return false;
+            const size_t take = std::min(ptChunk.size() - ptPos, count - got);
+            std::memcpy(dst + got, ptChunk.data() + ptPos, take);
+            ptPos += take;
+            got += take;
+        }
+        return true;
+    };
+
+    uint8_t hdr18[18] = {0};
+    if (!readPlainBytes(hdr18, 18)) return fail("truncated file table");
+    const uint32_t fileCount = read_u32_be(hdr18 + 14);
     std::vector<FileEntry> files;
+    files.reserve(std::min<uint32_t>(fileCount, 4096));
+    uint8_t u32buf[4] = {0};
     for (uint32_t i = 0; i < fileCount; i++) {
-        if (off + 4 > pt.size()) return fail("truncated file table");
-        const uint32_t nlen = read_u32_be(pt.data() + off);
-        off += 4;
-        if (off + nlen + 4 > pt.size()) return fail("truncated file table");
-        std::string name(reinterpret_cast<char*>(pt.data() + off), nlen);
-        off += nlen;
-        const uint32_t fsize = read_u32_be(pt.data() + off);
-        off += 4;
+        if (!readPlainBytes(u32buf, 4)) return fail("truncated file table");
+        const uint32_t nlen = read_u32_be(u32buf);
+        if (nlen > 4096) return fail("unsafe file name");
+        std::string name(nlen, '\0');
+        if (nlen > 0 && !readPlainBytes(reinterpret_cast<uint8_t*>(name.data()), nlen)) {
+            return fail("truncated file table");
+        }
+        if (!readPlainBytes(u32buf, 4)) return fail("truncated file table");
+        const uint32_t fsize = read_u32_be(u32buf);
         if (name.empty() || name.find("..") != std::string::npos || name.front() == '/') return fail("unsafe file name");
-        files.push_back({name, fsize});
+        files.push_back({std::move(name), fsize});
     }
 
     lzma_stream strm = LZMA_STREAM_INIT;
     if (lzma_auto_decoder(&strm, UINT64_MAX, 0) != LZMA_OK) return fail("cannot init LZMA decoder");
-    strm.next_in = pt.data() + off;
-    strm.avail_in = pt.size() - off;
 
     std::error_code ec;
     fs::create_directories(outputDir, ec);
@@ -510,9 +543,22 @@ bool DbCross::decompressAndDecryptZdb4(
 
     lzma_ret ret = LZMA_OK;
     do {
+        if (strm.avail_in == 0 && ptPos >= ptChunk.size() && ctRemaining > 0) {
+            if (!nextPlainChunk()) {
+                lzma_end(&strm);
+                if (out.is_open()) out.close();
+                return fail("cannot decrypt backup chunk");
+            }
+        }
+        if (strm.avail_in == 0 && ptPos < ptChunk.size()) {
+            strm.next_in = ptChunk.data() + ptPos;
+            strm.avail_in = ptChunk.size() - ptPos;
+            ptPos = ptChunk.size();
+        }
+        const lzma_action action = (ctRemaining == 0 && strm.avail_in == 0) ? LZMA_FINISH : LZMA_RUN;
         strm.next_out = buf.data();
         strm.avail_out = buf.size();
-        ret = lzma_code(&strm, strm.avail_in == 0 ? LZMA_FINISH : LZMA_RUN);
+        ret = lzma_code(&strm, action);
         const size_t produced = buf.size() - strm.avail_out;
         size_t pos = 0;
         while (pos < produced && idx < files.size()) {

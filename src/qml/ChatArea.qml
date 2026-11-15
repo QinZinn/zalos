@@ -235,6 +235,8 @@ Rectangle {
     property int suggestStart: -1
     property var suggestItems: []
     property int suggestIndex: 0
+    property string lastSuggestText: ""
+    property int lastSuggestCursor: -1
 
     function foldText(t: string): string {
         return t.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d");
@@ -245,9 +247,14 @@ Rectangle {
         root.suggestItems = [];
         root.suggestStart = -1;
         root.suggestIndex = 0;
+        root.lastSuggestText = "";
+        root.lastSuggestCursor = -1;
     }
 
     function updateSuggestions(): void {
+        if (msgInput.text === root.lastSuggestText && msgInput.cursorPosition === root.lastSuggestCursor) return;
+        root.lastSuggestText = msgInput.text;
+        root.lastSuggestCursor = msgInput.cursorPosition;
         const before = msgInput.text.substring(0, msgInput.cursorPosition);
         const mention = ZaloClient.currentConversationIsGroup ? before.match(/(^|\s)@([^\s@]{0,30})$/) : null;
         if (mention) {
@@ -260,7 +267,8 @@ Rectangle {
             for (let i = 0; i < members.length && items.length < 8; ++i) {
                 const m = members[i];
                 if (m.isMe || m.name.length === 0) continue;
-                if (q.length === 0 || root.foldText(m.name).indexOf(q) >= 0) {
+                const memberFolded = (m.foldedName !== undefined && m.foldedName !== null) ? m.foldedName : root.foldText(m.name);
+                if (q.length === 0 || memberFolded.indexOf(q) >= 0) {
                     items.push({ uid: m.id, name: m.name, avatar: m.avatar, hint: "" });
                 }
             }
@@ -426,7 +434,11 @@ Rectangle {
             if (markerRow >= 0) Qt.callLater(() => messageList.positionViewAtIndex(markerRow, ListView.Beginning));
         }
         function onGroupMembersChanged(groupId: string) {
-            if (root.suggestMode === "mention" && groupId === ZaloClient.currentConversationId) root.updateSuggestions();
+            if (root.suggestMode === "mention" && groupId === ZaloClient.currentConversationId) {
+                root.lastSuggestText = "";
+                root.lastSuggestCursor = -1;
+                root.updateSuggestions();
+            }
         }
     }
 

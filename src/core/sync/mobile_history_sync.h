@@ -12,6 +12,8 @@
 #include <QTimer>
 #include <QVector>
 
+#include "crypto/db_cross.h"
+
 class QNetworkReply;
 
 namespace Zalos::Core::Network {
@@ -39,6 +41,8 @@ public:
         QString senderId;
         QString text;
         QByteArray binNet;
+        Crypto::BinNetMessage parsedBin;
+        bool hasParsedBin{false};
         qint64 ttl{0};
     };
 
@@ -63,7 +67,8 @@ public:
     static QString backupKeyText(const QByteArray& plainKey, int format);
     static QVector<BackupConversation> readBackupDirectory(const QString& dir, QString* error);
     static QJsonArray toMessages(const BackupConversation& conv, const QHash<QString, QString>& ids,
-                                 const QString& myPlainUid, const QString& myNoisedUid, int* skipped = nullptr);
+                                 const QString& myPlainUid, const QString& myNoisedUid, int* skipped = nullptr,
+                                 int startRow = 0, int maxRows = -1);
     static int downloadRetryDelayMs(int httpStatus, int networkError, int attempt, const QByteArray& retryAfter,
                                     const QDateTime& now);
 
@@ -109,6 +114,8 @@ private:
     QVector<BackupConversation> m_conversations;
     QHash<QString, QString> m_ids;
     int m_importIndex{0};
+    int m_importRowOffset{0};
+    bool m_currentConvImported{false};
     int m_importedMessages{0};
     int m_importedConversations{0};
     int m_skipped{0};

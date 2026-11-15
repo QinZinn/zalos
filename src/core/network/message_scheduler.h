@@ -43,6 +43,7 @@ private:
     };
 
     void save() const;
+    void updateTimer();
 
     QVector<Entry> m_entries;
     QString m_uid;

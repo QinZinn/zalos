@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Window
 import Zalos
 
 Item {
@@ -6,6 +7,7 @@ Item {
     property var info: ({})
     property string fallbackUrl: ""
     property bool playing: true
+    readonly property bool windowShowing: Window.window ? (Window.window.visible && Window.window.visibility !== Window.Minimized) : true
 
     readonly property string stillUrl: (root.info && root.info.url) ? root.info.url : root.fallbackUrl
     readonly property string animatedUrl: (root.info && root.info.animatedUrl) ? root.info.animatedUrl : ""
@@ -39,7 +41,7 @@ Item {
             cache: false
             sourceSize.width: Math.ceil(root.side * (Screen.devicePixelRatio || 1))
             fillMode: Image.PreserveAspectFit
-            playing: root.playing && visible
+            playing: root.playing && visible && root.windowShowing
             visible: status === Image.Ready
         }
     }
@@ -65,7 +67,7 @@ Item {
     Timer {
         interval: root.duration
         repeat: true
-        running: root.spriteMode && root.playing && root.visible && spriteImage.status === Image.Ready
+        running: root.spriteMode && root.playing && root.visible && root.windowShowing && spriteImage.status === Image.Ready
         onTriggered: root.frame = (root.frame + 1) % root.frames
     }
 }

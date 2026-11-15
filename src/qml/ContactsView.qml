@@ -114,6 +114,12 @@ Rectangle {
 
                             ZIcon { name: "search"; size: 14; color: ThemeManager.secondaryTextColor }
 
+                            Timer {
+                                id: contactSearchDebounce
+                                interval: 150
+                                onTriggered: ZaloClient.contactModel.setSearchFilter(contactSearch.text)
+                            }
+
                             TextField {
                                 id: contactSearch
                                 Layout.fillWidth: true
@@ -124,7 +130,14 @@ Rectangle {
                                 color: ThemeManager.textColor
                                 placeholderText: I18n.t("Tìm kiếm", "Search")
                                 placeholderTextColor: ThemeManager.secondaryTextColor
-                                onTextChanged: ZaloClient.contactModel.setSearchFilter(text)
+                                onTextChanged: {
+                                    if (text.length === 0) {
+                                        contactSearchDebounce.stop()
+                                        ZaloClient.contactModel.setSearchFilter("")
+                                    } else {
+                                        contactSearchDebounce.restart()
+                                    }
+                                }
                             }
                         }
                     }

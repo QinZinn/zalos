@@ -15,6 +15,16 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     add_link_options(-Wl,--gc-sections)
 endif()
 
+if(NOT "$ENV{ZALOS_EMULATED}" STREQUAL "1"
+   AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64)$"
+   AND CMAKE_BUILD_TYPE MATCHES "^(Release|RelWithDebInfo)$")
+    include(CheckIPOSupported)
+    check_ipo_supported(RESULT zalos_ipo_ok)
+    if(zalos_ipo_ok)
+        set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)
+    endif()
+endif()
+
 find_package(Qt6 6.4 REQUIRED COMPONENTS
     Core
     Gui
@@ -251,6 +261,7 @@ install(TARGETS zalos
 
 # Call engine (C++, engines/zcall-cpp): zalos-call (signalling and media) and zalos-call-audio (microphone and speaker),
 # installed to libexec/zalos. CallBridge runs them from there; there is no script runtime in the call path.
+set(ZCALL_BUILD_TESTS ${BUILD_TESTING} CACHE BOOL "" FORCE)
 add_subdirectory(engines/zcall-cpp)
 # The engine finds zalos-call-audio next to itself; in a build tree the two live in different directories.
 add_custom_target(zalos_call_audio_beside_engine ALL

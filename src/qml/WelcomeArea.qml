@@ -3,6 +3,7 @@ import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
 import QtQuick.Shapes
+import QtQuick.Window
 import Zalos
 
 Rectangle {
@@ -25,7 +26,7 @@ Rectangle {
 
     Timer {
         interval: 6000
-        running: root.visible
+        running: root.visible && (Window.window ? (Window.window.visible && Window.window.visibility !== Window.Minimized) : true)
         repeat: true
         onTriggered: root.nextSlide()
     }

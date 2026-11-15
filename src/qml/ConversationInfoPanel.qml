@@ -1010,7 +1010,8 @@ Rectangle {
                                     }
                                 }
                                 Rectangle {
-                                    visible: memberRow.canManage && (memberHover.hovered || memberMenu.opened)
+                                    id: moreBtn
+                                    visible: memberRow.canManage && (memberHover.hovered || (memberMenu.opened && memberMenu.targetMemberId === memberRow.memberId))
                                     Layout.preferredWidth: 26
                                     Layout.preferredHeight: 26
                                     radius: 13
@@ -1021,7 +1022,12 @@ Rectangle {
                                         anchors.fill: parent
                                         hoverEnabled: true
                                         cursorShape: Qt.PointingHandCursor
-                                        onClicked: memberMenu.popup()
+                                        onClicked: {
+                                            memberMenu.targetMemberId = memberRow.memberId
+                                            memberMenu.targetMemberName = memberRow.memberName
+                                            memberMenu.targetMemberRole = memberRow.memberRole
+                                            memberMenu.popup(moreBtn, 0, moreBtn.height)
+                                        }
                                     }
                                 }
                             }
@@ -1031,32 +1037,35 @@ Rectangle {
                                 cursorShape: Qt.PointingHandCursor
                                 onClicked: if (!memberRow.memberIsMe) ZaloClient.viewProfile(memberRow.memberId)
                             }
+                        }
+                    }
 
-                            Menu {
-                                id: memberMenu
-                                MenuItem {
-                                    visible: root.myRole === "owner"
-                                    height: visible ? implicitHeight : 0
-                                    text: memberRow.memberRole === "admin" ? I18n.t("Gỡ quyền phó nhóm", "Remove as deputy")
-                                                                               : I18n.t("Thêm làm phó nhóm", "Make deputy")
-                                    onTriggered: ZaloClient.setGroupDeputy(ZaloClient.currentConversationId, memberRow.memberId,
-                                                                           memberRow.memberRole !== "admin")
-                                }
-                                MenuItem {
-                                    visible: root.myRole === "owner"
-                                    height: visible ? implicitHeight : 0
-                                    text: I18n.t("Chuyển quyền trưởng nhóm", "Transfer ownership")
-                                    onTriggered: root.askConfirm("owner", memberRow.memberId, memberRow.memberName)
-                                }
-                                MenuItem {
-                                    text: I18n.t("Xóa khỏi nhóm", "Remove from group")
-                                    onTriggered: root.askConfirm("kick", memberRow.memberId, memberRow.memberName)
-                                }
-                                MenuItem {
-                                    text: I18n.t("Chặn khỏi nhóm", "Block from group")
-                                    onTriggered: root.askConfirm("block", memberRow.modelData.id, memberRow.modelData.name)
-                                }
-                            }
+                    Menu {
+                        id: memberMenu
+                        property string targetMemberId: ""
+                        property string targetMemberName: ""
+                        property string targetMemberRole: "member"
+                        MenuItem {
+                            visible: root.myRole === "owner"
+                            height: visible ? implicitHeight : 0
+                            text: memberMenu.targetMemberRole === "admin" ? I18n.t("Gỡ quyền phó nhóm", "Remove as deputy")
+                                                                          : I18n.t("Thêm làm phó nhóm", "Make deputy")
+                            onTriggered: ZaloClient.setGroupDeputy(ZaloClient.currentConversationId, memberMenu.targetMemberId,
+                                                                   memberMenu.targetMemberRole !== "admin")
+                        }
+                        MenuItem {
+                            visible: root.myRole === "owner"
+                            height: visible ? implicitHeight : 0
+                            text: I18n.t("Chuyển quyền trưởng nhóm", "Transfer ownership")
+                            onTriggered: root.askConfirm("owner", memberMenu.targetMemberId, memberMenu.targetMemberName)
+                        }
+                        MenuItem {
+                            text: I18n.t("Xóa khỏi nhóm", "Remove from group")
+                            onTriggered: root.askConfirm("kick", memberMenu.targetMemberId, memberMenu.targetMemberName)
+                        }
+                        MenuItem {
+                            text: I18n.t("Chặn khỏi nhóm", "Block from group")
+                            onTriggered: root.askConfirm("block", memberMenu.targetMemberId, memberMenu.targetMemberName)
                         }
                     }
                 }

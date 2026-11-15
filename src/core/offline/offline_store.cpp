@@ -24,6 +24,11 @@ ZaloOfflineStore::ZaloOfflineStore(QObject* parent)
 
 ZaloOfflineStore::~ZaloOfflineStore() {
     m_saveMessageQuery.reset();
+    m_checkCliMsgQuery.reset();
+    m_deleteMessageByIdQuery.reset();
+    m_ftsRowidQuery.reset();
+    m_ftsDeleteQuery.reset();
+    m_ftsInsertQuery.reset();
     maintenance();
     QString connName = m_db.connectionName();
     if (m_db.isOpen()) {
@@ -173,6 +178,8 @@ bool ZaloOfflineStore::initializeDatabase(const QString& customPath) {
     if (!m_db.open()) {
         return false;
     }
+    m_ownerUid.clear();
+    m_ownerUidLoaded = false;
     QFile::setPermissions(dbPath, QFileDevice::ReadOwner | QFileDevice::WriteOwner);
 
     QSqlQuery q(m_db);
@@ -223,6 +230,8 @@ bool ZaloOfflineStore::initializeDatabase(const QString& customPath) {
         ensureColumn(m_db, "messages", col, type);
     }
     q.exec("CREATE INDEX IF NOT EXISTS idx_messages_conv_ts ON messages(conv_id, ts);");
+    q.exec("CREATE INDEX IF NOT EXISTS idx_messages_conv_cli ON messages(conv_id, cli_msg_id) WHERE cli_msg_id <> '';");
+    q.exec("CREATE INDEX IF NOT EXISTS idx_messages_cli ON messages(cli_msg_id) WHERE cli_msg_id <> '';");
     q.exec("CREATE INDEX IF NOT EXISTS idx_messages_expire ON messages(expire_on) WHERE expire_on > 0;");
 
     q.exec("CREATE TABLE IF NOT EXISTS reactions (msg_id TEXT, uid TEXT, icon TEXT, ts INTEGER DEFAULT 0, "
@@ -369,20 +378,51 @@ void ZaloOfflineStore::maintenance() {
 
 void ZaloOfflineStore::indexMessage(const QString& msgId, const Models::MessageItem& item) {
     if (!m_ftsAvailable) return;
-    QSqlQuery q(m_db);
-    q.prepare("SELECT rowid, is_recalled FROM messages WHERE id = :id;");
-    q.bindValue(":id", msgId);
-    if (!q.exec() || !q.next()) return;
-    const qint64 rowid = q.value(0).toLongLong();
-    const bool recalled = item.isRecalled || q.value(1).toInt() == 1;
-    q.prepare("DELETE FROM messages_fts WHERE rowid = :rowid;");
-    q.bindValue(":rowid", rowid);
-    q.exec();
-    if (recalled || item.text.trimmed().isEmpty() || item.messageType == QLatin1String("system")) return;
-    q.prepare("INSERT INTO messages_fts (rowid, body) VALUES (:rowid, :body);");
-    q.bindValue(":rowid", rowid);
-    q.bindValue(":body", Models::foldForSearch(item.text));
-    q.exec();
+    if (!m_ftsRowidQuery) {
+        m_ftsRowidQuery = std::make_unique<QSqlQuery>(m_db);
+        m_ftsRowidQuery->prepare("SELECT rowid, is_recalled FROM messages WHERE id = :id;");
+    }
+    m_ftsRowidQuery->bindValue(":id", msgId);
+    if (!m_ftsRowidQuery->exec() || !m_ftsRowidQuery->next()) {
+        m_ftsRowidQuery->finish();
+        return;
+    }
+    const qint64 rowid = m_ftsRowidQuery->value(0).toLongLong();
+    const bool recalled = item.isRecalled || m_ftsRowidQuery->value(1).toInt() == 1;
+    m_ftsRowidQuery->finish();
+
+    const bool shouldIndex = !(recalled || item.text.trimmed().isEmpty() || item.messageType == QLatin1String("system"));
+    const QString body = shouldIndex ? Models::foldForSearch(item.text) : QString();
+
+    if (!m_ftsCheckQuery) {
+        m_ftsCheckQuery = std::make_unique<QSqlQuery>(m_db);
+        m_ftsCheckQuery->prepare("SELECT body FROM messages_fts WHERE rowid = :rowid LIMIT 1;");
+    }
+    m_ftsCheckQuery->bindValue(":rowid", rowid);
+    const bool hasExisting = m_ftsCheckQuery->exec() && m_ftsCheckQuery->next();
+    const QString existingBody = hasExisting ? m_ftsCheckQuery->value(0).toString() : QString();
+    m_ftsCheckQuery->finish();
+
+    if (hasExisting && shouldIndex && existingBody == body) return;
+    if (!hasExisting && !shouldIndex) return;
+
+    if (hasExisting) {
+        if (!m_ftsDeleteQuery) {
+            m_ftsDeleteQuery = std::make_unique<QSqlQuery>(m_db);
+            m_ftsDeleteQuery->prepare("DELETE FROM messages_fts WHERE rowid = :rowid;");
+        }
+        m_ftsDeleteQuery->bindValue(":rowid", rowid);
+        m_ftsDeleteQuery->exec();
+    }
+    if (!shouldIndex) return;
+
+    if (!m_ftsInsertQuery) {
+        m_ftsInsertQuery = std::make_unique<QSqlQuery>(m_db);
+        m_ftsInsertQuery->prepare("INSERT INTO messages_fts (rowid, body) VALUES (:rowid, :body);");
+    }
+    m_ftsInsertQuery->bindValue(":rowid", rowid);
+    m_ftsInsertQuery->bindValue(":body", body);
+    m_ftsInsertQuery->exec();
 }
 
 QString ZaloOfflineStore::ftsQuery(const QString& input) {
@@ -442,8 +482,13 @@ QVector<ZaloOfflineStore::SearchHit> ZaloOfflineStore::searchMessages(const QStr
 qint64 ZaloOfflineStore::messageTs(const QString& msgId, QString* convId) const {
     if (!m_db.isOpen() || msgId.isEmpty()) return 0;
     QSqlQuery q(m_db);
-    q.prepare("SELECT ts, conv_id FROM messages WHERE id = :id OR cli_msg_id = :cli LIMIT 1;");
+    q.prepare("SELECT ts, conv_id FROM messages WHERE id = :id LIMIT 1;");
     q.bindValue(":id", msgId);
+    if (q.exec() && q.next()) {
+        if (convId) *convId = q.value(1).toString();
+        return q.value(0).toLongLong();
+    }
+    q.prepare("SELECT ts, conv_id FROM messages WHERE cli_msg_id = :cli LIMIT 1;");
     q.bindValue(":cli", msgId);
     if (!q.exec() || !q.next()) return 0;
     if (convId) *convId = q.value(1).toString();
@@ -530,9 +575,12 @@ QString ZaloOfflineStore::pragmaForTesting(const QString& name) const {
 
 QString ZaloOfflineStore::ownerUid() const {
     if (!m_db.isOpen()) return {};
+    if (m_ownerUidLoaded) return m_ownerUid;
     QSqlQuery q(m_db);
     q.prepare("SELECT value FROM meta WHERE key = 'owner_uid';");
-    return q.exec() && q.next() ? q.value(0).toString() : QString();
+    m_ownerUid = q.exec() && q.next() ? q.value(0).toString() : QString();
+    m_ownerUidLoaded = true;
+    return m_ownerUid;
 }
 
 bool ZaloOfflineStore::bindOwner(const QString& uid) {
@@ -544,12 +592,22 @@ bool ZaloOfflineStore::bindOwner(const QString& uid) {
     q.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('owner_uid', :uid);");
     q.bindValue(":uid", uid);
     q.exec();
+    m_ownerUid = uid;
+    m_ownerUidLoaded = true;
     return !current.isEmpty();
 }
 
 void ZaloOfflineStore::clearCache() {
     if (!m_db.isOpen()) return;
     m_saveMessageQuery.reset();
+    m_checkCliMsgQuery.reset();
+    m_deleteMessageByIdQuery.reset();
+    m_ftsRowidQuery.reset();
+    m_ftsCheckQuery.reset();
+    m_ftsDeleteQuery.reset();
+    m_ftsInsertQuery.reset();
+    m_ownerUid.clear();
+    m_ownerUidLoaded = true;
     QSqlQuery q(m_db);
     for (const char* table : {"messages", "reactions", "reaction_events", "conversations", "profiles", "meta"}) {
         q.exec(QStringLiteral("DELETE FROM %1;").arg(QLatin1String(table)));
@@ -613,23 +671,28 @@ bool ZaloOfflineStore::saveMessage(const QString& convId, const Models::MessageI
     if (!m_db.isOpen() || item.id.isEmpty() || item.id.startsWith(QLatin1String("local-"))) return false;
 
     if (!item.cliMsgId.isEmpty() && item.cliMsgId != QLatin1String("0")) {
-        QSqlQuery chk(m_db);
-        chk.prepare("SELECT id, sender_id FROM messages WHERE conv_id = :conv AND cli_msg_id = :cli AND id <> :id;");
-        chk.bindValue(":conv", convId);
-        chk.bindValue(":cli", item.cliMsgId);
-        chk.bindValue(":id", item.id);
+        if (!m_checkCliMsgQuery) {
+            m_checkCliMsgQuery = std::make_unique<QSqlQuery>(m_db);
+            m_checkCliMsgQuery->prepare("SELECT id, sender_id FROM messages WHERE conv_id = :conv AND cli_msg_id = :cli AND id <> :id;");
+        }
+        m_checkCliMsgQuery->bindValue(":conv", convId);
+        m_checkCliMsgQuery->bindValue(":cli", item.cliMsgId);
+        m_checkCliMsgQuery->bindValue(":id", item.id);
         QStringList stale;
-        if (chk.exec()) {
-            while (chk.next()) {
-                const QString existingId = chk.value(0).toString();
-                if (existingId.startsWith(QLatin1String("local-")) || chk.value(1).toString() == item.senderId) stale << existingId;
+        if (m_checkCliMsgQuery->exec()) {
+            while (m_checkCliMsgQuery->next()) {
+                const QString existingId = m_checkCliMsgQuery->value(0).toString();
+                if (existingId.startsWith(QLatin1String("local-")) || m_checkCliMsgQuery->value(1).toString() == item.senderId) stale << existingId;
             }
         }
+        m_checkCliMsgQuery->finish();
         for (const QString& oldId : stale) {
-            QSqlQuery del(m_db);
-            del.prepare("DELETE FROM messages WHERE id = :oldId;");
-            del.bindValue(":oldId", oldId);
-            del.exec();
+            if (!m_deleteMessageByIdQuery) {
+                m_deleteMessageByIdQuery = std::make_unique<QSqlQuery>(m_db);
+                m_deleteMessageByIdQuery->prepare("DELETE FROM messages WHERE id = :oldId;");
+            }
+            m_deleteMessageByIdQuery->bindValue(":oldId", oldId);
+            m_deleteMessageByIdQuery->exec();
         }
     }
 
@@ -794,6 +857,10 @@ void ZaloOfflineStore::setMetaValue(const QString& key, const QString& value) {
     m.bindValue(":k", key);
     m.bindValue(":v", value);
     m.exec();
+    if (key == QLatin1String("owner_uid")) {
+        m_ownerUid = value;
+        m_ownerUidLoaded = true;
+    }
 }
 
 QSet<QString> ZaloOfflineStore::reparseStored(

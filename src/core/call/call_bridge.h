@@ -185,6 +185,7 @@ private:
     PeerVideoDecoder* m_videoDecoder{nullptr};
     QPointer<QVideoSink> m_peerSink;
     QTimer* m_peerVideoIdle{nullptr};
+    QTimer* m_idleShutdownTimer{nullptr};
     bool m_peerVideoActive{false};
     qint64 m_lastKeyRequestMs{0};
     QHash<QString, QStringList> m_chunks;

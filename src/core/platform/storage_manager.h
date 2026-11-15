@@ -29,6 +29,7 @@ public:
     Q_INVOKABLE qint64 clear(const QString& key);
     Q_INVOKABLE bool openDownloadsFolder() const;
     Q_INVOKABLE qint64 prune();
+    void pruneAsync();
 
     void setAvatarMemoryCleaner(std::function<void()> cleaner) { m_avatarMemoryCleaner = std::move(cleaner); }
     void cleanAvatarMemory() const { if (m_avatarMemoryCleaner) m_avatarMemoryCleaner(); }

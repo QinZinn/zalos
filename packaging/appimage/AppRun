@@ -62,5 +62,9 @@ case " $* " in
         ;;
 esac
 
+if [ -z "${GLIBC_TUNABLES}" ]; then
+    export GLIBC_TUNABLES="glibc.malloc.arena_max=2:glibc.malloc.tcache_max=64:glibc.malloc.trim_threshold=131072:glibc.malloc.mmap_threshold=131072"
+fi
+
 # Execute Zalos binary
 exec "${APPDIR}/usr/bin/zalos" "$@"

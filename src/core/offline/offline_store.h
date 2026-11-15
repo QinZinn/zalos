@@ -125,6 +125,14 @@ private:
     QString m_syncState{"CONNECTED"};
     QSqlDatabase m_db;
     std::unique_ptr<QSqlQuery> m_saveMessageQuery;
+    std::unique_ptr<QSqlQuery> m_checkCliMsgQuery;
+    std::unique_ptr<QSqlQuery> m_deleteMessageByIdQuery;
+    std::unique_ptr<QSqlQuery> m_ftsRowidQuery;
+    std::unique_ptr<QSqlQuery> m_ftsCheckQuery;
+    std::unique_ptr<QSqlQuery> m_ftsDeleteQuery;
+    std::unique_ptr<QSqlQuery> m_ftsInsertQuery;
+    mutable QString m_ownerUid;
+    mutable bool m_ownerUidLoaded{false};
     bool m_ftsAvailable{false};
     void indexMessage(const QString& msgId, const Models::MessageItem& item);
 };

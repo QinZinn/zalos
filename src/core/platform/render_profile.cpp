@@ -111,8 +111,20 @@ void RenderProfile::apply() const {
 
 namespace RenderGuard {
 
+constexpr int kRenderGuardVersion = 2;
+
+void ensureGuardVersion(QSettings& s) {
+    if (s.value("render/guardVersion", 0).toInt() < kRenderGuardVersion) {
+        s.remove("render/vulkanBroken");
+        s.remove("render/pending");
+        s.setValue("render/guardVersion", kRenderGuardVersion);
+        s.sync();
+    }
+}
+
 bool vulkanFailedBefore() {
     QSettings s(QStringLiteral("Zalos"), QStringLiteral("ZalosApp"));
+    ensureGuardVersion(s);
     if (s.value("render/pending").toString() == QLatin1String("vulkan")) {
         s.setValue("render/vulkanBroken", true);
         s.remove("render/pending");
@@ -122,6 +134,7 @@ bool vulkanFailedBefore() {
 
 void markAttempt(RenderProfile::Backend backend) {
     QSettings s(QStringLiteral("Zalos"), QStringLiteral("ZalosApp"));
+    ensureGuardVersion(s);
     if (backend == RenderProfile::Backend::Vulkan) s.setValue("render/pending", QStringLiteral("vulkan"));
     else s.remove("render/pending");
     s.sync();

@@ -5,8 +5,10 @@
 #include <QDir>
 #include <QDirIterator>
 #include <QFileInfo>
+#include <QPointer>
 #include <QSettings>
 #include <QStandardPaths>
+#include <QThreadPool>
 #include <QUrl>
 #include <QVariantMap>
 
@@ -43,9 +45,9 @@ StorageManager::StorageManager(QObject* parent) : QObject(parent) {
     QSettings settings;
     m_avatarLimitMb = qBound(50, settings.value("storage/avatarLimitMb", 300).toInt(), 10240);
     m_maxAgeDays = qBound(1, settings.value("storage/maxAgeDays", 31).toInt(), 3650);
-    QTimer::singleShot(30000, this, [this]() { prune(); });
+    QTimer::singleShot(30000, this, [this]() { pruneAsync(); });
     m_daily.setInterval(int(kDayMs));
-    connect(&m_daily, &QTimer::timeout, this, [this]() { prune(); });
+    connect(&m_daily, &QTimer::timeout, this, [this]() { pruneAsync(); });
     m_daily.start();
 }
 
@@ -145,6 +147,20 @@ qint64 StorageManager::prune() {
     freed += pruneDirectory(directory("voice"), -1, kDayMs);
     if (freed > 0) emit usageChanged();
     return freed;
+}
+
+void StorageManager::pruneAsync() {
+    const int limitMb = m_avatarLimitMb;
+    const int maxAgeDays = m_maxAgeDays;
+    QPointer<StorageManager> self(this);
+    QThreadPool::globalInstance()->start([self, limitMb, maxAgeDays]() {
+        cleanTemporaryFiles();
+        qint64 freed = pruneDirectory(directory("avatars"), qint64(limitMb) * kMb, qint64(maxAgeDays) * kDayMs);
+        freed += pruneDirectory(directory("voice"), -1, kDayMs);
+        if (freed > 0 && self) {
+            QMetaObject::invokeMethod(self, &StorageManager::usageChanged, Qt::QueuedConnection);
+        }
+    });
 }
 
 void StorageManager::cleanTemporaryFiles() {

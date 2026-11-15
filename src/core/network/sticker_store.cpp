@@ -79,10 +79,16 @@ void StickerStore::setCacheFile(const QString& path) {
     if (m_saveTimer.isActive()) saveCache();
     m_cacheFile = path;
     m_info.clear();
+    m_cacheLoaded = false;
+}
+
+void StickerStore::ensureCacheLoaded() const {
+    if (m_cacheLoaded) return;
+    m_cacheLoaded = true;
     loadCache();
 }
 
-void StickerStore::loadCache() {
+void StickerStore::loadCache() const {
     if (m_cacheFile.isEmpty()) return;
     QFile f(m_cacheFile);
     if (!f.open(QIODevice::ReadOnly)) return;
@@ -92,6 +98,7 @@ void StickerStore::loadCache() {
 }
 
 void StickerStore::saveCache() {
+    ensureCacheLoaded();
     m_saveTimer.stop();
     if (m_cacheFile.isEmpty()) return;
     QDir().mkpath(QFileInfo(m_cacheFile).absolutePath());
@@ -104,6 +111,7 @@ void StickerStore::saveCache() {
 }
 
 void StickerStore::remember(const QVariantMap& info) {
+    ensureCacheLoaded();
     const QString id = info.value("id").toString();
     if (id.isEmpty() || m_info.value(id) == info) return;
     if (!m_info.contains(id) && m_info.size() >= kMaxStickerInfo) m_info.erase(m_info.begin());

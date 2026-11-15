@@ -159,6 +159,9 @@ private:
     void detectKdeTheme();
     void watchKdeGlobals();
     void detectSystemFont();
+    void applySystemAccentColor(const QColor& detectedAccent);
+    void applyPortalDarkMode(bool dark);
+    void fallbackLocalDarkMode();
     void syncApplicationPalette();
     QColor resolveColor(const QString& lightZalo, const QString& darkZalo, const QColor& systemColor = QColor()) const;
 

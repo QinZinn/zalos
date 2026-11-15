@@ -106,9 +106,14 @@ QVariant MessageModel::data(const QModelIndex& index, int role) const {
             return true;
         }
         case RichTextRole: {
-            const QVariantList styles = item.extra.value("styles").toList();
-            if (!styles.isEmpty()) return styledHtml(item.text, item.mentions, styles);
-            return item.mentions.isEmpty() ? linkify(item.text) : linkify(item.text, item.mentions);
+            if (!item.richTextCached) {
+                const QVariantList styles = item.extra.value("styles").toList();
+                item.richTextCache = !styles.isEmpty()
+                    ? styledHtml(item.text, item.mentions, styles)
+                    : (item.mentions.isEmpty() ? linkify(item.text) : linkify(item.text, item.mentions));
+                item.richTextCached = true;
+            }
+            return item.richTextCache;
         }
         case ExtraRole: return item.extra;
         case SeenUidsRole: return item.seenUids;
@@ -344,7 +349,22 @@ void MessageModel::mergeMessages(const QString& convId, const QVector<MessageIte
         else m_items.append(std::move(appended));
         endInsertRows();
         if (before > 0) {
-            emit dataChanged(index(0), index(before - 1), {LastInGroupRole, ShowStatusRole});
+            emit dataChanged(index(before - 1), index(before - 1), {LastInGroupRole});
+            bool anyNewMine = false;
+            for (int row = before; row < m_items.size(); ++row) {
+                if (m_items.at(row).isMine) {
+                    anyNewMine = true;
+                    break;
+                }
+            }
+            if (anyNewMine) {
+                for (int row = before - 1; row >= 0; --row) {
+                    if (m_items.at(row).isMine) {
+                        emit dataChanged(index(row), index(row), {ShowStatusRole});
+                        break;
+                    }
+                }
+            }
             refreshRunsAround(before);
         }
         int incoming = 0;
@@ -482,7 +502,9 @@ void MessageModel::markRecalled(const QString& convId, const QString& msgId, con
         m.messageType = "text";
         m.mediaUrl.clear();
         m.reaction.clear();
-    }, this, {IsRecalledRole, TextRole, MessageTypeRole, MediaUrlRole, ReactionRole});
+        m.richTextCache.clear();
+        m.richTextCached = false;
+    }, this, {IsRecalledRole, TextRole, RichTextRole, MessageTypeRole, MediaUrlRole, ReactionRole});
 }
 
 void MessageModel::setMedia(const QString& convId, const QString& msgId, const QString& mediaUrl) {
@@ -914,14 +936,22 @@ void MessageModel::setPollData(qint64 pollId, const QVariantMap& data) {
     for (int i = 0; i < m_items.size(); ++i) {
         if (!matches(m_items[i])) continue;
         m_items[i].pollData = data;
-        if (!data.value("question").toString().isEmpty()) m_items[i].text = data.value("question").toString();
+        if (!data.value("question").toString().isEmpty()) {
+            m_items[i].text = data.value("question").toString();
+            m_items[i].richTextCache.clear();
+            m_items[i].richTextCached = false;
+        }
         emit dataChanged(index(i), index(i), {PollDataRole, TextRole, RichTextRole});
     }
     for (auto it = m_store.begin(); it != m_store.end(); ++it) {
         for (MessageItem& item : it.value()) {
             if (!matches(item)) continue;
             item.pollData = data;
-            if (!data.value("question").toString().isEmpty()) item.text = data.value("question").toString();
+            if (!data.value("question").toString().isEmpty()) {
+                item.text = data.value("question").toString();
+                item.richTextCache.clear();
+                item.richTextCached = false;
+            }
         }
     }
 }

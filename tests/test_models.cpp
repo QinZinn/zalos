@@ -283,6 +283,18 @@ private slots:
         QVERIFY(directIds.contains("c-direct"));
         QVERIFY(directIds.contains("c-mention"));
         QVERIFY(!directIds.contains("c-group"));
+
+        model.setViewMode("normal");
+        QSignalSpy convResetSpy(&model, &QAbstractItemModel::modelReset);
+        QSignalSpy convDataSpy(&model, &QAbstractItemModel::dataChanged);
+        cDirect.lastMessage = QStringLiteral("Updated message");
+        cDirect.unreadCount = 4;
+        model.upsertConversation(cDirect);
+        QCOMPARE(convResetSpy.count(), 0);
+        QVERIFY(convDataSpy.count() >= 1);
+        const QList<int> changedRoles = convDataSpy.last().at(2).value<QList<int>>();
+        QVERIFY(changedRoles.contains(ConversationModel::LastMessageRole));
+        QVERIFY(changedRoles.contains(ConversationModel::UnreadCountRole));
     }
 
     void testMessageModelAdd() {
@@ -342,14 +354,26 @@ private slots:
         // Default category filter is "friends"
         QCOMPARE(model.rowCount(), 2);
 
+        QSignalSpy resetSpy(&model, &QAbstractItemModel::modelReset);
+        QSignalSpy dataSpy(&model, &QAbstractItemModel::dataChanged);
+
         // Filter by search query
         model.setSearchFilter("Đới");
         QCOMPARE(model.rowCount(), 1);
         QCOMPARE(model.data(model.index(0), ContactModel::NameRole).toString(), "Đới Chàn");
+        QCOMPARE(resetSpy.count(), 0);
 
         // Clear search
         model.setSearchFilter("");
         QCOMPARE(model.rowCount(), 2);
+        QCOMPARE(resetSpy.count(), 0);
+
+        c2.isOnline = true;
+        model.setContacts({c1, c2, c3, c4});
+        QCOMPARE(resetSpy.count(), 0);
+        QVERIFY(dataSpy.count() >= 1);
+        const QList<int> contactRoles = dataSpy.last().at(2).value<QList<int>>();
+        QVERIFY(contactRoles.contains(ContactModel::IsOnlineRole));
 
         // Switch to "groups"
         model.setCategoryFilter("groups");

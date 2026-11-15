@@ -347,6 +347,7 @@ public:
     int residentThreadCountForTesting() const { return int(m_residentThreads.size()); }
     int rawMessageCountForTesting() const { return int(m_rawMessages.size()); }
     Q_INVOKABLE void trimMemoryForBackground();
+    void setWindowVisible(bool visible);
     bool profileLoading() const;
 
     bool showAddFriendModal() const { return m_showAddFriendModal; }
@@ -884,6 +885,7 @@ private:
     void ensureConversation(const QString& threadId, bool isGroup);
     void applyProfileToConversation(const QString& id);
     void rebuildContacts();
+    void rebuildContactsNow();
     void setSyncing(bool syncing);
 
     void handleReactions(const QJsonArray& reactions, bool isGroup);
@@ -939,6 +941,7 @@ private:
     int m_pendingAttachments{0};
     quint64 m_localSeq{0};
     QTimer* m_presenceTimer{nullptr};
+    bool m_windowVisible{true};
     QTimer* m_typingTimer{nullptr};
     QVector<Models::ContactItem> m_friendRequests;
     QVariantList m_sentFriendRequests;
@@ -991,6 +994,8 @@ private:
         QString creator;
     };
     QHash<QString, GroupRoster> m_groupRosters;
+    QHash<QString, QString> m_groupVersions;
+    mutable QHash<QString, QVariantList> m_groupMembersCache;
     QSet<QString> m_memberLookupInFlight;
     QSet<QString> m_compositeLookups;
     QSet<QString> m_compositeAsked;
@@ -1008,6 +1013,8 @@ private:
     bool m_realtimeWasUp{false};
     QTimer* m_labelDebounce{nullptr};
     QTimer* m_profileRefreshTimer{nullptr};
+    QTimer* m_friendEventDebounce{nullptr};
+    QTimer* m_rebuildContactsTimer{nullptr};
     QSet<QString> m_historyExhausted;
     QVariantMap m_replyTarget;
     class MessageScheduler* m_scheduler{nullptr};

@@ -22,7 +22,6 @@ public:
     static void clearMemCache();
 
 private:
-    QNetworkAccessManager* m_nam{nullptr};
     bool m_circular{true};
 };
 

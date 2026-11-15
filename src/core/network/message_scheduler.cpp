@@ -24,7 +24,21 @@ MessageScheduler::MessageScheduler(QObject* parent) : QObject(parent) {
     m_timer = new QTimer(this);
     m_timer->setInterval(kCheckIntervalMs);
     connect(m_timer, &QTimer::timeout, this, [this]() { runDue(QDateTime::currentMSecsSinceEpoch()); });
-    m_timer->start();
+}
+
+void MessageScheduler::updateTimer() {
+    bool hasPending = false;
+    for (const auto& e : m_entries) {
+        if (e.state == QLatin1String("pending")) {
+            hasPending = true;
+            break;
+        }
+    }
+    if (hasPending) {
+        if (!m_timer->isActive()) m_timer->start();
+    } else if (m_timer->isActive()) {
+        m_timer->stop();
+    }
 }
 
 void MessageScheduler::setAccount(const QString& uid) {
@@ -45,11 +59,13 @@ void MessageScheduler::setAccount(const QString& uid) {
             if (!e.id.isEmpty() && !e.convId.isEmpty() && !e.text.isEmpty()) m_entries.append(e);
         }
     }
+    updateTimer();
     emit changed();
 }
 
 void MessageScheduler::clear() {
     m_entries.clear();
+    updateTimer();
     emit changed();
 }
 
@@ -73,6 +89,7 @@ bool MessageScheduler::schedule(const QString& convId, bool isGroup, const QStri
     e.state = QStringLiteral("pending");
     m_entries.append(e);
     save();
+    updateTimer();
     emit changed();
     return true;
 }
@@ -82,6 +99,7 @@ void MessageScheduler::cancel(const QString& id) {
         if (e.id == id && (e.state == "pending" || e.state == "failed")) {
             e.state = QStringLiteral("cancelled");
             save();
+            updateTimer();
             emit changed();
             return;
         }
@@ -114,9 +132,11 @@ void MessageScheduler::runDue(qint64 nowMs) {
                 if (!ok) emit self->sendFailed(error);
             }
             self->save();
+            self->updateTimer();
             emit self->changed();
         });
     }
+    updateTimer();
     if (started) emit changed();
 }
 

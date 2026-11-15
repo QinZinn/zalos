@@ -45,6 +45,8 @@ struct MessageItem {
     QVariantMap extra;
     QStringList seenUids;
     mutable qint64 dayCache{-1};
+    mutable QString richTextCache;
+    mutable bool richTextCached{false};
 };
 
 class MessageModel : public QAbstractListModel {

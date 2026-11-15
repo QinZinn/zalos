@@ -342,14 +342,6 @@ ApplicationWindow {
             noticeBox.visible = true;
             noticeTimer.restart();
         }
-        function onRequestHideForScreenshot() {
-            mainWindow.showMinimized();
-        }
-        function onRequestRestoreAfterScreenshot() {
-            mainWindow.showNormal();
-            mainWindow.raise();
-            mainWindow.requestActivate();
-        }
     }
 
     Rectangle {
@@ -421,13 +413,13 @@ ApplicationWindow {
     LazyOverlay {
         z: 1500
         active: ImageViewerState.open
-        sourceComponent: ImageViewer {}
+        source: active ? Qt.resolvedUrl("ImageViewer.qml") : ""
     }
 
     LazyOverlay {
         z: 2000
         active: !!(ZaloClient.calls && ZaloClient.calls.phase.length > 0)
-        sourceComponent: CallOverlay {}
+        source: active ? Qt.resolvedUrl("CallOverlay.qml") : ""
     }
 
     LazyOverlay {

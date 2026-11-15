@@ -1,9 +1,11 @@
 import QtQuick
+import QtQuick.Window
 import Zalos
 import "MediaSource.js" as MediaSource
 
 Item {
     id: root
+    readonly property bool windowShowing: Window.window ? (Window.window.visible && Window.window.visibility !== Window.Minimized) : true
     property url source: ""
     property alias status: img.status
     property alias sourceSize: img.sourceSize
@@ -45,7 +47,7 @@ Item {
                 sourceSize.width: Math.ceil(root.width * (Screen.devicePixelRatio || 1))
                 smooth: true
                 fillMode: img.fillMode
-                playing: visible
+                playing: visible && root.windowShowing
                 visible: status === Image.Ready
             }
         }
@@ -69,7 +71,7 @@ Item {
     Loader {
         id: maskLoader
         anchors.fill: content
-        active: root.gpu
+        active: root.gpu && root.radius > 0 && img.status === Image.Ready
         source: "ZMaskEffect.qml"
         onLoaded: {
             maskLoader.item.source = content;

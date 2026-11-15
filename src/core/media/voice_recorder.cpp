@@ -24,6 +24,11 @@ QMediaFormat aacFormat() {
     return format;
 }
 
+bool hasCaptureDeviceNode() {
+    const QDir snd(QStringLiteral("/dev/snd"));
+    return snd.exists() && !snd.entryList({QStringLiteral("pcm*c")}, QDir::System).isEmpty();
+}
+
 }
 
 VoiceRecorder::VoiceRecorder(QObject* parent) : QObject(parent) {
@@ -33,17 +38,28 @@ VoiceRecorder::VoiceRecorder(QObject* parent) : QObject(parent) {
         emit durationChanged();
         if (m_durationMs >= kMaxDurationMs) stop();
     });
-    refreshAvailability();
 }
 
 VoiceRecorder::~VoiceRecorder() {
     if (m_recording) finish(false);
 }
 
+void VoiceRecorder::ensurePassiveProbe() const {
+    if (m_probed) return;
+    m_probed = true;
+    if (!hasCaptureDeviceNode()) {
+        m_unavailableReason = QStringLiteral("no_microphone");
+    }
+}
+
 void VoiceRecorder::refreshAvailability() {
+    m_probed = true;
     QString reason;
-    if (QMediaDevices::audioInputs().isEmpty()) reason = QStringLiteral("no_microphone");
-    else if (!aacFormat().isSupported(QMediaFormat::Encode)) reason = QStringLiteral("no_aac_encoder");
+    if (!hasCaptureDeviceNode() || QMediaDevices::audioInputs().isEmpty()) {
+        reason = QStringLiteral("no_microphone");
+    } else if (!aacFormat().isSupported(QMediaFormat::Encode)) {
+        reason = QStringLiteral("no_aac_encoder");
+    }
     if (reason != m_unavailableReason) {
         m_unavailableReason = reason;
         emit availabilityChanged();

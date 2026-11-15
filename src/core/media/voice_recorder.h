@@ -27,10 +27,10 @@ public:
     explicit VoiceRecorder(QObject* parent = nullptr);
     ~VoiceRecorder() override;
 
-    bool available() const { return m_unavailableReason.isEmpty(); }
+    bool available() const { ensurePassiveProbe(); return m_unavailableReason.isEmpty(); }
     bool recording() const { return m_recording; }
     int durationMs() const { return m_durationMs; }
-    QString unavailableReason() const { return m_unavailableReason; }
+    QString unavailableReason() const { ensurePassiveProbe(); return m_unavailableReason; }
 
     Q_INVOKABLE void refreshAvailability();
     Q_INVOKABLE bool start();
@@ -46,13 +46,15 @@ signals:
 
 private:
     void finish(bool keep);
+    void ensurePassiveProbe() const;
 
     QMediaCaptureSession* m_session{nullptr};
     QAudioInput* m_input{nullptr};
     QMediaRecorder* m_recorder{nullptr};
     QTimer m_tick;
     QString m_path;
-    QString m_unavailableReason;
+    mutable QString m_unavailableReason;
+    mutable bool m_probed{false};
     qint64 m_startedAt{0};
     int m_durationMs{0};
     bool m_recording{false};

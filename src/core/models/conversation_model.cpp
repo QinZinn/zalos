@@ -187,13 +187,28 @@ QString ConversationModel::folded(const QString& text) const {
 }
 
 namespace {
-bool sameItem(const ConversationItem& a, const ConversationItem& b) {
-    return a.id == b.id && a.name == b.name && a.lastMessage == b.lastMessage && a.timestampStr == b.timestampStr
-           && a.unreadCount == b.unreadCount && a.isOnline == b.isOnline && a.isPinned == b.isPinned
-           && a.avatarUrl == b.avatarUrl && a.category == b.category && a.senderPrefix == b.senderPrefix
-           && a.isMuted == b.isMuted && a.tag == b.tag && a.tagColor == b.tagColor && a.labelId == b.labelId
-           && a.memberCount == b.memberCount && a.isGroup == b.isGroup && a.lastTs == b.lastTs
-           && a.isTyping == b.isTyping && a.hasUnreadMention == b.hasUnreadMention;
+QVector<int> diffConversationRoles(const ConversationItem& a, const ConversationItem& b) {
+    QVector<int> roles;
+    if (a.id != b.id) roles << ConversationModel::IdRole;
+    if (a.name != b.name) roles << ConversationModel::NameRole;
+    if (a.lastMessage != b.lastMessage) roles << ConversationModel::LastMessageRole;
+    if (a.timestampStr != b.timestampStr) roles << ConversationModel::TimestampRole;
+    if (a.unreadCount != b.unreadCount) roles << ConversationModel::UnreadCountRole;
+    if (a.isOnline != b.isOnline) roles << ConversationModel::IsOnlineRole;
+    if (a.isPinned != b.isPinned) roles << ConversationModel::IsPinnedRole;
+    if (a.avatarUrl != b.avatarUrl) roles << ConversationModel::AvatarUrlRole;
+    if (a.category != b.category) roles << ConversationModel::CategoryRole;
+    if (a.senderPrefix != b.senderPrefix) roles << ConversationModel::SenderPrefixRole;
+    if (a.isMuted != b.isMuted) roles << ConversationModel::IsMutedRole;
+    if (a.tag != b.tag) roles << ConversationModel::TagRole;
+    if (a.tagColor != b.tagColor) roles << ConversationModel::TagColorRole;
+    if (a.labelId != b.labelId) roles << ConversationModel::LabelIdRole;
+    if (a.memberCount != b.memberCount) roles << ConversationModel::MemberCountRole;
+    if (a.isGroup != b.isGroup) roles << ConversationModel::IsGroupRole;
+    if (a.lastTs != b.lastTs) roles << ConversationModel::LastTsRole;
+    if (a.isTyping != b.isTyping) roles << ConversationModel::IsTypingRole;
+    if (a.hasUnreadMention != b.hasUnreadMention) roles << ConversationModel::HasUnreadMentionRole;
+    return roles;
 }
 
 bool sameIds(const QVector<ConversationItem>& a, int aFrom, const QVector<ConversationItem>& b, int bFrom, int count) {
@@ -255,9 +270,10 @@ void ConversationModel::publishFiltered(QVector<ConversationItem> next) {
         return;
     }
     for (int i = 0; i < cur.size(); ++i) {
-        if (sameItem(cur[i], next[i])) continue;
+        const QVector<int> roles = diffConversationRoles(cur[i], next[i]);
+        if (roles.isEmpty()) continue;
         cur[i] = std::move(next[i]);
-        emit dataChanged(index(i), index(i));
+        emit dataChanged(index(i), index(i), roles);
     }
 }
 

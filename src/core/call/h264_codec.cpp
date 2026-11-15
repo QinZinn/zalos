@@ -319,27 +319,149 @@ QByteArray frameToI420(const QVideoFrame& source, QSize size) {
     const int w = size.width() & ~1;
     const int h = size.height() & ~1;
     if (w <= 0 || h <= 0 || !source.isValid()) return {};
+
+    const int srcW = source.width();
+    const int srcH = source.height();
+    if (srcW <= 0 || srcH <= 0) return {};
+
+    int cropX = 0, cropY = 0, cropW = srcW, cropH = srcH;
+    const qreal target = qreal(w) / h;
+    const qreal aspect = qreal(srcW) / srcH;
+    if (aspect > target + 0.01) {
+        cropW = qMax(2, int(srcH * target) & ~1);
+        cropX = ((srcW - cropW) / 2) & ~1;
+    } else if (aspect < target - 0.01) {
+        cropH = qMax(2, int(srcW / target) & ~1);
+        cropY = ((srcH - cropH) / 2) & ~1;
+    }
+
+    const auto fmt = source.pixelFormat();
+    if (fmt == QVideoFrameFormat::Format_YUV420P || fmt == QVideoFrameFormat::Format_NV12) {
+        QVideoFrame mapped(source);
+        if (mapped.map(QVideoFrame::ReadOnly)) {
+            const uchar* srcY = mapped.bits(0);
+            const int strideY = mapped.bytesPerLine(0);
+            const uchar* srcU = mapped.bits(1);
+            const int strideU = mapped.bytesPerLine(1);
+            const uchar* srcV = (fmt == QVideoFrameFormat::Format_YUV420P) ? mapped.bits(2) : nullptr;
+            const int strideV = (fmt == QVideoFrameFormat::Format_YUV420P) ? mapped.bytesPerLine(2) : 0;
+
+            if (srcY && srcU && (fmt == QVideoFrameFormat::Format_NV12 || srcV)) {
+                QByteArray out(w * h * 3 / 2, Qt::Uninitialized);
+                auto* dstY = reinterpret_cast<uchar*>(out.data());
+                uchar* dstU = dstY + w * h;
+                uchar* dstV = dstU + (w / 2) * (h / 2);
+
+                if (cropX == 0 && cropY == 0 && cropW == w && cropH == h && fmt == QVideoFrameFormat::Format_YUV420P) {
+                    for (int row = 0; row < h; ++row) {
+                        std::memcpy(dstY + row * w, srcY + row * strideY, size_t(w));
+                    }
+                    const int cw = w / 2, ch = h / 2;
+                    for (int row = 0; row < ch; ++row) {
+                        std::memcpy(dstU + row * cw, srcU + row * strideU, size_t(cw));
+                        std::memcpy(dstV + row * cw, srcV + row * strideV, size_t(cw));
+                    }
+                } else {
+                    for (int row = 0; row < h; ++row) {
+                        const int sy = cropY + (row * cropH) / h;
+                        const uchar* yLine = srcY + sy * strideY;
+                        uchar* outRow = dstY + row * w;
+                        for (int col = 0; col < w; ++col) {
+                            const int sx = cropX + (col * cropW) / w;
+                            outRow[col] = yLine[sx];
+                        }
+                    }
+                    const int cw = w / 2, ch = h / 2;
+                    for (int row = 0; row < ch; ++row) {
+                        const int sy = (cropY / 2) + (row * (cropH / 2)) / ch;
+                        uchar* outU = dstU + row * cw;
+                        uchar* outV = dstV + row * cw;
+                        if (fmt == QVideoFrameFormat::Format_YUV420P) {
+                            const uchar* uLine = srcU + sy * strideU;
+                            const uchar* vLine = srcV + sy * strideV;
+                            for (int col = 0; col < cw; ++col) {
+                                const int sx = (cropX / 2) + (col * (cropW / 2)) / cw;
+                                outU[col] = uLine[sx];
+                                outV[col] = vLine[sx];
+                            }
+                        } else {
+                            const uchar* uvLine = srcU + sy * strideU;
+                            for (int col = 0; col < cw; ++col) {
+                                const int sx = (cropX / 2) + (col * (cropW / 2)) / cw;
+                                outU[col] = uvLine[sx * 2];
+                                outV[col] = uvLine[sx * 2 + 1];
+                            }
+                        }
+                    }
+                }
+                mapped.unmap();
+                return out;
+            }
+            mapped.unmap();
+        }
+    }
+    if (fmt == QVideoFrameFormat::Format_YUYV || fmt == QVideoFrameFormat::Format_UYVY) {
+        QVideoFrame mapped(source);
+        if (mapped.map(QVideoFrame::ReadOnly)) {
+            const uchar* src = mapped.bits(0);
+            const int stride = mapped.bytesPerLine(0);
+            if (src && stride > 0) {
+                QByteArray out(w * h * 3 / 2, Qt::Uninitialized);
+                auto* dstY = reinterpret_cast<uchar*>(out.data());
+                uchar* dstU = dstY + w * h;
+                uchar* dstV = dstU + (w / 2) * (h / 2);
+                const int yShift = (fmt == QVideoFrameFormat::Format_YUYV) ? 0 : 1;
+                const int uOff = (fmt == QVideoFrameFormat::Format_YUYV) ? 1 : 0;
+                const int vOff = (fmt == QVideoFrameFormat::Format_YUYV) ? 3 : 2;
+                for (int row = 0; row < h; ++row) {
+                    const int sy = cropY + (row * cropH) / h;
+                    const uchar* line = src + sy * stride;
+                    uchar* outRow = dstY + row * w;
+                    for (int col = 0; col < w; ++col) {
+                        const int sx = cropX + (col * cropW) / w;
+                        outRow[col] = line[sx * 2 + yShift];
+                    }
+                }
+                const int cw = w / 2, ch = h / 2;
+                for (int row = 0; row < ch; ++row) {
+                    const int sy0 = cropY + ((row * 2) * cropH) / h;
+                    const int sy1 = qMin(srcH - 1, cropY + ((row * 2 + 1) * cropH) / h);
+                    const uchar* line0 = src + sy0 * stride;
+                    const uchar* line1 = src + sy1 * stride;
+                    uchar* outU = dstU + row * cw;
+                    uchar* outV = dstV + row * cw;
+                    for (int col = 0; col < cw; ++col) {
+                        const int sx = cropX + ((col * 2) * cropW) / w;
+                        const int pairBase = (sx & ~1) * 2;
+                        outU[col] = static_cast<uchar>((int(line0[pairBase + uOff]) + int(line1[pairBase + uOff]) + 1) >> 1);
+                        outV[col] = static_cast<uchar>((int(line0[pairBase + vOff]) + int(line1[pairBase + vOff]) + 1) >> 1);
+                    }
+                }
+                mapped.unmap();
+                return out;
+            }
+            mapped.unmap();
+        }
+    }
+
     QImage image = source.toImage();
     if (image.isNull()) return {};
-    const qreal target = qreal(w) / h;
-    const qreal aspect = qreal(image.width()) / image.height();
-    if (aspect > target + 0.01) {
-        const int cw = int(image.height() * target);
-        image = image.copy((image.width() - cw) / 2, 0, cw, image.height());
-    } else if (aspect < target - 0.01) {
-        const int ch = int(image.width() / target);
-        image = image.copy(0, (image.height() - ch) / 2, image.width(), ch);
+    if (image.format() != QImage::Format_RGB32 && image.format() != QImage::Format_ARGB32
+        && image.format() != QImage::Format_ARGB32_Premultiplied) {
+        image = image.convertToFormat(QImage::Format_RGB32);
     }
-    image = image.scaled(w, h, Qt::IgnoreAspectRatio, Qt::FastTransformation).convertToFormat(QImage::Format_RGB32);
 
-    QByteArray out(w * h * 3 / 2, '\0');
+    QByteArray out(w * h * 3 / 2, Qt::Uninitialized);
     auto* y = reinterpret_cast<uchar*>(out.data());
     uchar* u = y + w * h;
     uchar* v = u + (w / 2) * (h / 2);
     for (int row = 0; row < h; ++row) {
-        const auto* line = reinterpret_cast<const QRgb*>(image.constScanLine(row));
+        const int sy = cropY + (row * cropH) / h;
+        const auto* line = reinterpret_cast<const QRgb*>(image.constScanLine(sy));
         for (int col = 0; col < w; ++col) {
-            const int r = qRed(line[col]), g = qGreen(line[col]), b = qBlue(line[col]);
+            const int sx = cropX + (col * cropW) / w;
+            const QRgb px = line[sx];
+            const int r = qRed(px), g = qGreen(px), b = qBlue(px);
             y[row * w + col] = uchar(((66 * r + 129 * g + 25 * b + 128) >> 8) + 16);
             if (!(row & 1) && !(col & 1)) {
                 const int ci = (row / 2) * (w / 2) + col / 2;
