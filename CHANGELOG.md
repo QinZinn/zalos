@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.2] - 2026-11-15
+
+### Performance & Memory
+- **System & background memory savings:** hiding to the tray now releases Qt Quick's scene graph and GPU textures
+  (`setPersistentSceneGraph(false)` / `setPersistentGraphics(false)`), marks idle anonymous heap regions with
+  `MADV_COLD` alongside `malloc_trim(0)`, and enables Linux KSM (`PR_SET_MEMORY_MERGE`). `AppRun` exports
+  `GLIBC_TUNABLES` before loading shared libraries; startup filters runtime Qt plugins (`setupMinimalPluginPath`
+  skipping `styles/` and non-essential `platformthemes/`/`imageformats/`), and `QtMultimedia`/FFmpeg loads lazily
+  (`VoiceRecorder` passive `/dev/snd/pcm*c` probe, URL-loaded `ImageViewer` and `CallOverlay`).
+- **Idle CPU & network discipline:** pauses animated stickers (`ZSticker`), GIF/WebP animations (`ZRoundedImage`,
+  `ImageViewer`), the `WelcomeArea` carousel, the `Sidebar` 60 s clock timer, and 45 s online-presence polling while
+  the window is hidden or inactive; emits `conversationStatusChanged` only when online state changes; replaces
+  polling in `MessageScheduler` with a single-shot timer targeted at the next scheduled timestamp; adds exponential
+  backoff with jitter (`5 s` to `60 s`) on WebSocket reconnects; debounces contact refreshes (`2 s`) and skips
+  unchanged `getGroupInfo` fetches using cached group `version`.
+- **Faster startup:** `ThemeManager` uses cached values immediately and queries `xdg-desktop-portal` asynchronously
+  with a `5 s` timeout; `sticker-info.json` loads lazily on first lookup; `CallBridge` defers H.264 decoder/worker
+  creation until a video call starts; `RenderGuard` (`guardVersion=2`) self-heals stale crash flags once, arms only
+  after `SingleInstance` succeeds and the window is visible, and clears pending state cleanly on quit.
+- **Smooth chat view, lists & media cache:** `ContactModel::rebuildContacts` diffs rows in place without full model
+  resets (paired with a `120 ms` search debounce in `ContactsView`); `ConversationInfoPanel` virtualizes group
+  members in a `ListView` sharing one context `Menu`; `mentionCandidates` filters `@mentions` in pre-cached C++
+  data; `MessageModel::refreshRunsAround` updates tight `±1` run boundaries; `AvatarImageProvider` (`8 MiB`) and
+  `MediaImageProvider` (`24 MiB`) use separate RAM caches; RIFF `ANIM`/`ANMF` header probing keeps static `.webp`
+  photos on cached `Image`; `ConversationModel::dataChanged` emits explicit role vectors.
+- **Streaming SQLite, mobile sync & background threads:** streams `ZDB4` mobile backup decryption in `64 KiB` chunks
+  (`decryptDbCrossV4FileToFile`); moves mobile sync SQLite row parsing off the GUI thread and imports batches in
+  500-row transactions; caches `ownerUid` in memory, splits `messageTs` / `messageTsBatch` into indexed queries,
+  updates FTS5 conditionally, and wraps group reaction/seen writes in transactions in `ZaloOfflineStore`; moves
+  `getfriends` decryption/parsing and full-history search off the GUI thread.
+
+### Changed
+- **Video calls & release builds:** `CameraSender` picks webcam formats closest to `640×360` (`NV12`/`YUV420P`/`YUYV`
+  preferred over high-resolution `MJPEG`) with single-pass `YUYV -> I420` conversion; camera capture/encoding starts
+  only after the callee answers; group calls decode only the active video stream (`src == 0`); `zalos-call` terminates
+  cleanly when a call ends; native `x86_64` Release builds enable LTO (`CMAKE_INTERPROCEDURAL_OPTIMIZATION`) and tie
+  `ZCALL_BUILD_TESTS` to `BUILD_TESTING`.
+
+### Fixed
+- **Clean release metadata:** removed a duplicated stray `[1.1.1]` section block from the changelog history and aligned
+  startup Vulkan guard tracking with single-instance ownership.
+
 ## [1.2.1] - 2026-11-14
 
 ### Fixed
@@ -71,25 +113,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Contact invite rows used `model.*` inside a delegate with required roles (`ReferenceError`) and accept/decline sent an
   empty id.
 - `PillButton` in the call overlay redeclared `enabled` (Qt property-cache warning).
-
----
-
-## [1.1.1] - 2026-11-10- **No Python anywhere in Zalos.** The browser sign-in script fallback (`export_browser_cookies.py`) is removed, so the
-  native `BrowserSessionReader` is the only path. The CTest gates (QML style lint, AOT coverage, UI screenshot check)
-  are now C++ (`tests/test_qml_gates.cpp`), `scripts/file-shim.py` became `scripts/file-shim.sh`, and the packages no
-  longer depend on `python3`.
-- **Calls run on the C++ call engine only.** `zalos-call` (signalling, media) and `zalos-call-audio` (microphone and
-  speaker, Opus) are built by default and installed to `libexec/zalos`. The Node.js engine (vendored zcall-native),
-  its Python audio helper and their runtime checks are removed, so calls need neither Node.js nor Python.
-- The call engine takes its settings as arguments instead of environment variables: `--key-file`, `--log-dir`,
-  `--ui-port`, `--ui-token`. The `ZALOS_CALL_ENGINE`, `ZALOS_CALL_AUDIO_ENGINE`, `ZALOS_CALL_ENGINE_BIN`,
-  `ZALOS_CALL_AUDIO`, `ZALO_MAIN_JS` and `ZALOS_ZCALL_DIR` variables no longer have any effect.
-- The transport key file holds the base64 key only; the audio binary is found next to the engine.
-- Removed `third_party/zcall-native`, `scripts/sync-zcall-native.sh` and the Node-based `call-vectors` compose service.
-
-### Fixed
-- Chat photos, link thumbnails and topic thumbnails load through the `image://media/` provider (HTTP/1.1, shared cache)
-  instead of direct QML requests; failed images report the real reason (`HTTP 404`, `decode failed`, …).
 
 ---
 

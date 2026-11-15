@@ -4,7 +4,7 @@
 %global _find_debuginfo_dwz_opts %{nil}
 
 Name:           zalos
-Version:        1.2.1
+Version:        1.2.2
 Release:        1%{?dist}
 Summary:        Zalo desktop client ported to Qt6 (C++/QML) for Linux
 License:        MIT AND BSD-3-Clause
@@ -79,6 +79,12 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/%{name}.desktop
 %{_datadir}/metainfo/io.github.cpfriend1721994.zalos.metainfo.xml
 
 %changelog
+* Sun Nov 15 2026 Zalos Team <dev@zalos.local> - 1.2.2-1
+- Release GPU scene-graph/textures on tray hide, add MADV_COLD + PR_SET_MEMORY_MERGE + GLIBC_TUNABLES, filter minimal Qt plugin path, lazily load QtMultimedia/FFmpeg and self-heal RenderGuard v2.
+- Pause animations, carousel, clock and presence polling while hidden; single-shot MessageScheduler, jittered WebSocket reconnect backoff, debounced contact refresh and versioned group sync.
+- Asynchronous portal theming, lazy sticker store, incremental ContactModel, virtualized group member ListView, cached C++ @mentions, split Avatar/Media RAM caches and static WebP detection.
+- Streaming 64 KiB ZDB4 decryption, background-thread mobile sync & search, indexed messageTs, optimal 640x360 camera format selection, post-answer video encoding, active-only group video decode and x86_64 LTO.
+
 * Sat Nov 14 2026 Zalos Team <dev@zalos.local> - 1.2.1-1
 - Mobile history sync: transient download errors (HTTP 400/404/429/5xx, dropped connections) are retried with backoff; the download no longer logs private URLs (thanks @daiphuc).
 - Call status shows the real reason (declined, no answer, unreachable, server unreachable, audio device failure); engine crash shows "lost connection".

@@ -6,7 +6,7 @@
 
 [![CI/CD Pipeline](https://github.com/cpfriend1721994/zalos/actions/workflows/ci.yml/badge.svg)](https://github.com/cpfriend1721994/zalos/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Dung lượng](https://img.shields.io/badge/Dung%20l%C6%B0%E1%BB%A3ng-~4.8%20MB-success.svg)](#-giới-thiệu)
+[![Dung lượng](https://img.shields.io/badge/Dung%20l%C6%B0%E1%BB%A3ng-~5.2%20MB-success.svg)](#-giới-thiệu)
 [![Bộ nhớ RAM](https://img.shields.io/badge/RAM-~40--65%20MB-brightgreen.svg)](#-giới-thiệu)
 [![Platform](https://img.shields.io/badge/Platform-Wayland%20%7C%20X11-purple.svg)](#-tính-năng)
 [![Packaging](https://img.shields.io/badge/Packaging-deb%20%7C%20RPM%20%7C%20AppImage%20%7C%20Nix-orange.svg)](#-cài-đặt)
@@ -23,7 +23,7 @@
 và **dung lượng siêu nhẹ** (ultra-lightweight). Được phát triển hoàn toàn bằng C++17 và Qt 6 QML, Zalos loại bỏ
 hoàn toàn bộ khung Electron/Chromium cồng kềnh:
 
-- **Siêu nhẹ (Ultra-lightweight):** Gói cài đặt chỉ vỏn vẹn **~4.8 MB** (AppImage) và mức tiêu thụ RAM tối giản chỉ **~40–65 MB** (tiết kiệm hơn 90% bộ nhớ so với mức 450–1.800+ MB của bản Electron).
+- **Siêu nhẹ (Ultra-lightweight):** Gói cài đặt chỉ vỏn vẹn **~5.2 MB** (AppImage) và mức tiêu thụ RAM tối giản chỉ **~40–65 MB** (tiết kiệm hơn 90% bộ nhớ so với mức 450–1.800+ MB của bản Electron).
 - **Hiệu năng cao (High performance):** Khởi động tức thì dưới 0,5 giây, giao diện tăng tốc phần cứng 60 FPS mượt mà, giải mã mã hóa đa luồng C++ siêu tốc và phản hồi nhạy bén ngay cả trên máy cấu hình yếu.
 - **Tự nhiên trên Linux:** Chạy mượt mà trên cả Wayland và X11, tự động đồng bộ giao diện sáng/tối theo hệ thống, tích hợp khay hệ thống và hỗ trợ bộ gõ tiếng Việt hoàn hảo.
 
@@ -32,7 +32,7 @@ hoàn toàn bộ khung Electron/Chromium cồng kềnh:
 | Tiêu chí kỹ thuật | Zalos (C++17 / Qt 6 QML) | Zalo PC / Electron Wrapper |
 |---|---|---|
 | **Bộ nhớ RAM hoạt động** | **~40 – 65 MB** (tự giải phóng, nhẹ hơn 90%) | 450 – 1.800+ MB (nhiều tiến trình Chromium) |
-| **Dung lượng gói cài đặt** | **~4.8 MB** (gói native siêu nhẹ) | > 150 – 250 MB (kèm nguyên trình duyệt) |
+| **Dung lượng gói cài đặt** | **~5.2 MB** (gói native siêu nhẹ) | > 150 – 250 MB (kèm nguyên trình duyệt) |
 | **Tốc độ khởi động nguội** | **< 0,5s** (mở tức thì trong chớp mắt) | 3 – 8s (chờ tải runtime Node/Chromium) |
 | **Kết xuất đồ họa UI** | **Qt Quick Native tăng tốc (60 FPS)** | Web DOM / Chromium compositor |
 | **Kiến trúc mã nguồn** | **C++17 & QML thuần native** | Electron / Node.js + Web wrapper |
@@ -41,7 +41,7 @@ hoàn toàn bộ khung Electron/Chromium cồng kềnh:
 
 ## ✨ Tính năng
 
-- **Hiệu năng cao & Siêu nhẹ** — khởi động tức thì (<0,5s), đồ họa 60 FPS mượt mà, gói cài đặt chỉ ~4.8 MB và chỉ chiếm ~40–65 MB RAM.
+- **Hiệu năng cao & Siêu nhẹ** — khởi động tức thì (<0,5s), đồ họa 60 FPS mượt mà, gói cài đặt chỉ ~5.2 MB và chỉ chiếm ~40–65 MB RAM.
 - **Wayland & X11** — chạy trên cả hai, có nút điều khiển cửa sổ chuẩn trên GNOME và KDE.
 - **Tự đổi giao diện sáng/tối** — bám theo màu hệ thống theo thời gian thực.
 - **Nhắn tin** — chat đơn và nhóm, nhãn dán động, emoji, cảm xúc, trả lời, chuyển tiếp,
@@ -73,13 +73,22 @@ và được kiểm tra cài đặt trên cả bản cũ nhất lẫn mới nh�
 
 ### Ubuntu 24.04+ (`.deb`)
 ```bash
-wget https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.2.1-1~ubuntu24.04_amd64.deb
-sudo apt install ./zalos_1.2.1-1~ubuntu24.04_amd64.deb
+# x86_64 (amd64)
+wget https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.2.2-1~ubuntu24.04_amd64.deb
+sudo apt install ./zalos_1.2.2-1~ubuntu24.04_amd64.deb
+
+# ARM64 (aarch64)
+wget https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.2.2-1~ubuntu24.04_arm64.deb
+sudo apt install ./zalos_1.2.2-1~ubuntu24.04_arm64.deb
 ```
 
 ### Fedora 43+ (`.rpm`)
 ```bash
-sudo dnf install https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.2.1-1.fc43.x86_64.rpm
+# x86_64
+sudo dnf install https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.2.2-1.fc43.x86_64.rpm
+
+# ARM64 (aarch64)
+sudo dnf install https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.2.2-1.fc43.aarch64.rpm
 ```
 
 ### NixOS / Nix
@@ -91,14 +100,14 @@ nix profile install github:cpfriend1721994/zalos
 ### AppImage (các bản phân phối khác)
 ```bash
 # x86_64
-wget https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.2.1-x86_64.AppImage
-chmod +x Zalos-1.2.1-x86_64.AppImage
-./Zalos-1.2.1-x86_64.AppImage
+wget https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.2.2-x86_64.AppImage
+chmod +x Zalos-1.2.2-x86_64.AppImage
+./Zalos-1.2.2-x86_64.AppImage
 
 # ARM64 (aarch64)
-wget https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.2.1-aarch64.AppImage
-chmod +x Zalos-1.2.1-aarch64.AppImage
-./Zalos-1.2.1-aarch64.AppImage
+wget https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.2.2-aarch64.AppImage
+chmod +x Zalos-1.2.2-aarch64.AppImage
+./Zalos-1.2.2-aarch64.AppImage
 ```
 AppImage dùng môi trường runtime sẵn có của hệ thống; trên bản cài tối giản bạn có thể cần cài thêm các gói
 runtime desktop thông dụng.
@@ -141,7 +150,7 @@ docker compose run --rm package-rpm      # dist/*.x86_64.rpm
 docker compose run --rm package-nix      # dist/*-nixos.tar.gz
 ```
 
-Đẩy một tag theo chuẩn semantic (`git tag v1.0.1 && git push origin v1.0.1`) sẽ build toàn bộ gói và phát hành
+Đẩy một tag theo chuẩn semantic (`git tag v1.2.2 && git push origin v1.2.2`) sẽ build toàn bộ gói và phát hành
 một GitHub Release.
 
 Xem [CONTRIBUTING.md](CONTRIBUTING.md) để biết quy trình đóng góp.

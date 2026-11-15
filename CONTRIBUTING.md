@@ -36,7 +36,7 @@ Before filing an issue, check the existing GitHub issues. A good bug report incl
 
 - Operating system, kernel version, and desktop environment (GNOME, KDE Plasma, XFCE…).
 - Display server (Wayland or X11 — `echo $XDG_SESSION_TYPE`).
-- Which package you installed (AppImage, `.deb`, `.rpm`, Arch, Nix).
+- Which package you installed (AppImage, `.deb`, `.rpm`, Nix, or built from source).
 - Steps to reproduce, and any terminal logs.
 
 ### Suggesting features

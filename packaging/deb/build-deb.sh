@@ -11,7 +11,7 @@ WORKSPACE_DIR="${WORKSPACE_DIR:-/workspace}"
 BUILD_DIR="${WORKSPACE_DIR}/build-deb"
 PKG_DIR="${BUILD_DIR}/pkg"
 OUTPUT_DIR="${WORKSPACE_DIR}/dist"
-ZALOS_VERSION="1.2.1"
+ZALOS_VERSION="1.2.2"
 REVISION="1"
 ARCH="$(dpkg --print-architecture)"
 . /etc/os-release
