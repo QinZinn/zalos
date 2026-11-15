@@ -54,6 +54,10 @@ else
     export QML_IMPORT_PATH="${APPDIR}/usr/lib/qt6-fallback/qml"
 fi
 
+if [ -d "${APPDIR}/usr/lib/opus-fallback" ] && ! /sbin/ldconfig -p 2>/dev/null | grep -q "libopus\.so\.0 "; then
+    export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:+${LD_LIBRARY_PATH}:}${APPDIR}/usr/lib/opus-fallback"
+fi
+
 export XDG_DATA_DIRS="${APPDIR}/usr/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
 
 # Smart display platform detection (Wayland with xcb fallback vs pure X11)
@@ -69,6 +73,26 @@ fi
 
 if [ -z "${GLIBC_TUNABLES}" ]; then
     export GLIBC_TUNABLES="glibc.malloc.arena_max=2:glibc.malloc.tcache_max=64:glibc.malloc.trim_threshold=131072:glibc.malloc.mmap_threshold=131072"
+fi
+
+_detach=0
+if [ -n "${APPIMAGE:-}" ] && [ -z "${ZALOS_NO_DETACH:-}" ] && [ -z "${ZALOS_DEBUG:-}" ] && [ -z "${ZALOS_FOREGROUND:-}" ] \
+   && [ -z "${CI:-}" ] && [ -z "${GITHUB_ACTIONS:-}" ] && [ ! -e /run/firejail ] \
+   && [ -t 0 ] && [ -t 1 ] && command -v setsid >/dev/null 2>&1; then
+    _detach=1
+    for _arg in "$@"; do
+        case "${_arg}" in
+            --debug|--test-gui|--screenshot|-h|--help|-v|--version|-f|--foreground)
+                _detach=0
+                break
+                ;;
+        esac
+    done
+fi
+
+if [ "${_detach}" -eq 1 ]; then
+    ZALOS_NO_DETACH=1 setsid "${APPIMAGE}" "$@" </dev/null >/dev/null 2>&1 &
+    exit 0
 fi
 
 # Execute Zalos binary

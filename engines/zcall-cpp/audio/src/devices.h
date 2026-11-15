@@ -24,6 +24,7 @@ MaybeName defaultSource();
 std::vector<std::string> micCommand(const MaybeName& device, const MaybeName& source);
 
 class ClipGuard;
+struct PulseSimpleApi;
 
 class Mic {
 public:
@@ -41,7 +42,10 @@ private:
     std::shared_ptr<Process> current();
     MaybeName m_device;
     std::mutex m_lock;
+    std::mutex m_ioLock;
     std::shared_ptr<Process> m_proc;
+    std::shared_ptr<PulseSimpleApi> m_pulseApi;
+    void* m_pulseStream{nullptr};
     bool m_closed{false};
     double m_lastFrame{-1};
 };

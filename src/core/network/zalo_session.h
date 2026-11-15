@@ -33,7 +33,7 @@ class ZaloSession : public QObject {
 
 public:
     static constexpr int kApiType = 30;
-    static constexpr int kApiVersion = 685;
+    static constexpr int kApiVersion = 695;
     static const QString kDefaultUserAgent;
 
     using Callback = std::function<void(bool ok, const QJsonValue& data, const QString& error, int errorCode)>;
@@ -69,7 +69,7 @@ public:
     void fetchGroupHistory(const QString& groupId, int count, Callback cb);
     void fetchLastMessages(const QStringList& threadIds, const QSet<QString>& groupIds, Callback cb);
     void fetchCloudHistory(const QString& threadId, bool isMyCloud, const QString& beforeMsgId, int count,
-                           Callback cb);
+                           Callback cb, bool useOldStorage = true);
     void sendText(const QString& threadId, bool isGroup, const QString& text, Callback cb,
                   const QString& cliMsgId = QString(), const QJsonArray& styles = QJsonArray(), qint64 ttl = 0);
     void sendQuote(const QString& threadId, bool isGroup, const QString& text, const QJsonObject& quoted, Callback cb,

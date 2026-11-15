@@ -74,21 +74,21 @@ và được kiểm tra cài đặt trên cả bản cũ nhất lẫn mới nh�
 ### Ubuntu 24.04+ (`.deb`)
 ```bash
 # x86_64 (amd64)
-wget https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.2.3-1~ubuntu24.04_amd64.deb
-sudo apt install ./zalos_1.2.3-1~ubuntu24.04_amd64.deb
+wget https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.2.4-1~ubuntu24.04_amd64.deb
+sudo apt install ./zalos_1.2.4-1~ubuntu24.04_amd64.deb
 
 # ARM64 (aarch64)
-wget https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.2.3-1~ubuntu24.04_arm64.deb
-sudo apt install ./zalos_1.2.3-1~ubuntu24.04_arm64.deb
+wget https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.2.4-1~ubuntu24.04_arm64.deb
+sudo apt install ./zalos_1.2.4-1~ubuntu24.04_arm64.deb
 ```
 
 ### Fedora 43+ (`.rpm`)
 ```bash
 # x86_64
-sudo dnf install https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.2.3-1.fc43.x86_64.rpm
+sudo dnf install https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.2.4-1.fc43.x86_64.rpm
 
 # ARM64 (aarch64)
-sudo dnf install https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.2.3-1.fc43.aarch64.rpm
+sudo dnf install https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.2.4-1.fc43.aarch64.rpm
 ```
 
 ### NixOS / Nix
@@ -100,14 +100,14 @@ nix profile install github:cpfriend1721994/zalos
 ### AppImage (di động, glibc ≥ 2.35)
 ```bash
 # x86_64
-wget https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.2.3-x86_64.AppImage
-chmod +x Zalos-1.2.3-x86_64.AppImage
-./Zalos-1.2.3-x86_64.AppImage
+wget https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.2.4-x86_64.AppImage
+chmod +x Zalos-1.2.4-x86_64.AppImage
+./Zalos-1.2.4-x86_64.AppImage
 
 # ARM64 (aarch64)
-wget https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.2.3-aarch64.AppImage
-chmod +x Zalos-1.2.3-aarch64.AppImage
-./Zalos-1.2.3-aarch64.AppImage
+wget https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.2.4-aarch64.AppImage
+chmod +x Zalos-1.2.4-aarch64.AppImage
+./Zalos-1.2.4-aarch64.AppImage
 ```
 AppImage (~22 MB) ưu tiên dùng Qt 6 sẵn có trên máy và tự chuyển sang runtime Qt 6.4 nhúng sẵn khi hệ thống chưa cài Qt 6 (chỉ cần các thư viện desktop cơ bản và `glibc ≥ 2.35` như Ubuntu 22.04+, Debian 12+, Fedora, openSUSE, Arch).
 
@@ -120,14 +120,10 @@ Dự án không phát hành gói dựng sẵn cho Arch Linux. Hãy **tự build 
 ### Tuỳ chọn: cuộc gọi
 Gọi thoại và video chạy trên engine gọi C++ của chính Zalos (`zalos-call` và `zalos-call-audio`, nằm trong `libexec/zalos`),
 theo giao thức gọi của [zalo-for-linux](https://github.com/VN-Linux-Family/zalo-for-linux) (BSD-3-Clause).
-Zalos không phụ thuộc Python hay Node.js. Các gói phân phối tự động kéo về những thứ cần thiết. Với AppImage, hãy cài
-thêm runtime âm thanh:
+Zalos không phụ thuộc Python hay Node.js:
 
-- Ubuntu: `sudo apt install libopus0 pulseaudio-utils`
-- Fedora: `sudo dnf install opus pulseaudio-utils`
-
-Để thấy camera của người bên kia còn cần **OpenH264** từ bản phân phối của bạn (không bao giờ đóng gói kèm, vì lý
-do bản quyền sáng chế): Ubuntu `sudo apt install libopenh264-7`, Fedora `sudo dnf install openh264`.
+- **Gọi thoại hoạt động ngay** trên `.deb`, `.rpm`, `Nix` và **AppImage** (AppImage đã đóng gói sẵn `libopus.so.0` dự phòng và kết nối trực tiếp tới PulseAudio / PipeWire qua `libpulse-simple.so.0`, thư viện vốn có sẵn trên hầu hết các bản Linux desktop; chỉ các hệ thống tối giản chưa cài PulseAudio/PipeWire client mới cần thêm `libpulse0` trên Ubuntu/Debian hoặc `pulseaudio-libs` trên Fedora).
+- **Gọi video** (thấy camera của người bên kia) cần thêm **OpenH264** từ bản phân phối của bạn (không bao giờ đóng gói kèm, vì lý do bản quyền sáng chế): Ubuntu `sudo apt install libopenh264-7`, Fedora `sudo dnf install openh264`.
 
 ---
 
@@ -149,7 +145,7 @@ docker compose run --rm package-rpm      # dist/*.x86_64.rpm
 docker compose run --rm package-nix      # dist/*-nixos.tar.gz
 ```
 
-Đẩy một tag theo chuẩn semantic (`git tag v1.2.3 && git push origin v1.2.3`) sẽ build toàn bộ gói và phát hành
+Đẩy một tag theo chuẩn semantic (`git tag v1.2.4 && git push origin v1.2.4`) sẽ build toàn bộ gói và phát hành
 một GitHub Release.
 
 Xem [CONTRIBUTING.md](CONTRIBUTING.md) để biết quy trình đóng góp.

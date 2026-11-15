@@ -132,16 +132,33 @@ QVariantList StickerStore::recent() const {
     return arr.toVariantList();
 }
 
+QString StickerStore::currentCategoryName() const {
+    if (!m_query.isEmpty()) return QString();
+    if (m_current == kRecentId) return tr("Gần đây");
+    return m_catalog.value(m_current).value(QStringLiteral("name")).toString();
+}
+
 QVariantList StickerStore::categories() const {
     QVariantList out;
-    if (!recent().isEmpty())
-        out.append(QVariantMap{{"id", kRecentId}, {"name", tr("Gần đây")}, {"iconUrl", QString()}});
-    for (int id : m_personal) {
+    QList<int> seen;
+    auto entryFor = [this](int id) {
         QVariantMap c = m_catalog.value(id);
         if (c.isEmpty()) c = {{"id", id}, {"name", QString()}, {"iconUrl", QString()}};
         if (c.value("iconUrl").toString().isEmpty() && !m_byCategory.value(id).isEmpty())
             c.insert("iconUrl", m_byCategory.value(id).first().toMap().value("url"));
-        out.append(c);
+        return c;
+    };
+    if (!recent().isEmpty())
+        out.append(QVariantMap{{"id", kRecentId}, {"name", tr("Gần đây")}, {"iconUrl", QString()}});
+    for (int id : m_personal) {
+        if (seen.contains(id)) continue;
+        seen.append(id);
+        out.append(entryFor(id));
+    }
+    for (int id : m_catalogOrder) {
+        if (seen.contains(id) || m_excludedCates.contains(id)) continue;
+        seen.append(id);
+        out.append(entryFor(id));
     }
     return out;
 }
@@ -180,8 +197,17 @@ void StickerStore::load() {
             return;
         }
         const QJsonObject o = data.toObject();
+        self->m_excludedCates.clear();
+        for (const QString& key : {QStringLiteral("exIds"), QStringLiteral("exCateIds")}) {
+            for (const QJsonValue& v : o.value(key).toArray()) {
+                const int id = v.toVariant().toInt();
+                if (id > 0 && !self->m_excludedCates.contains(id)) self->m_excludedCates.append(id);
+            }
+        }
         const QJsonArray fallback = o.value("data").toArray();
-        const QString url = o.value("dataUrl").toString();
+        QString url = o.value("dataUrl").toString();
+        if (url.startsWith(QStringLiteral("http://")))
+            url.replace(0, 7, QStringLiteral("https://"));
         if (url.isEmpty() || !self->m_hooks.fetchBytes) {
             self->applyCatalog(fallback);
             self->busy(-1);
@@ -210,10 +236,21 @@ void StickerStore::applyCatalog(const QJsonArray& cates) {
     for (const QJsonValue& v : cates) {
         const QJsonObject c = v.toObject();
         const int id = c.value("id").toVariant().toInt();
-        if (id <= 0) continue;
-        m_catalog.insert(id, {{"id", id}, {"name", c.value("name").toString()}, {"iconUrl", c.value("iconUrl").toString()}});
+        if (id <= 0 || m_excludedCates.contains(id)) continue;
+        QString iconUrl = c.value("iconUrl").toString();
+        if (iconUrl.isEmpty()) iconUrl = c.value("thumbImg").toString();
+        if (iconUrl.startsWith(QStringLiteral("http://")))
+            iconUrl.replace(0, 7, QStringLiteral("https://"));
+        m_catalog.insert(id, {{"id", id}, {"name", c.value("name").toString()}, {"iconUrl", iconUrl}});
+        if (!m_catalogOrder.contains(id)) m_catalogOrder.append(id);
     }
     emit categoriesChanged();
+    if (m_current == kRecentId && m_stickers.isEmpty() && recent().isEmpty()) {
+        const QVariantList cats = categories();
+        if (!cats.isEmpty()) selectCategory(cats.first().toMap().value("id").toInt());
+    } else if (m_current != kRecentId && !m_catalog.value(m_current).isEmpty()) {
+        emit stickersChanged();
+    }
 }
 
 void StickerStore::selectCategory(int cateId) {
@@ -379,6 +416,8 @@ void StickerStore::send(const QVariantMap& sticker) {
 
 void StickerStore::reset() {
     m_personal.clear();
+    m_catalogOrder.clear();
+    m_excludedCates.clear();
     m_byCategory.clear();
     m_loaded = false;
     m_query.clear();

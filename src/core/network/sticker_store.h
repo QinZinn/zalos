@@ -21,6 +21,7 @@ class StickerStore : public QObject {
     QML_ANONYMOUS
     Q_PROPERTY(QVariantList categories READ categories NOTIFY categoriesChanged FINAL)
     Q_PROPERTY(int currentCategory READ currentCategory NOTIFY stickersChanged FINAL)
+    Q_PROPERTY(QString currentCategoryName READ currentCategoryName NOTIFY stickersChanged FINAL)
     Q_PROPERTY(QVariantList stickers READ stickers NOTIFY stickersChanged FINAL)
     Q_PROPERTY(bool loading READ loading NOTIFY loadingChanged FINAL)
     Q_PROPERTY(QString searchQuery READ searchQuery NOTIFY stickersChanged FINAL)
@@ -48,6 +49,7 @@ public:
 
     QVariantList categories() const;
     int currentCategory() const { return m_current; }
+    QString currentCategoryName() const;
     QVariantList stickers() const { return m_stickers; }
     bool loading() const { return m_loading > 0; }
     QString searchQuery() const { return m_query; }
@@ -90,6 +92,8 @@ private:
     Hooks m_hooks;
     QList<int> m_personal;
     QHash<int, QVariantMap> m_catalog;
+    QList<int> m_catalogOrder;
+    QList<int> m_excludedCates;
     QHash<int, QVariantList> m_byCategory;
     mutable QHash<QString, QVariantMap> m_info;
     mutable bool m_cacheLoaded{false};

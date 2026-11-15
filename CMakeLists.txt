@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(zalos VERSION 1.2.3 LANGUAGES CXX)
+project(zalos VERSION 1.2.4 LANGUAGES CXX)
 option(BUILD_TESTING "Build unit tests" ON)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -103,6 +103,8 @@ set(ZALOS_SOURCES
     src/core/models/message_search_model.h
     src/core/network/pin_board.cpp
     src/core/models/message_search_model.cpp
+    src/core/models/emoji_catalog.h
+    src/core/models/emoji_catalog.cpp
     src/core/models/rich_composer.h
     src/core/models/rich_composer.cpp
     src/core/sync/mobile_history_sync.cpp
@@ -306,6 +308,7 @@ if(BUILD_TESTING)
         src/core/models/conversation_model.cpp
         src/core/models/message_model.cpp
         src/core/models/contact_model.cpp
+        src/core/models/emoji_catalog.cpp
     )
     target_include_directories(test_models PRIVATE src src/core)
     target_link_libraries(test_models PRIVATE
@@ -376,6 +379,7 @@ if(BUILD_TESTING)
         src/core/network/sticker_store.cpp
         src/core/network/pin_board.cpp
         src/core/models/message_search_model.cpp
+        src/core/models/emoji_catalog.cpp
         src/core/models/rich_composer.cpp
         src/core/sync/mobile_history_sync.cpp
         src/core/sync/v2/sync_v2_crypto.cpp

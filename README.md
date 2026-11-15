@@ -74,21 +74,21 @@ installed on the oldest and newest one in CI.
 ### Ubuntu 24.04+ (`.deb`)
 ```bash
 # x86_64 (amd64)
-wget https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.2.3-1~ubuntu24.04_amd64.deb
-sudo apt install ./zalos_1.2.3-1~ubuntu24.04_amd64.deb
+wget https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.2.4-1~ubuntu24.04_amd64.deb
+sudo apt install ./zalos_1.2.4-1~ubuntu24.04_amd64.deb
 
 # ARM64 (aarch64)
-wget https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.2.3-1~ubuntu24.04_arm64.deb
-sudo apt install ./zalos_1.2.3-1~ubuntu24.04_arm64.deb
+wget https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.2.4-1~ubuntu24.04_arm64.deb
+sudo apt install ./zalos_1.2.4-1~ubuntu24.04_arm64.deb
 ```
 
 ### Fedora 43+ (`.rpm`)
 ```bash
 # x86_64
-sudo dnf install https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.2.3-1.fc43.x86_64.rpm
+sudo dnf install https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.2.4-1.fc43.x86_64.rpm
 
 # ARM64 (aarch64)
-sudo dnf install https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.2.3-1.fc43.aarch64.rpm
+sudo dnf install https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.2.4-1.fc43.aarch64.rpm
 ```
 
 ### NixOS / Nix
@@ -100,14 +100,14 @@ nix profile install github:cpfriend1721994/zalos
 ### AppImage (portable, glibc ≥ 2.35)
 ```bash
 # x86_64
-wget https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.2.3-x86_64.AppImage
-chmod +x Zalos-1.2.3-x86_64.AppImage
-./Zalos-1.2.3-x86_64.AppImage
+wget https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.2.4-x86_64.AppImage
+chmod +x Zalos-1.2.4-x86_64.AppImage
+./Zalos-1.2.4-x86_64.AppImage
 
 # ARM64 (aarch64)
-wget https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.2.3-aarch64.AppImage
-chmod +x Zalos-1.2.3-aarch64.AppImage
-./Zalos-1.2.3-aarch64.AppImage
+wget https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.2.4-aarch64.AppImage
+chmod +x Zalos-1.2.4-aarch64.AppImage
+./Zalos-1.2.4-aarch64.AppImage
 ```
 The AppImage (~22 MB) uses your host Qt 6 when available and automatically falls back to its bundled Qt 6.4 runtime on systems without Qt 6 (requiring only standard desktop libraries and `glibc ≥ 2.35`, e.g. Ubuntu 22.04+, Debian 12+, Fedora, openSUSE, Arch).
 
@@ -121,14 +121,10 @@ follow [Building from source](#️-building-from-source) — or just use the por
 ### Optional: calls
 Voice and video calls run on Zalos's own C++ call engine (`zalos-call` and `zalos-call-audio`, in `libexec/zalos`),
 which follows the call protocol of [zalo-for-linux](https://github.com/VN-Linux-Family/zalo-for-linux) (BSD-3-Clause).
-Zalos has no Python or Node.js dependency at all. The distribution packages pull in what they need automatically. With the
-AppImage, install the audio runtime yourself:
+Zalos has no Python or Node.js dependency at all:
 
-- Ubuntu: `sudo apt install libopus0 pulseaudio-utils`
-- Fedora: `sudo dnf install opus pulseaudio-utils`
-
-Seeing the other person's camera additionally needs **OpenH264** from your distribution (never bundled, for
-patent-licensing reasons): Ubuntu `sudo apt install libopenh264-7`, Fedora `sudo dnf install openh264`.
+- **Voice calls work out of the box** on `.deb`, `.rpm`, `Nix`, and the **AppImage** (the AppImage bundles a `libopus.so.0` fallback and connects directly to PulseAudio / PipeWire via `libpulse-simple.so.0`, which is already preinstalled on standard desktop Linux distributions; only minimal systems without PulseAudio/PipeWire client libraries need `libpulse0` on Ubuntu/Debian or `pulseaudio-libs` on Fedora).
+- **Video calls** (seeing the other person's camera) additionally need **OpenH264** from your distribution (never bundled, for patent-licensing reasons): Ubuntu `sudo apt install libopenh264-7`, Fedora `sudo dnf install openh264`.
 
 ---
 
@@ -150,7 +146,7 @@ docker compose run --rm package-rpm      # dist/*.x86_64.rpm
 docker compose run --rm package-nix      # dist/*-nixos.tar.gz
 ```
 
-Pushing a semantic tag (`git tag v1.2.3 && git push origin v1.2.3`) builds the full package set and publishes
+Pushing a semantic tag (`git tag v1.2.4 && git push origin v1.2.4`) builds the full package set and publishes
 a GitHub Release.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the contributor workflow.

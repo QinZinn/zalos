@@ -3569,6 +3569,26 @@ private slots:
             {"msgType", "chat.sticker"}, {"ts", "1700000000000"}, {"content", QJsonObject{{"id", 12}, {"catId", 5}}}}, false);
         QCOMPARE(m.extra.value("sticker").toMap().value("frames").toInt(), 16);
         QCOMPARE(m.mediaUrl, QString("https://example.com/t.png"));
+        {
+            QTemporaryDir dir2;
+            QVERIFY(dir2.isValid());
+            QSettings().remove("stickers/recent/u-sticker-catalog");
+            StickerStore::Hooks hooks2;
+            hooks2.session = []() -> ZaloSession* { return nullptr; };
+            hooks2.account = []() { return QString("u-sticker-catalog"); };
+            StickerStore catStore(hooks2);
+            catStore.setCacheFile(dir2.filePath("info2.json"));
+            catStore.applyPersonalForTesting(QJsonObject{{"sticker_cates", QJsonArray{5}}, {"version", 3}});
+            catStore.applyCatalogForTesting(QJsonArray{
+                QJsonObject{{"id", 5}, {"name", "Personal"}, {"iconUrl", "https://example.com/5.png"}},
+                QJsonObject{{"id", 42}, {"name", "Official Catalog"}, {"thumbImg", "http://example.com/42.png"}}});
+            const QVariantList cats = catStore.categories();
+            QCOMPARE(cats.size(), 2);
+            QCOMPARE(cats.at(1).toMap().value("id").toInt(), 42);
+            QCOMPARE(cats.at(1).toMap().value("iconUrl").toString(), QString("https://example.com/42.png"));
+            catStore.selectCategory(42);
+            QCOMPARE(catStore.currentCategoryName(), QString("Official Catalog"));
+        }
     }
 
     // Personal To-Do host (bug 2026-11-03: -69 "Stop retry" from the group_board host).

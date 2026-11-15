@@ -11,7 +11,7 @@ WORKSPACE_DIR="${WORKSPACE_DIR:-/workspace}"
 BUILD_DIR="${WORKSPACE_DIR}/build-deb"
 PKG_DIR="${BUILD_DIR}/pkg"
 OUTPUT_DIR="${WORKSPACE_DIR}/dist"
-ZALOS_VERSION="1.2.3"
+ZALOS_VERSION="1.2.4"
 REVISION="1"
 ARCH="$(dpkg --print-architecture)"
 . /etc/os-release
@@ -65,13 +65,13 @@ Installed-Size: ${INSTALLED_SIZE}
 Section: net
 Priority: optional
 Homepage: https://github.com/cpfriend1721994/zalos
-Depends: ${SHLIB_DEPENDS}, ${QML_DEPENDS}, libopus0
-Recommends: libopenh264-7 | libopenh264-8, pulseaudio-utils | alsa-utils
+Depends: ${SHLIB_DEPENDS}, ${QML_DEPENDS}, libopus0, libpulse0
+Recommends: libopenh264-7 | libopenh264-8
 Description: Native Qt6 (C++/QML) desktop client for Zalo on Linux
  Zalos is a native Qt 6 client for the Zalo messenger: QR sign-in, messaging,
  groups, media and calls. Calls run on the bundled C++ call engine (zalos-call and
- zalos-call-audio in /usr/libexec/zalos); audio uses PulseAudio or PipeWire tools (pactl,
- pacat) and libopus. Call video uses the system's OpenH264, which is never bundled.
+ zalos-call-audio in /usr/libexec/zalos); audio uses PulseAudio/PipeWire (libpulse0)
+ and libopus. Call video uses the system's OpenH264, which is never bundled.
 CONTROL
 
 echo "==> Building ${DEB_NAME}..."

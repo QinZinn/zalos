@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.4] - 2026-11-15
+
+### Calls & Packaging
+- **Zero external audio runtime needed for AppImage voice calls:** replaced `pactl`/`pacat` subprocesses (`pulseaudio-utils`) in `zalos-call-audio` with direct `dlopen()` of `libpulse-simple.so.0` / `libpulse.so.0` (`PulseApi`), and bundled a `libopus.so.0` fallback inside the AppImage.
+- **Terminal-safe AppImage launch:** updated `AppRun` so launching the AppImage from a terminal detaches cleanly via `setsid` and keeps running when the terminal closes.
+- **Updated `.deb` and `.rpm` dependencies:** replaced `pulseaudio-utils` with `libpulse0` / `pulseaudio-libs`; only OpenH264 (`libopenh264-7` / `openh264`) remains optional for camera video.
+
+### Added & Improved
+- **Unified Emoji Picker:** expanded `EmojiCatalog` to 1,000+ Unicode emojis across 9 categories, integrated Zalo emoticons (`😎` for `b-)`), recent history, and continuous scroll-all category navigation.
+- **Full Zalo Reactions & Emoticon Shortcodes:** expanded message reactions (`kReactions`) from 15 to all 54 unique official Zalo reactions and expanded `MessageModel::convertEmoticons` from 23 to 86 official Zalo shortcodes.
+- **Full Sticker Store & Live Search:** upgraded `StickerStore` and `EmojiPickerPopup` to expose the full official Zalo sticker catalog (honoring `exIds`/`exCateIds`, `thumbImg` & `https://` fallback), show the active pack header, load pack icons via `MediaSource`, and debounce live sticker search (300 ms).
+- **Upstream Protocol Sync:** bumped Zalo Web `API_VERSION` to `695`, switched Cloud/My Documents history pagination to `/api/cm/getrecentv2` → `/api/cm/getoldv2` with `hasMore`/`isOld`/`isFiltered`/`-69` handling and `fetchGroupHistory` fallback, added lenient `me-v2` profile parsing with `fetchUserInfo` fallback and `84...` → `0...` phone normalization, and added `sendLink` → `sendText` fallback.
+
+---
+
 ## [1.2.3] - 2026-11-15
 
 ### Packaging & Compatibility

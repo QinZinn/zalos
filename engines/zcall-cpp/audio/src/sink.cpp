@@ -2,52 +2,16 @@
 #include "sink.h"
 
 #include "log.h"
+#include "pulse_api.h"
 
 #include <chrono>
 #include <cstring>
-#include <dlfcn.h>
 #include <thread>
 
 namespace zcall::audio {
 
-struct PulseOut::Lib {
-    struct Spec {
-        int format;
-        uint32_t rate;
-        uint8_t channels;
-    };
-    struct Attr {
-        uint32_t maxlength, tlength, prebuf, minreq, fragsize;
-    };
-    void* handle{nullptr};
-    void* (*simpleNew)(const char*, const char*, int, const char*, const char*, const Spec*, const void*, const Attr*, int*){nullptr};
-    int (*simpleWrite)(void*, const void*, size_t, int*){nullptr};
-    void (*simpleFree)(void*){nullptr};
-    uint64_t (*simpleGetLatency)(void*, int*){nullptr};
-
-    static std::shared_ptr<Lib> load(std::string* error) {
-        void* h = ::dlopen("libpulse-simple.so.0", RTLD_NOW | RTLD_LOCAL);
-        if (!h) {
-            const char* e = ::dlerror();
-            if (error) *error = e ? e : "libpulse-simple.so.0: cannot open shared object file";
-            return nullptr;
-        }
-        auto lib = std::make_shared<Lib>();
-        lib->handle = h;
-        lib->simpleNew = reinterpret_cast<decltype(lib->simpleNew)>(::dlsym(h, "pa_simple_new"));
-        lib->simpleWrite = reinterpret_cast<decltype(lib->simpleWrite)>(::dlsym(h, "pa_simple_write"));
-        lib->simpleFree = reinterpret_cast<decltype(lib->simpleFree)>(::dlsym(h, "pa_simple_free"));
-        lib->simpleGetLatency = reinterpret_cast<decltype(lib->simpleGetLatency)>(::dlsym(h, "pa_simple_get_latency"));
-        if (!lib->simpleNew || !lib->simpleWrite || !lib->simpleFree || !lib->simpleGetLatency) {
-            if (error) *error = "libpulse-simple.so.0 lacks pa_simple_*";
-            return nullptr;
-        }
-        return lib;
-    }
-};
-
 std::unique_ptr<PulseOut> PulseOut::open(const std::optional<std::string>& device, std::string* error) {
-    auto lib = Lib::load(error);
+    auto lib = PulseSimpleApi::load(error);
     if (!lib) return nullptr;
     std::unique_ptr<PulseOut> out(new PulseOut);
     out->m_lib = std::move(lib);
@@ -58,9 +22,9 @@ std::unique_ptr<PulseOut> PulseOut::open(const std::optional<std::string>& devic
 }
 
 void* PulseOut::openStream(const std::optional<std::string>& device, std::string* error) {
-    const Lib::Spec spec{3, 16000, 1};
+    const PulseSimpleApi::Spec spec{3, 16000, 1};
     const uint32_t none = 0xFFFFFFFFu;
-    const Lib::Attr attr{none, static_cast<uint32_t>(kFrameBytes * kLatencyMs / 20), none, none, none};
+    const PulseSimpleApi::Attr attr{none, static_cast<uint32_t>(kFrameBytes * kLatencyMs / 20), none, none, none};
     int err = 0;
     void* s = m_lib->simpleNew(nullptr, "Zalo", 1, device ? device->c_str() : nullptr, "Call", &spec, nullptr, &attr, &err);
     if (!s) {

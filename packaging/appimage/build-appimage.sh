@@ -54,6 +54,19 @@ if [ -n "${CRYPTO_LIB}" ]; then
     echo "==> Bundled $(basename "${CRYPTO_LIB}")"
 fi
 
+OPUS_LIB=""
+for cand in "/usr/lib/${MULTIARCH}/libopus.so.0" "/lib/${MULTIARCH}/libopus.so.0" "/usr/lib64/libopus.so.0" "/usr/lib/libopus.so.0"; do
+    if [ -f "${cand}" ]; then
+        OPUS_LIB="${cand}"
+        break
+    fi
+done
+if [ -n "${OPUS_LIB}" ]; then
+    mkdir -p "${APP_DIR}/usr/lib/opus-fallback"
+    cp -L "${OPUS_LIB}" "${APP_DIR}/usr/lib/opus-fallback/libopus.so.0"
+    echo "==> Bundled libopus.so.0"
+fi
+
 echo "==> Bundling WebP image plugin (animated stickers fallback)..."
 WEBP_DIR="${APP_DIR}/usr/lib/webp-fallback"
 QT_PLUG_SRC=""

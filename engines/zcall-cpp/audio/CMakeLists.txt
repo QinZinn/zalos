@@ -23,6 +23,8 @@ add_library(zcall_audio_core STATIC
     src/options.h
     src/playout.cpp
     src/playout.h
+    src/pulse_api.cpp
+    src/pulse_api.h
     src/sink.cpp
     src/sink.h
     src/spsc_ring.h

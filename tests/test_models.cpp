@@ -1,9 +1,11 @@
 #include <QtTest>
 #include <QDateTime>
+#include <QStandardPaths>
 #include "models/conversation_model.h"
 #include "models/message_model.h"
 #include "models/contact_model.h"
 #include "models/text_fold.h"
+#include "models/emoji_catalog.h"
 
 using namespace Zalos::Core::Models;
 
@@ -89,6 +91,12 @@ private slots:
         QVERIFY(MessageModel::linkify(QStringLiteral("hay :V")).contains(QStringLiteral("qrc:/Zalos/assets/icons/pacman.png")));
         QVERIFY(MessageModel::linkify(QStringLiteral("peace :v:")).contains(QString::fromUtf8("✌️")));
         QVERIFY(MessageModel::linkify(QStringLiteral("haha =))")).contains(QString::fromUtf8("🤣")));
+        QVERIFY(MessageModel::linkify(QStringLiteral("gui /-loveu")).contains(QString::fromUtf8("🫶")));
+        QVERIFY(MessageModel::linkify(QStringLiteral("vo tay :handclap")).contains(QString::fromUtf8("👏")));
+        QVERIFY(MessageModel::linkify(QStringLiteral("tang /-rose va /-coffee")).contains(QString::fromUtf8("🌹")));
+        QVERIFY(MessageModel::linkify(QStringLiteral("tang /-rose va /-coffee")).contains(QString::fromUtf8("☕")));
+        QVERIFY(MessageModel::linkify(QStringLiteral("ok /-strong")).contains(QString::fromUtf8("👍")));
+        QVERIFY(MessageModel::linkify(QStringLiteral("cam on /-thanks /-showlove")).contains(QString::fromUtf8("🙏")));
         QVERIFY(MessageModel::linkify(QStringLiteral("12:30")).contains(QStringLiteral("12:30")));
         QVERIFY(MessageModel::linkify(QStringLiteral("https://a.b:8080/v")).contains(QStringLiteral("8080/v")));
     }
@@ -462,6 +470,54 @@ private slots:
         model.loadConversation("c1");
         QVERIFY(!model.isActiveThreadDuplicatedForTesting());
         QCOMPARE(model.rowCount(), 2);
+    }
+
+    void testEmojiCatalog() {
+        QStandardPaths::setTestModeEnabled(true);
+        EmojiCatalog catalog;
+        QCOMPARE(EmojiCatalog::categoryCount(), 11);
+        QVERIFY(EmojiCatalog::totalCount() >= 600);
+        QCOMPARE(catalog.categories().size(), 11);
+        QCOMPARE(catalog.currentCategory(), QStringLiteral("zalo"));
+        QVERIFY(catalog.items().size() >= 80);
+
+        catalog.selectCategory(QStringLiteral("smileys"));
+        QVERIFY(catalog.items().size() >= 100);
+        catalog.selectCategory(QStringLiteral("flags"));
+        QVERIFY(catalog.items().size() >= 30);
+
+        catalog.search(QStringLiteral("/-heart"));
+        QVERIFY(!catalog.items().isEmpty());
+        QCOMPARE(catalog.items().first().toMap().value(QStringLiteral("glyph")).toString(), QStringLiteral("❤️"));
+
+        catalog.search(QStringLiteral("cà phê"));
+        QVERIFY(!catalog.items().isEmpty());
+
+        catalog.search(QString());
+        catalog.recordRecent(QStringLiteral("🚀"));
+        catalog.recordRecent(QStringLiteral("🎉"));
+        catalog.recordRecent(QStringLiteral("🚀"));
+        catalog.selectCategory(QStringLiteral("recent"));
+        const QVariantList rec = catalog.items();
+        QVERIFY(rec.size() >= 2);
+        QCOMPARE(rec.at(0).toMap().value(QStringLiteral("glyph")).toString(), QStringLiteral("🚀"));
+        QCOMPARE(rec.at(1).toMap().value(QStringLiteral("glyph")).toString(), QStringLiteral("🎉"));
+
+        const QVariantList allSections = catalog.sections();
+        QCOMPARE(allSections.size(), 11);
+        QCOMPARE(allSections.first().toMap().value(QStringLiteral("id")).toString(), QStringLiteral("recent"));
+        QCOMPARE(allSections.at(1).toMap().value(QStringLiteral("id")).toString(), QStringLiteral("zalo"));
+
+        catalog.search(QStringLiteral("cà phê"));
+        const QVariantList searchSections = catalog.sections();
+        QCOMPARE(searchSections.size(), 1);
+        QCOMPARE(searchSections.first().toMap().value(QStringLiteral("id")).toString(), QStringLiteral("search"));
+
+        EmojiCatalog reloaded;
+        const QVariantList reloadedSections = reloaded.sections();
+        QCOMPARE(reloadedSections.first().toMap().value(QStringLiteral("id")).toString(), QStringLiteral("recent"));
+        const QVariantList reloadedRecent = reloadedSections.first().toMap().value(QStringLiteral("items")).toList();
+        QCOMPARE(reloadedRecent.at(0).toMap().value(QStringLiteral("glyph")).toString(), QStringLiteral("🚀"));
     }
 };
 

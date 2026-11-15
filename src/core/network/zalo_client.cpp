@@ -83,10 +83,23 @@ struct ReactionDef {
 };
 constexpr ReactionDef kReactions[] = {
     {"heart", "/-heart", 5, "❤️"},  {"like", "/-strong", 3, "👍"}, {"haha", ":>", 0, "😆"},
-    {"wow", ":o", 32, "😮"},        {"cry", ":-((", 2, "😭"},      {"angry", ":-h", 20, "😡"},
+    {"wow", ":o", 32, "😮"},        {"cry", ":-((", 2, "😢"},      {"angry", ":-h", 20, "😡"},
     {"kiss", ":-*", 8, "😘"},       {"tears_of_joy", ":')", 7, "😂"}, {"rose", "/-rose", 120, "🌹"},
     {"broken_heart", "/-break", 65, "💔"}, {"dislike", "/-weak", 4, "👎"}, {"love", ";xx", 29, "😍"},
-    {"ok", "/-ok", 68, "👌"},       {"pray", "_()_", 73, "🙏"},    {"thanks", "/-thanks", 70, "🙏"},
+    {"ok", "/-ok", 68, "👌"},       {"pray", "_()_", 73, "🙇"},    {"thanks", "/-thanks", 70, "🙏"},
+    {"shit", "/-shit", 66, "💩"},   {"confused", ";-/", 51, "😖"}, {"wink", ";-)", 45, "😉"},
+    {"fade", "/-fade", 121, "🥀"},  {"sun", "/-li", 67, "⚡"},     {"birthday", "/-bd", 126, "🎂"},
+    {"bomb", "/-bome", 127, "💣"},  {"peace", "/-v", 69, "✌️"},    {"punch", "/-punch", 71, "👊"},
+    {"share", "/-share", 72, "🤝"}, {"no", "/-no", 131, "🙅"},     {"bad", "/-bad", 132, "😒"},
+    {"love_you", "/-loveu", 133, "🫶"}, {"sad", "--b", 1, "😓"},   {"very_sad", ":((", 16, "😭"},
+    {"cool", "x-)", 21, "😄"},      {"nerd", "8-)", 22, "🤓"},     {"big_smile", ";-d", 23, "🤪"},
+    {"sunglasses", "b-)", 26, "😎"}, {"neutral", ":--|", 30, "😑"}, {"sad_face", "p-(", 35, "😩"},
+    {"bye", ":-bye", 36, "🙋"},     {"sleepy", "|-)", 38, "🥱"},   {"wipe", ":wipe", 39, "😅"},
+    {"dig", ":-dig", 42, "🤨"},     {"anguish", "&-(", 44, "😠"},  {"handclap", ":handclap", 46, "👏"},
+    {"angry_face", ">-|", 47, "🙄"}, {"f_chair", ":-f", 48, "😪"}, {"l_chair", ":-l", 49, "😔"},
+    {"r_chair", ":-r", 50, "😕"},   {"silent", ";-x", 52, "🤬"},   {"surprise", ":-o", 53, "🤯"},
+    {"embarrassed", ";-s", 54, "🤢"}, {"afraid", ";-a", 60, "🥳"}, {"sad2", ":-<", 61, "🥺"},
+    {"big_laugh", ":))", 62, "🤣"}, {"rich", "$-)", 63, "🤩"},     {"beer", "/-beer", 99, "🍺"},
 };
 
 QString reactionEmoji(const QString& icon) {
@@ -107,11 +120,46 @@ QString captionOf(const QJsonObject& attach) {
 }
 
 QString pickName(const QJsonObject& obj) {
-    for (const char* key : {"displayName", "display_name", "zaloName", "zalo_name", "name"}) {
-        const QString v = obj.value(key).toString();
+    for (const char* key : {"displayName", "display_name", "zaloName", "zalo_name", "name", "username"}) {
+        const QString v = obj.value(key).toString().trimmed();
         if (!v.isEmpty()) return v;
     }
     return {};
+}
+
+QString pickAvatar(const QJsonObject& obj) {
+    for (const char* key : {"avatar", "avt", "avatarUrl", "fullAvt"}) {
+        const QString v = obj.value(key).toString().trimmed();
+        if (!v.isEmpty()) return v;
+    }
+    return {};
+}
+
+QString normalizeDisplayPhone(const QString& raw) {
+    QString digits;
+    digits.reserve(raw.size());
+    for (const QChar ch : raw) {
+        if (ch.isDigit()) digits.append(ch);
+    }
+    if (digits.startsWith(QLatin1String("84")) && digits.size() >= 11 && digits.size() <= 12
+        && digits.at(2) != QLatin1Char('0')) {
+        return QLatin1Char('0') + digits.mid(2);
+    }
+    return raw.trimmed();
+}
+
+QJsonObject pickOwnProfileObject(const QJsonValue& data) {
+    const QJsonObject root = data.toObject();
+    const QJsonObject candidates[] = {
+        root.value("profile").toObject(),
+        root.value("info").toObject(),
+        root.value("user").toObject(),
+        root,
+    };
+    for (const QJsonObject& obj : candidates) {
+        if (!obj.isEmpty() && (!pickName(obj).isEmpty() || !pickAvatar(obj).isEmpty())) return obj;
+    }
+    return candidates[0].isEmpty() ? root : candidates[0];
 }
 
 bool isOfficialAccount(const QJsonObject& user) {
@@ -416,6 +464,7 @@ ZaloClient::ZaloClient(QObject* parent)
         hooks.account = [this]() { return m_myUid; };
         m_stickerStore = new StickerStore(std::move(hooks), this);
     }
+    m_emojiCatalog = new Models::EmojiCatalog(this);
     {
         PinBoard::Hooks hooks;
         hooks.session = [this]() { return m_isLoggedIn ? m_apiClient->session() : nullptr; };
@@ -1044,6 +1093,7 @@ void ZaloClient::logout() {
     m_realtimeWasUp = false;
     if (m_profileRefreshTimer) m_profileRefreshTimer->stop();
     m_historyExhausted.clear();
+    m_cloudPageState.clear();
     m_replyTarget.clear();
     m_scheduler->clear();
     m_notifications->closeAll();
@@ -1086,19 +1136,27 @@ void ZaloClient::loadAccountData() {
         if (--m_pendingSyncJobs <= 0) setSyncing(false);
     };
 
-    session->fetchAccountInfo([this, finishJob](bool ok, const QJsonValue& data, const QString&, int) {
+    session->fetchAccountInfo([this, session, finishJob](bool ok, const QJsonValue& data, const QString&, int) {
         if (ok) {
-            const QJsonObject profile = data.toObject().value("profile").toObject();
+            const QJsonObject profile = pickOwnProfileObject(data);
             const QString name = pickName(profile);
             if (!name.isEmpty()) m_userName = name;
-            m_userAvatar = profile.value("avatar").toString(m_userAvatar);
+            const QString avatar = pickAvatar(profile);
+            if (!avatar.isEmpty()) m_userAvatar = avatar;
             m_calls->setLocalUser(m_myUid, m_userName, m_userAvatar);
-            const QString phone = profile.value("phoneNumber").toString();
-            if (!phone.isEmpty()) m_userPhone = phone;
+            QString rawPhone;
+            for (const char* key : {"phoneNumber", "phone_number", "phone", "phoneNum"}) {
+                const QString v = profile.value(key).toVariant().toString().trimmed();
+                if (!v.isEmpty()) {
+                    rawPhone = v;
+                    break;
+                }
+            }
+            if (!rawPhone.isEmpty()) m_userPhone = normalizeDisplayPhone(rawPhone);
 
             m_myProfile.userId = m_myUid;
             m_myProfile.displayName = m_userName;
-            m_myProfile.zaloName = profile.value("zaloName").toString(m_userName);
+            m_myProfile.zaloName = profile.value("zaloName").toString(profile.value("zalo_name").toString(m_userName));
             m_myProfile.avatar = m_userAvatar;
             m_myProfile.cover = backgroundOf(profile);
             m_myProfile.gender = profile.value("gender").toInt(0);
@@ -1118,6 +1176,32 @@ void ZaloClient::loadAccountData() {
             } else {
                 m_hasBusinessPackage = false;
                 m_businessPackageName.clear();
+            }
+
+            if ((m_userName.isEmpty() || m_userAvatar.isEmpty()) && !m_myUid.isEmpty()) {
+                QPointer<ZaloClient> guard(this);
+                session->fetchUserInfo({m_myUid}, [guard](bool uOk, const QJsonValue& uData, const QString&, int) {
+                    if (!guard || !uOk) return;
+                    const QJsonObject changed = uData.toObject().value("changed_profiles").toObject();
+                    QJsonObject p = changed.value(guard->m_myUid).toObject();
+                    if (p.isEmpty()) p = changed.value(guard->m_myUid + QLatin1String("_0")).toObject();
+                    if (p.isEmpty() && !changed.isEmpty()) p = changed.begin().value().toObject();
+                    if (p.isEmpty()) return;
+                    const QString fallbackName = pickName(p);
+                    const QString fallbackAvatar = pickAvatar(p);
+                    if (guard->m_userName.isEmpty() && !fallbackName.isEmpty()) {
+                        guard->m_userName = fallbackName;
+                        guard->m_myProfile.displayName = fallbackName;
+                    }
+                    if (guard->m_userAvatar.isEmpty() && !fallbackAvatar.isEmpty()) {
+                        guard->m_userAvatar = fallbackAvatar;
+                        guard->m_myProfile.avatar = fallbackAvatar;
+                    }
+                    guard->m_calls->setLocalUser(guard->m_myUid, guard->m_userName, guard->m_userAvatar);
+                    guard->saveSession();
+                    emit guard->userProfileChanged();
+                    emit guard->currentProfileChanged();
+                });
             }
 
             saveSession();
@@ -2716,11 +2800,42 @@ void ZaloClient::selectConversation(const QString& id, const QString& name, cons
     if (currentConversationIsGroup()) {
         m_loadingHistory = true;
         emit historyLoadingChanged();
-        m_apiClient->session()->fetchGroupHistory(id, 50, [this](bool ok, const QJsonValue& data, const QString&, int) {
-            m_loadingHistory = false;
-            emit historyLoadingChanged();
-            if (ok) handleIncomingMessages(data.toObject().value("groupMsgs").toArray(), true, true);
-        });
+        ZaloSession* session = m_apiClient->session();
+        session->fetchCloudHistory(id, false, QString(), 50,
+            [this, id, session](bool ok, const QJsonValue& data, const QString&, int errorCode) {
+                if (ok) {
+                    const QJsonObject obj = data.toObject();
+                    QJsonArray msgs = data.isArray() ? data.toArray() : QJsonArray();
+                    for (const char* key : {"groupMsgs", "msgs", "messages"}) {
+                        for (const QJsonValue& v : obj.value(key).toArray()) msgs.append(v);
+                    }
+                    handleIncomingMessages(msgs, true, true);
+                    const QString lastId = idOf(obj.value("lastMsgId"));
+                    if (obj.contains("hasMore") || obj.contains("isOld") || !lastId.isEmpty()) {
+                        CloudPageState& st = m_cloudPageState[id];
+                        st.initialized = true;
+                        st.useOld = obj.value("isOld").toVariant().toInt() != 0;
+                        if (!lastId.isEmpty() && lastId != QLatin1String("0")) st.lastMsgId = lastId;
+                        if (obj.contains("hasMore") && obj.value("hasMore").toVariant().toInt() == 0)
+                            m_historyExhausted.insert(id);
+                    }
+                    m_loadingHistory = false;
+                    emit historyLoadingChanged();
+                    return;
+                }
+                if (errorCode == -69) {
+                    m_historyExhausted.insert(id);
+                    m_loadingHistory = false;
+                    emit historyLoadingChanged();
+                    return;
+                }
+                session->fetchGroupHistory(id, 50, [this](bool gOk, const QJsonValue& gData, const QString&, int) {
+                    m_loadingHistory = false;
+                    emit historyLoadingChanged();
+                    if (gOk) handleIncomingMessages(gData.toObject().value("groupMsgs").toArray(), true, true);
+                });
+            },
+            false);
     } else if (m_messageModel->threadSize(id) < 20) {
         loadOlderMessages();
     }
@@ -2739,12 +2854,22 @@ void ZaloClient::loadOlderMessages() {
         return;
     }
     if (m_historyExhausted.contains(convId)) return;
+    const CloudPageState st = m_cloudPageState.value(convId);
+    const QString cursor = (!st.lastMsgId.isEmpty() && st.lastMsgId != QLatin1String("0"))
+        ? st.lastMsgId
+        : m_messageModel->oldestMessageId(convId);
+    const bool useOld = st.initialized ? st.useOld : true;
     m_loadingHistory = true;
     emit historyLoadingChanged();
-    session->fetchCloudHistory(convId, isMyCloud, m_messageModel->oldestMessageId(convId), 50,
-        [this, convId, isGroup, session](bool ok, const QJsonValue& data, const QString&, int) {
+    session->fetchCloudHistory(convId, isMyCloud, cursor, 50,
+        [this, convId, isGroup, session, cursor](bool ok, const QJsonValue& data, const QString&, int errorCode) {
             m_loadingHistory = false;
             if (!ok) {
+                if (errorCode == -69) {
+                    m_historyExhausted.insert(convId);
+                    emit historyLoadingChanged();
+                    return;
+                }
                 emit historyLoadingChanged();
                 if (session->isRealtimeConnected()) {
                     session->requestOldMessages(isGroup, m_messageModel->oldestMessageId(convId));
@@ -2756,11 +2881,25 @@ void ZaloClient::loadOlderMessages() {
             for (const char* key : {"groupMsgs", "msgs", "messages"}) {
                 for (const QJsonValue& v : obj.value(key).toArray()) msgs.append(v);
             }
+            const bool hasMorePresent = obj.contains("hasMore");
+            const bool hasMore = obj.value("hasMore").toVariant().toInt() != 0;
+            const bool isFiltered = obj.value("isFiltered").toVariant().toInt() != 0;
+            const QString nextCursor = idOf(obj.value("lastMsgId"));
+            if (obj.contains("hasMore") || obj.contains("isOld") || !nextCursor.isEmpty()) {
+                CloudPageState& nextSt = m_cloudPageState[convId];
+                nextSt.initialized = true;
+                nextSt.useOld = obj.value("isOld").toVariant().toInt() != 0;
+                if (!nextCursor.isEmpty() && nextCursor != QLatin1String("0")) nextSt.lastMsgId = nextCursor;
+            }
             const int before = m_messageModel->threadSize(convId);
             handleIncomingMessages(msgs, isGroup, true);
-            if (msgs.isEmpty() || m_messageModel->threadSize(convId) == before) m_historyExhausted.insert(convId);
+            const bool emptyStop = msgs.isEmpty() && (isFiltered || !hasMorePresent || nextCursor.isEmpty() || nextCursor == cursor);
+            if ((hasMorePresent && !hasMore) || emptyStop || (!hasMorePresent && m_messageModel->threadSize(convId) == before)) {
+                m_historyExhausted.insert(convId);
+            }
             emit historyLoadingChanged();
-        });
+        },
+        useOld);
 }
 
 void ZaloClient::sendMessage(const QString& text) {
@@ -2891,7 +3030,16 @@ void ZaloClient::sendTextNow(const QString& convId, bool isGroup, const QString&
             guard->sendText(convId, isGroup, text, done, cliMsgId, QJsonArray(), ttl);
             return;
         }
-        guard->sendLink(convId, isGroup, text, preview, done, cliMsgId, ttl);
+        guard->sendLink(convId, isGroup, text, preview,
+            [guard, convId, isGroup, text, done, cliMsgId, ttl](bool linkOk, const QJsonValue& linkData,
+                                                                 const QString& linkErr, int linkCode) {
+                if (linkOk || !guard) {
+                    done(linkOk, linkData, linkErr, linkCode);
+                    return;
+                }
+                guard->sendText(convId, isGroup, text, done, cliMsgId, QJsonArray(), ttl);
+            },
+            cliMsgId, ttl);
     });
 }
 
@@ -3224,6 +3372,8 @@ void ZaloClient::deleteConversation(const QString& id) {
         m_messageModel->clearThread(id);
         m_conversationModel->removeConversation(id);
         m_historyLoaded.remove(id);
+        m_historyExhausted.remove(id);
+        m_cloudPageState.remove(id);
         m_markedUnread.remove(id);
         m_groupIds.remove(id);
         m_groups.remove(id);
@@ -3254,6 +3404,8 @@ void ZaloClient::deleteConversation(const QString& id) {
             m_messageModel->clearThread(id);
             m_conversationModel->removeConversation(id);
             m_historyLoaded.remove(id);
+        m_historyExhausted.remove(id);
+        m_cloudPageState.remove(id);
             m_markedUnread.remove(id);
             if (m_offlineStore) m_offlineStore->deleteConversation(id);
             emit notice(L("Đã xoá hội thoại.", "Conversation deleted."));
@@ -6360,10 +6512,8 @@ QVariantList ZaloClient::systemSounds() const {
 
 QVariantList ZaloClient::reactionList() const {
     QVariantList out;
-    for (const auto& r : kReactions) {
-        if (QLatin1String(r.key) == QLatin1String("thanks")) continue;
+    for (const auto& r : kReactions)
         out.append(QVariantMap{{"key", QString::fromLatin1(r.key)}, {"emoji", QString::fromUtf8(r.emoji)}});
-    }
     return out;
 }
 

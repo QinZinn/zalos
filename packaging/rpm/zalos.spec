@@ -4,7 +4,7 @@
 %global _find_debuginfo_dwz_opts %{nil}
 
 Name:           zalos
-Version:        1.2.3
+Version:        1.2.4
 Release:        1%{?dist}
 Summary:        Zalo desktop client ported to Qt6 (C++/QML) for Linux
 License:        MIT AND BSD-3-Clause
@@ -33,9 +33,9 @@ Requires:       qt6-qtimageformats
 Requires:       qt6-qtwayland
 Requires:       qt6-qtwebsockets
 Requires:       qt6-qtmultimedia
-# C++ call engine (zalos-call, zalos-call-audio in libexec/zalos): libopus is dlopen()ed, audio uses pactl/pacat.
+# C++ call engine (zalos-call, zalos-call-audio in libexec/zalos): libopus and libpulse-simple are dlopen()ed.
 Requires:       opus
-Recommends:     pulseaudio-utils
+Requires:       pulseaudio-libs
 Requires:       xcb-util-cursor
 Requires:       openssl
 Requires:       sqlite
@@ -79,6 +79,11 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/%{name}.desktop
 %{_datadir}/metainfo/io.github.cpfriend1721994.zalos.metainfo.xml
 
 %changelog
+* Sun Nov 15 2026 Zalos Team <dev@zalos.local> - 1.2.4-1
+- Replace pactl/pacat subprocesses with direct libpulse-simple dlopen(), bundle libopus.so.0 fallback in AppImage, and detach AppImage cleanly from launching terminals.
+- Expand Emoji Picker (1,000+ emojis with scroll-all tabs), reactions (54 unique), emoticon shortcodes (86), and full Sticker catalog with live debounced search.
+- Sync upstream Zalo Web API_VERSION 695, /api/cm/getrecentv2 + /api/cm/getoldv2 cloud paging, lenient profile fallback, and sendLink->sendText fallback.
+
 * Sun Nov 15 2026 Zalos Team <dev@zalos.local> - 1.2.3-1
 - Self-contained AppImage with surgical Qt 6.4 fallback, glibc 2.35 compatibility shim, dynamic host-ICU/libproxy forwarding, and zstd -22 compression (~22 MB).
 - Fix Qt 6.4 QML compatibility (remove read-only AnimatedImage.sourceSize and pragma ComponentBehavior: Bound in Loader files).

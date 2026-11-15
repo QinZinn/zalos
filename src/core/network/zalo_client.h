@@ -31,6 +31,7 @@ class QMediaPlayer;
 #include "network/pin_board.h"
 #include "models/rich_composer.h"
 #include "models/message_search_model.h"
+#include "models/emoji_catalog.h"
 #include "platform/sound_engine.h"
 
 #include "media/voice_recorder.h"
@@ -58,6 +59,7 @@ class ZaloClient : public QObject {
     Q_PROPERTY(Zalos::Core::Network::GroupAdmin* groupAdmin READ groupAdmin CONSTANT FINAL)
     Q_PROPERTY(Zalos::Core::Network::LabelManager* labels READ labels CONSTANT FINAL)
     Q_PROPERTY(Zalos::Core::Network::StickerStore* stickers READ stickers CONSTANT FINAL)
+    Q_PROPERTY(Zalos::Core::Models::EmojiCatalog* emojis READ emojis CONSTANT FINAL)
     Q_PROPERTY(Zalos::Core::Network::PinBoard* pins READ pins CONSTANT FINAL)
     Q_PROPERTY(Zalos::Core::Models::MessageSearchModel* messageSearch READ messageSearch CONSTANT FINAL)
     Q_PROPERTY(Zalos::Core::Models::MessageSearchModel* peopleSearch READ peopleSearch CONSTANT FINAL)
@@ -277,6 +279,7 @@ public:
     GroupAdmin* groupAdmin() const { return m_groupAdmin; }
     LabelManager* labels() const { return m_labelManager; }
     StickerStore* stickers() const { return m_stickerStore; }
+    Models::EmojiCatalog* emojis() const { return m_emojiCatalog; }
     PinBoard* pins() const { return m_pinBoard; }
     Models::MessageSearchModel* messageSearch() const { return m_messageSearch; }
     Models::MessageSearchModel* peopleSearch() const { return m_peopleSearch; }
@@ -1016,6 +1019,12 @@ private:
     QTimer* m_friendEventDebounce{nullptr};
     QTimer* m_rebuildContactsTimer{nullptr};
     QSet<QString> m_historyExhausted;
+    struct CloudPageState {
+        QString lastMsgId;
+        bool useOld{false};
+        bool initialized{false};
+    };
+    QHash<QString, CloudPageState> m_cloudPageState;
     QVariantMap m_replyTarget;
     class MessageScheduler* m_scheduler{nullptr};
     Platform::DesktopNotifications* m_notifications{nullptr};
@@ -1026,6 +1035,7 @@ private:
     GroupAdmin* m_groupAdmin{nullptr};
     LabelManager* m_labelManager{nullptr};
     StickerStore* m_stickerStore{nullptr};
+    Models::EmojiCatalog* m_emojiCatalog{nullptr};
     PinBoard* m_pinBoard{nullptr};
     Models::MessageSearchModel* m_messageSearch{nullptr};
     Models::MessageSearchModel* m_peopleSearch{nullptr};

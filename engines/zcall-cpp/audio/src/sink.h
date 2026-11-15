@@ -14,6 +14,8 @@
 
 namespace zcall::audio {
 
+struct PulseSimpleApi;
+
 class Sink {
 public:
     virtual ~Sink() = default;
@@ -36,10 +38,9 @@ public:
     bool switchTo(const std::optional<std::string>& device, std::string* error);
 
 private:
-    struct Lib;
     PulseOut() = default;
     void* openStream(const std::optional<std::string>& device, std::string* error);
-    std::shared_ptr<Lib> m_lib;
+    std::shared_ptr<PulseSimpleApi> m_lib;
     std::mutex m_lock;
     void* m_stream{nullptr};
     bool m_failed{false};

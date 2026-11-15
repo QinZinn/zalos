@@ -3,6 +3,7 @@ import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
 import Zalos
+import "MediaSource.js" as MediaSource
 
 Rectangle {
     id: root
@@ -19,7 +20,11 @@ Rectangle {
 
     property int tab: 0
 
-    onVisibleChanged: if (visible && root.tab === 1) ZaloClient.stickers.load()
+    onVisibleChanged: {
+        if (!visible) return;
+        if (root.tab === 0) emojiSectionList.positionViewAtBeginning();
+        else if (root.tab === 1) ZaloClient.stickers.load();
+    }
 
     ColumnLayout {
         anchors.fill: parent
@@ -77,40 +82,99 @@ Rectangle {
             color: ThemeManager.borderColor
         }
 
-        GridView {
+        ZTextField {
+            id: emojiSearch
+            visible: root.tab === 0
+            Layout.fillWidth: true
+            placeholderText: I18n.t("Tìm biểu tượng (ví dụ: cười, tim, :), cà phê)", "Search emoji (e.g. smile, heart, :), coffee)")
+            onTextChanged: ZaloClient.emojis.search(text)
+        }
+
+        Item {
+            id: emojiListContainer
             visible: root.tab === 0
             Layout.fillWidth: true
             Layout.fillHeight: true
-            clip: true
-            cellWidth: Math.floor(width / Math.max(4, Math.floor(width / 44)))
-            cellHeight: 44
-            model: [
-                "👍", "❤️", "😂", "😮", "😢", "😡", "😆", "😍",
-                "🥰", "😘", "😊", "😉", "🤔", "😴", "😭", "😅",
-                "🎉", "🔥", "👏", "🙏", "🚀", "💯", "👌", "🤝",
-                "☕", "💼", "✅", "🎁", "⭐", "💡", "🎂", "🥳",
-                "✨", "💪", "😎", "🌹", "💔", "👎", "🙌", "🤗"
-            ]
-            delegate: Rectangle {
-                id: emojiCell
-                required property string modelData
-                width: GridView.view.cellWidth
-                height: 44
-                radius: 8
-                color: emojiMouse.containsMouse ? (ThemeManager.hoverColor) : ThemeManager.hoverClearColor
+            readonly property int columns: Math.max(6, Math.floor((width - 8) / 42))
+            readonly property int cellSize: Math.floor((width - 8) / columns)
 
-                Text {
-                    anchors.centerIn: parent
-                    text: emojiCell.modelData
-                    font.pixelSize: 22
+            ListView {
+                id: emojiSectionList
+                anchors.fill: parent
+                clip: true
+                spacing: 10
+                cacheBuffer: 400
+                model: ZaloClient.emojis.sections
+                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+
+                delegate: Column {
+                    id: sectionDelegate
+                    required property var modelData
+                    readonly property string nameVi: sectionDelegate.modelData.nameVi || ""
+                    readonly property string nameEn: sectionDelegate.modelData.nameEn || ""
+                    readonly property var sectionItems: sectionDelegate.modelData.items || []
+                    width: ListView.view ? ListView.view.width - 8 : emojiListContainer.width - 8
+                    spacing: 4
+
+                    Text {
+                        width: parent.width
+                        text: I18n.t(sectionDelegate.nameVi, sectionDelegate.nameEn)
+                        font.family: Theme.fontFamily
+                        font.pixelSize: 11
+                        font.bold: true
+                        color: ThemeManager.secondaryTextColor
+                        elide: Text.ElideRight
+                    }
+
+                    Grid {
+                        width: parent.width
+                        columns: emojiListContainer.columns
+
+                        Repeater {
+                            model: sectionDelegate.sectionItems
+                            delegate: Rectangle {
+                                id: emojiCell
+                                required property var modelData
+                                readonly property string glyph: emojiCell.modelData.glyph || ""
+                                readonly property string code: emojiCell.modelData.code || ""
+                                width: emojiListContainer.cellSize
+                                height: 40
+                                radius: 8
+                                color: emojiMouse.containsMouse ? ThemeManager.hoverColor : ThemeManager.hoverClearColor
+
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: emojiCell.glyph
+                                    font.pixelSize: 22
+                                }
+                                MouseArea {
+                                    id: emojiMouse
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: {
+                                        ZaloClient.emojis.recordRecent(emojiCell.glyph);
+                                        root.emojiSelected(emojiCell.glyph);
+                                    }
+                                }
+                                ToolTip.visible: emojiMouse.containsMouse && emojiCell.code.length > 0
+                                ToolTip.text: emojiCell.code
+                            }
+                        }
+                    }
                 }
-                MouseArea {
-                    id: emojiMouse
-                    anchors.fill: parent
-                    hoverEnabled: true
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: root.emojiSelected(emojiCell.modelData)
-                }
+            }
+
+            Text {
+                anchors.centerIn: parent
+                width: parent.width - 24
+                visible: ZaloClient.emojis.sections.length === 0
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.Wrap
+                text: I18n.t("Không tìm thấy biểu tượng phù hợp.", "No matching emoji.")
+                font.family: Theme.fontFamily
+                font.pixelSize: 12
+                color: ThemeManager.secondaryTextColor
             }
         }
 
@@ -119,8 +183,24 @@ Rectangle {
             visible: root.tab === 1
             Layout.fillWidth: true
             placeholderText: I18n.t("Tìm nhãn dán (ví dụ: chào, cảm ơn, haha)", "Search stickers (e.g. hello, thanks)")
-            onAccepted: ZaloClient.stickers.search(text)
-            onTextChanged: if (text.length === 0 && ZaloClient.stickers.searchQuery.length > 0) ZaloClient.stickers.search("")
+            onAccepted: {
+                stickerSearchTimer.stop()
+                ZaloClient.stickers.search(text.trim())
+            }
+            onTextChanged: {
+                if (text.trim().length === 0) {
+                    stickerSearchTimer.stop()
+                    if (ZaloClient.stickers.searchQuery.length > 0)
+                        ZaloClient.stickers.search("")
+                } else {
+                    stickerSearchTimer.restart()
+                }
+            }
+            Timer {
+                id: stickerSearchTimer
+                interval: 300
+                onTriggered: ZaloClient.stickers.search(stickerSearch.text.trim())
+            }
         }
 
         Item {
@@ -128,9 +208,29 @@ Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
 
+            Text {
+                id: stickerHeader
+                anchors { left: parent.left; right: parent.right; top: parent.top }
+                visible: text.length > 0
+                text: ZaloClient.stickers.searchQuery.length > 0
+                      ? I18n.t("Kết quả tìm kiếm", "Search results")
+                      : ZaloClient.stickers.currentCategoryName
+                font.family: Theme.fontFamily
+                font.pixelSize: 12
+                font.weight: Font.Medium
+                color: ThemeManager.secondaryTextColor
+                elide: Text.ElideRight
+            }
+
             GridView {
                 id: stickerGrid
-                anchors.fill: parent
+                anchors {
+                    left: parent.left
+                    right: parent.right
+                    top: stickerHeader.visible ? stickerHeader.bottom : parent.top
+                    topMargin: stickerHeader.visible ? 4 : 0
+                    bottom: parent.bottom
+                }
                 clip: true
                 cellWidth: Math.floor(width / Math.max(3, Math.floor(width / 84)))
                 cellHeight: cellWidth
@@ -210,7 +310,7 @@ Rectangle {
                     visible: pack.packId !== -1
                     anchors.fill: parent
                     anchors.margins: 5
-                    source: pack.packIconUrl
+                    source: MediaSource.toSource(pack.packIconUrl)
                     asynchronous: true
                     fillMode: Image.PreserveAspectFit
                     sourceSize.width: 64

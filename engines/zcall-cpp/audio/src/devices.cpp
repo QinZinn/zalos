@@ -2,6 +2,7 @@
 #include "devices.h"
 
 #include "log.h"
+#include "pulse_api.h"
 
 #include <chrono>
 #include <cstdlib>
@@ -105,6 +106,7 @@ context.modules = [
 }
 
 bool pulseRunning() {
+    if (PulseApi::available()) return PulseApi::isRunning();
     const RunResult r = run({"pactl", "info"}, 3000);
     return r.ok() && r.exitCode == 0;
 }
@@ -121,6 +123,7 @@ std::vector<std::string> parsePulseNames(const std::string& out) {
 }
 
 std::vector<std::string> pulseNames(const std::string& kind) {
+    if (PulseApi::available()) return PulseApi::listNames(kind == "sources");
     const RunResult r = run({"pactl", "list", "short", kind}, 3000);
     if (!r.ok()) return {};
     return parsePulseNames(r.out);
@@ -136,13 +139,11 @@ MaybeName present(const MaybeName& name, const std::string& kind) {
 
 MaybeName pulseMic() {
     if (const char* env = std::getenv("ZCALL_MIC"); env && *env) return std::string(env);
-    const RunResult d = run({"pactl", "get-default-source"}, 3000);
-    if (!d.started || d.timedOut) return std::nullopt;
-    const std::string def = strip(d.out);
+    const MaybeName d = defaultSource();
+    if (!d) return std::nullopt;
+    const std::string& def = *d;
     if (!def.empty() && def.find("aloop") == std::string::npos && !endsWith(def, ".monitor")) return std::nullopt;
-    const RunResult names = run({"pactl", "list", "short", "sources"}, 3000);
-    if (!names.started || names.timedOut) return std::nullopt;
-    for (const auto& name : parsePulseNames(names.out)) {
+    for (const auto& name : pulseNames("sources")) {
         if (startsWith(name, "alsa_input.") && name.find("aloop") == std::string::npos) {
             logLine("default source " + def + " is a loopback; using " + name);
             return name;
@@ -152,6 +153,7 @@ MaybeName pulseMic() {
 }
 
 MaybeName defaultSource() {
+    if (PulseApi::available()) return PulseApi::defaultSource();
     const RunResult r = run({"pactl", "get-default-source"}, 3000);
     if (!r.ok()) return std::nullopt;
     const std::string s = strip(r.out);
@@ -184,6 +186,47 @@ std::shared_ptr<Process> Mic::current() {
 }
 
 void Mic::switchTo(const MaybeName& source) {
+    if (!m_device && pulseRunning()) {
+        std::string err;
+        auto api = PulseSimpleApi::load(&err);
+        if (api) {
+            MaybeName src = present(source, "sources");
+            if (!src) src = pulseMic();
+            const PulseSimpleApi::Spec spec{3, 16000, 1};
+            const uint32_t none = 0xFFFFFFFFu;
+            const PulseSimpleApi::Attr attr{none, none, none, none, static_cast<uint32_t>(kFrameBytes)};
+            int paErr = 0;
+            void* freshStream = api->simpleNew(nullptr, "Zalo", 2, src ? src->c_str() : nullptr, "Call", &spec,
+                                               nullptr, &attr, &paErr);
+            if (freshStream) {
+                logLine(std::string("mic: libpulse-simple ") + (src ? *src : "default") + ", 20 ms");
+                std::shared_ptr<Process> oldProc;
+                std::shared_ptr<PulseSimpleApi> oldApi;
+                void* oldStream = nullptr;
+                {
+                    std::lock_guard<std::mutex> ioLock(m_ioLock);
+                    std::lock_guard<std::mutex> lock(m_lock);
+                    if (m_closed) {
+                        api->simpleFree(freshStream);
+                        return;
+                    }
+                    oldProc = std::move(m_proc);
+                    oldApi = std::move(m_pulseApi);
+                    oldStream = m_pulseStream;
+                    m_pulseApi = std::move(api);
+                    m_pulseStream = freshStream;
+                }
+                if (oldStream && oldApi) oldApi->simpleFree(oldStream);
+                if (oldProc) {
+                    oldProc->kill();
+                    oldProc->wait(-1);
+                }
+                return;
+            }
+            logLine(fmt("mic: libpulse-simple failed (%d), falling back to subprocess", paErr));
+        }
+    }
+
     const auto cmd = micCommand(m_device, source);
     std::string joined;
     for (const auto& a : cmd) joined += (joined.empty() ? "" : " ") + a;
@@ -194,12 +237,19 @@ void Mic::switchTo(const MaybeName& source) {
     std::shared_ptr<Process> fresh(Process::spawn(cmd, o, &error).release());
     if (!fresh) fault("mic", error);
     std::shared_ptr<Process> old;
+    std::shared_ptr<PulseSimpleApi> oldApi;
+    void* oldStream = nullptr;
     {
+        std::lock_guard<std::mutex> ioLock(m_ioLock);
         std::lock_guard<std::mutex> lock(m_lock);
         if (m_closed) return;
-        old = m_proc;
+        old = std::move(m_proc);
+        oldApi = std::move(m_pulseApi);
+        oldStream = m_pulseStream;
+        m_pulseStream = nullptr;
         m_proc = fresh;
     }
+    if (oldStream && oldApi) oldApi->simpleFree(oldStream);
     if (old) {
         old->kill();
         old->wait(-1);
@@ -208,19 +258,54 @@ void Mic::switchTo(const MaybeName& source) {
 
 void Mic::close() {
     std::shared_ptr<Process> proc;
+    std::shared_ptr<PulseSimpleApi> api;
+    void* stream = nullptr;
     {
+        std::lock_guard<std::mutex> ioLock(m_ioLock);
         std::lock_guard<std::mutex> lock(m_lock);
         m_closed = true;
         proc = std::move(m_proc);
+        api = std::move(m_pulseApi);
+        stream = m_pulseStream;
+        m_pulseStream = nullptr;
     }
+    if (stream && api) api->simpleFree(stream);
     if (proc && proc->running()) proc->stop(2000);
 }
 
 bool Mic::nextFrame(int16_t* out) {
     for (;;) {
-        std::shared_ptr<Process> proc = current();
-        if (!proc) return false;
-        const bool ok = readExact(proc->stdoutFd(), out, size_t(kFrameBytes));
+        std::shared_ptr<PulseSimpleApi> api;
+        void* stream = nullptr;
+        std::shared_ptr<Process> proc;
+        {
+            std::lock_guard<std::mutex> lock(m_lock);
+            if (m_closed) return false;
+            api = m_pulseApi;
+            stream = m_pulseStream;
+            proc = m_proc;
+        }
+        bool ok = false;
+        if (stream && api) {
+            std::lock_guard<std::mutex> ioLock(m_ioLock);
+            std::shared_ptr<PulseSimpleApi> curApi;
+            void* curStream = nullptr;
+            bool closed = false;
+            {
+                std::lock_guard<std::mutex> lock(m_lock);
+                closed = m_closed;
+                curApi = m_pulseApi;
+                curStream = m_pulseStream;
+            }
+            if (closed || curStream != stream) continue;
+            int paErr = 0;
+            ok = curApi->simpleRead(curStream, out, size_t(kFrameBytes), &paErr) >= 0;
+        } else if (proc) {
+            ok = readExact(proc->stdoutFd(), out, size_t(kFrameBytes));
+        } else {
+            return false;
+        }
+
         const double now = monoSeconds();
         if (m_lastFrame >= 0 && ok) {
             const double gap = now - m_lastFrame;
@@ -229,7 +314,12 @@ bool Mic::nextFrame(int16_t* out) {
         }
         m_lastFrame = now;
         if (!ok) {
-            if (proc != current()) continue;
+            if (stream) {
+                std::lock_guard<std::mutex> lock(m_lock);
+                if (!m_closed && m_pulseStream != stream) continue;
+            } else if (proc != current()) {
+                continue;
+            }
             logLine("microphone stream ended");
             fault("mic", "capture ended");
             return false;

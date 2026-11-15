@@ -2,6 +2,7 @@
 #include "clip_guard.h"
 
 #include "log.h"
+#include "pulse_api.h"
 #include "subprocess.h"
 
 #include <algorithm>
@@ -31,13 +32,23 @@ std::string afterLastSlash(const std::string& s) {
 
 class PactlVolume : public VolumeControl {
 public:
-    bool available() override { return which("pactl").has_value(); }
+    bool available() override { return PulseApi::available() || which("pactl").has_value(); }
     std::optional<std::string> getVolume(const std::string& source) override {
+        if (PulseApi::available()) {
+            const auto pct = PulseApi::getSourceVolumePercent(source);
+            if (!pct) return std::nullopt;
+            return "/ " + std::to_string(*pct) + "%";
+        }
         const RunResult r = run({"pactl", "get-source-volume", source}, 3000, true);
         if (!r.ok()) return std::nullopt;
         return r.out;
     }
     void setVolume(const std::string& source, int64_t raw) override {
+        if (PulseApi::available()) {
+            if (!PulseApi::setSourceVolumeRaw(source, static_cast<uint32_t>(std::max<int64_t>(0, raw))))
+                logLine("mic volume: libpulse set source volume failed");
+            return;
+        }
         const RunResult r = run({"pactl", "set-source-volume", source, std::to_string(raw)}, 3000);
         if (!r.started) logLine("mic volume: " + r.error);
     }

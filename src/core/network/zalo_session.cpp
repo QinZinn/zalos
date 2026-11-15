@@ -497,17 +497,21 @@ void ZaloSession::fetchLastMessages(const QStringList& threadIds, const QSet<QSt
 }
 
 void ZaloSession::fetchCloudHistory(const QString& threadId, bool isMyCloud, const QString& beforeMsgId, int count,
-                                    Callback cb) {
+                                    Callback cb, bool useOldStorage) {
+    const bool hasCursor = !beforeMsgId.isEmpty() && beforeMsgId != QLatin1String("0");
+    const QString globalMsgId = useOldStorage
+        ? (hasCursor ? beforeMsgId : QStringLiteral("9223372036854775808"))
+        : (hasCursor ? beforeMsgId : QStringLiteral("0"));
     QJsonObject params{
         {"groupId", threadId},
-        {"globalMsgId", beforeMsgId.isEmpty() || beforeMsgId == "0" ? QStringLiteral("9223372036854775808") : beforeMsgId},
+        {"globalMsgId", globalMsgId},
         {"count", count},
         {"msgIds", QJsonArray()},
         {"imei", m_imei},
-        {"src", 3},
+        {"src", (!useOldStorage && !hasCursor) ? 1 : 3},
     };
     if (isMyCloud) params["isOA"] = 1;
-    apiGet("group_cloud_message", "/api/cm/getoldv2", params, cb);
+    apiGet("group_cloud_message", useOldStorage ? "/api/cm/getoldv2" : "/api/cm/getrecentv2", params, cb);
 }
 
 void ZaloSession::sendQuote(const QString& threadId, bool isGroup, const QString& text, const QJsonObject& quoted,
