@@ -64,31 +64,31 @@ purpose-built architecture:
 Pick the package for your distribution. Every release is built on the **oldest** release it supports and
 installed on the oldest and newest one in CI.
 
-| Distribution | Package | Supported releases |
+| Distribution | Package | Supported releases & Qt6 handling |
 |---|---|---|
-| Ubuntu (and Mint, Pop!_OS, Zorin, elementary…) | `.deb` | Ubuntu **24.04 LTS** and newer |
-| Fedora | `.rpm` | Fedora **43** and newer |
-| NixOS / any distro with Nix | Nix flake | nixos-unstable |
-| openSUSE, Debian, others | AppImage | any recent distribution |
+| Ubuntu (and Mint, Pop!_OS, Zorin, elementary…) | `.deb` | Ubuntu **24.04 LTS+** (uses distro Qt6) |
+| Fedora | `.rpm` | Fedora **43+** (uses distro Qt6) |
+| NixOS / any distro with Nix | Nix flake | `nixos-unstable` (isolated Qt6 from `/nix/store`) |
+| Ubuntu 22.04+, Debian 12+, openSUSE, Arch, others | AppImage | `glibc ≥ 2.35` (self-contained ~22 MB; bundles Qt 6.4 fallback when host Qt6 is absent) |
 
 ### Ubuntu 24.04+ (`.deb`)
 ```bash
 # x86_64 (amd64)
-wget https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.2.2-1~ubuntu24.04_amd64.deb
-sudo apt install ./zalos_1.2.2-1~ubuntu24.04_amd64.deb
+wget https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.2.3-1~ubuntu24.04_amd64.deb
+sudo apt install ./zalos_1.2.3-1~ubuntu24.04_amd64.deb
 
 # ARM64 (aarch64)
-wget https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.2.2-1~ubuntu24.04_arm64.deb
-sudo apt install ./zalos_1.2.2-1~ubuntu24.04_arm64.deb
+wget https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.2.3-1~ubuntu24.04_arm64.deb
+sudo apt install ./zalos_1.2.3-1~ubuntu24.04_arm64.deb
 ```
 
 ### Fedora 43+ (`.rpm`)
 ```bash
 # x86_64
-sudo dnf install https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.2.2-1.fc43.x86_64.rpm
+sudo dnf install https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.2.3-1.fc43.x86_64.rpm
 
 # ARM64 (aarch64)
-sudo dnf install https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.2.2-1.fc43.aarch64.rpm
+sudo dnf install https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.2.3-1.fc43.aarch64.rpm
 ```
 
 ### NixOS / Nix
@@ -97,20 +97,19 @@ nix run github:cpfriend1721994/zalos     # run without installing
 nix profile install github:cpfriend1721994/zalos
 ```
 
-### AppImage (other distributions)
+### AppImage (portable, glibc ≥ 2.35)
 ```bash
 # x86_64
-wget https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.2.2-x86_64.AppImage
-chmod +x Zalos-1.2.2-x86_64.AppImage
-./Zalos-1.2.2-x86_64.AppImage
+wget https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.2.3-x86_64.AppImage
+chmod +x Zalos-1.2.3-x86_64.AppImage
+./Zalos-1.2.3-x86_64.AppImage
 
 # ARM64 (aarch64)
-wget https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.2.2-aarch64.AppImage
-chmod +x Zalos-1.2.2-aarch64.AppImage
-./Zalos-1.2.2-aarch64.AppImage
+wget https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.2.3-aarch64.AppImage
+chmod +x Zalos-1.2.3-aarch64.AppImage
+./Zalos-1.2.3-aarch64.AppImage
 ```
-The AppImage relies on your system's runtime; on a minimal install you may need the usual desktop
-runtime packages.
+The AppImage (~22 MB) uses your host Qt 6 when available and automatically falls back to its bundled Qt 6.4 runtime on systems without Qt 6 (requiring only standard desktop libraries and `glibc ≥ 2.35`, e.g. Ubuntu 22.04+, Debian 12+, Fedora, openSUSE, Arch).
 
 ### Arch Linux & other distributions
 No prebuilt native package is published for Arch Linux. Build it from source — clone this repository and
@@ -151,7 +150,7 @@ docker compose run --rm package-rpm      # dist/*.x86_64.rpm
 docker compose run --rm package-nix      # dist/*-nixos.tar.gz
 ```
 
-Pushing a semantic tag (`git tag v1.2.2 && git push origin v1.2.2`) builds the full package set and publishes
+Pushing a semantic tag (`git tag v1.2.3 && git push origin v1.2.3`) builds the full package set and publishes
 a GitHub Release.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the contributor workflow.

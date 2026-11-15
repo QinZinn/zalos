@@ -39,7 +39,6 @@ Item {
         sourceComponent: AnimatedImage {
             source: root.animatedUrl
             cache: false
-            sourceSize.width: Math.ceil(root.side * (Screen.devicePixelRatio || 1))
             fillMode: Image.PreserveAspectFit
             playing: root.playing && visible && root.windowShowing
             visible: status === Image.Ready

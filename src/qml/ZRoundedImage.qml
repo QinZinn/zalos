@@ -44,7 +44,6 @@ Item {
             sourceComponent: AnimatedImage {
                 source: root.animatedSource
                 cache: false
-                sourceSize.width: Math.ceil(root.width * (Screen.devicePixelRatio || 1))
                 smooth: true
                 fillMode: img.fillMode
                 playing: visible && root.windowShowing

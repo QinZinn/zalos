@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.3] - 2026-11-15
+
+### Packaging & Compatibility
+- **Self-contained compact AppImage (~22 MB):** bundles a surgical `qt6-fallback` runtime (Qt 6.4 core, QML `Basic` style, XCB/TLS/WebP/SQLite plugins, `libharfbuzz`/`libgraphite2`) while continuing to prefer host Qt 6 when available (`AppRun`). Compresses with `zstd -22 -b 1M`, forwards host `ICU` and `libproxy.so.1` (`LIBPROXY_0.4.16`) dynamically to save ~40 MB, and avoids auto-detaching the launcher process.
+- **`glibc 2.35` floor compatibility:** adds `libzalos-glibc-compat.so` (`_ZSt21ios_base_library_initv` via constructor init, `__isoc23_*`, `arc4random*`) and scrubs `GLIBC > 2.35` / `GLIBCXX > 3.4.30` / `CXXABI > 1.3.13` symbol versions so the AppImage runs on Ubuntu 22.04+ and other modern Linux distributions.
+- **Metadata & license validation:** restores canonical MIT text in `LICENSE` and removes `<url type="vcs-browser">` from AppStream metainfo to pass `appstreamcli validate-tree` (`0.15.2`).
+
+### Fixed
+- **Qt 6.4 QML compatibility:** removed read-only `sourceSize.width` bindings on `AnimatedImage` (`ZRoundedImage`, `ZSticker`) and `pragma ComponentBehavior: Bound` in files with inline `Loader { sourceComponent: ... }` (`Main`, `SettingsModal`, `NavigationRail`, `ImageViewer`), resolving `Cannot instantiate bound component outside its creation context` on Qt 6.4.2.
+
+---
+
 ## [1.2.2] - 2026-11-15
 
 ### Performance & Memory

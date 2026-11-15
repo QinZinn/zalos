@@ -24,12 +24,16 @@
   <launchable type="desktop-id">zalos.desktop</launchable>
   <url type="homepage">https://cpfriend1721994.github.io/zalos/</url>
   <url type="bugtracker">https://github.com/cpfriend1721994/zalos/issues</url>
-  <url type="vcs-browser">https://github.com/cpfriend1721994/zalos</url>
   <developer_name>Zalos Contributors</developer_name>
   <provides>
     <binary>zalos</binary>
   </provides>
   <releases>
+    <release version="1.2.3" date="2026-11-15">
+      <description>
+        <p>Self-contained AppImage (~22 MB) with bundled Qt 6.4 fallback and glibc 2.35 compatibility (Ubuntu 22.04+ and other modern Linux distributions), canonical MIT license and AppStream validation fixes, and full Qt 6.4 QML compatibility across all components.</p>
+      </description>
+    </release>
     <release version="1.2.2" date="2026-11-15">
       <description>
         <p>Lower idle and active memory (scene-graph/GPU texture release when hidden to tray, MADV_COLD/KSM hints, GLIBC_TUNABLES, minimal Qt plugin path filtering, lazy QtMultimedia/FFmpeg and H.264 init, separate Avatar/Media RAM caches); pauses hidden animations, carousel and presence polling; non-blocking startup theme probes and lazy sticker store; incremental ContactModel and virtualized group member list; streaming 64 KiB ZDB4 decryption, batched off-thread mobile history sync and indexed offline SQLite queries; optimized 640x360 camera selection, active-stream group video decode and LTO release builds.</p>

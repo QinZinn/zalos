@@ -188,7 +188,9 @@ jobs:
               tar -xzf "${ARCHIVE}" -C "${APPDIR}"
               OUT="${ARCHIVE%-AppDir.tar.gz}.AppImage"
               echo "==> ${TARGET_ARCH}: ${ARCHIVE} -> ${OUT}"
-              ARCH="${TARGET_ARCH}" "${TOOL}" --appimage-extract-and-run -n "${APPDIR}" "${OUT}"
+              ARCH="${TARGET_ARCH}" "${TOOL}" --appimage-extract-and-run -n \
+                --comp zstd --mksquashfs-opt -Xcompression-level --mksquashfs-opt 22 --mksquashfs-opt -b --mksquashfs-opt 1M \
+                "${APPDIR}" "${OUT}"
               rm -rf "${APPDIR}" "${ARCHIVE}"
             done
           fi

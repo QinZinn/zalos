@@ -7,31 +7,51 @@ export APPDIR
 
 export PATH="${APPDIR}/usr/bin:${PATH}"
 
-# Only prepend bundled library and plugin paths if they exist
-# Qt, QML modules and OpenSSL come from the host. Only a host without libcrypto.so.3 (OpenSSL 4-only, e.g. Fedora
-# 45 without openssl3-libs) gets the bundled copy: a host copy is newer, and Qt's TLS plugin and child processes
-# (the C++ call engines, which link the host OpenSSL) must keep using it.
-if [ -d "${APPDIR}/usr/lib/openssl3-fallback" ] && ! /sbin/ldconfig -p 2>/dev/null | grep -q "libcrypto\.so\.3 "; then
-    export LD_LIBRARY_PATH="${APPDIR}/usr/lib/openssl3-fallback${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+# Qt, QML modules and OpenSSL come from the host when complete; otherwise fall back to the bundled minimal Qt6 runtime.
+_use_host_qt=""
+if [ "${ZALOS_FORCE_BUNDLED_QT:-0}" != "1" ] && [ -d "${APPDIR}/usr/lib/qt6-fallback/lib" ]; then
+    if ! ldd "${APPDIR}/usr/bin/zalos" 2>/dev/null | grep -q "not found"; then
+        for _qdir in /usr/lib/qt6/qml /usr/lib64/qt6/qml /usr/lib/*/qt6/qml; do
+            if [ -d "${_qdir}/QtQuick/Controls" ]; then
+                _use_host_qt="1"
+                break
+            fi
+        done
+    fi
+elif [ ! -d "${APPDIR}/usr/lib/qt6-fallback/lib" ]; then
+    _use_host_qt="1"
 fi
 
-if [ -d "${APPDIR}/usr/lib64/qt6/plugins" ]; then
-    export QT_PLUGIN_PATH="${APPDIR}/usr/lib64/qt6/plugins:${QT_PLUGIN_PATH}"
-fi
+if [ -n "${_use_host_qt}" ]; then
+    if [ -d "${APPDIR}/usr/lib/openssl3-fallback" ] && ! /sbin/ldconfig -p 2>/dev/null | grep -q "libcrypto\.so\.3 "; then
+        export LD_LIBRARY_PATH="${APPDIR}/usr/lib/openssl3-fallback${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+    fi
 
-# Animated stickers need Qt's WebP image plugin. Use the bundled fallback only when the host Qt has no WebP plugin
-# (searching the host plugin dirs), so a host plugin that matches the host Qt is always preferred.
-if [ -d "${APPDIR}/usr/lib/webp-fallback/imageformats" ]; then
-    _host_webp=""
-    for _d in ${QT_PLUGIN_PATH} /usr/lib/qt6/plugins /usr/lib64/qt6/plugins /usr/lib/*/qt6/plugins; do
-        [ -f "${_d}/imageformats/libqwebp.so" ] && _host_webp="1" && break
-    done
-    [ -z "${_host_webp}" ] && export QT_PLUGIN_PATH="${APPDIR}/usr/lib/webp-fallback:${QT_PLUGIN_PATH}"
-fi
+    if [ -d "${APPDIR}/usr/lib64/qt6/plugins" ]; then
+        export QT_PLUGIN_PATH="${APPDIR}/usr/lib64/qt6/plugins:${QT_PLUGIN_PATH}"
+    fi
 
-if [ -d "${APPDIR}/usr/lib64/qt6/qml" ]; then
-    export QML2_IMPORT_PATH="${APPDIR}/usr/lib64/qt6/qml:${QML2_IMPORT_PATH}"
-    export QML_IMPORT_PATH="${APPDIR}/usr/lib64/qt6/qml:${QML_IMPORT_PATH}"
+    if [ -d "${APPDIR}/usr/lib/webp-fallback/imageformats" ]; then
+        _host_webp=""
+        for _d in ${QT_PLUGIN_PATH} /usr/lib/qt6/plugins /usr/lib64/qt6/plugins /usr/lib/*/qt6/plugins; do
+            [ -f "${_d}/imageformats/libqwebp.so" ] && _host_webp="1" && break
+        done
+        [ -z "${_host_webp}" ] && export QT_PLUGIN_PATH="${APPDIR}/usr/lib/webp-fallback:${QT_PLUGIN_PATH}"
+    fi
+
+    if [ -d "${APPDIR}/usr/lib64/qt6/qml" ]; then
+        export QML2_IMPORT_PATH="${APPDIR}/usr/lib64/qt6/qml:${QML2_IMPORT_PATH}"
+        export QML_IMPORT_PATH="${APPDIR}/usr/lib64/qt6/qml:${QML_IMPORT_PATH}"
+    fi
+else
+    export ZALOS_BUNDLED_QT=1
+    export LD_LIBRARY_PATH="${APPDIR}/usr/lib/qt6-fallback/lib:${APPDIR}/usr/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+    if [ -d "${APPDIR}/usr/lib/openssl3-fallback" ] && ! /sbin/ldconfig -p 2>/dev/null | grep -q "libcrypto\.so\.3 "; then
+        export LD_LIBRARY_PATH="${LD_LIBRARY_PATH}:${APPDIR}/usr/lib/openssl3-fallback"
+    fi
+    export QT_PLUGIN_PATH="${APPDIR}/usr/lib/qt6-fallback/plugins"
+    export QML2_IMPORT_PATH="${APPDIR}/usr/lib/qt6-fallback/qml"
+    export QML_IMPORT_PATH="${APPDIR}/usr/lib/qt6-fallback/qml"
 fi
 
 export XDG_DATA_DIRS="${APPDIR}/usr/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
@@ -46,21 +66,6 @@ if [ -z "${QT_QPA_PLATFORM}" ]; then
 fi
 
 # Input method (IBus / Fcitx) selection is reconciled inside the application (see configureInputMethod in main.cpp).
-
-# Launched from a terminal for normal use: relaunch the AppImage in its own session (setsid) and return the
-# prompt, so Ctrl+C or closing the terminal does not reach the app. Debug/test runs, non-terminal launches
-# (.desktop) and hosts without setsid run in place. --debug / --test-gui / --screenshot / --help / --version stay
-# in the foreground.
-case " $* " in
-    *" --debug "*|*" --test-gui "*|*" --screenshot "*|*" --help "*|*" --version "*|*" -v "*|*" -h "*) ;;
-    *)
-        if [ -z "${ZALOS_NO_DETACH}" ] && [ -z "${ZALOS_DEBUG}" ] && [ -n "${APPIMAGE}" ] \
-           && command -v setsid >/dev/null 2>&1 && { [ -t 0 ] || [ -t 1 ]; }; then
-            ZALOS_NO_DETACH=1 setsid "${APPIMAGE}" "$@" </dev/null >/dev/null 2>&1 &
-            exit 0
-        fi
-        ;;
-esac
 
 if [ -z "${GLIBC_TUNABLES}" ]; then
     export GLIBC_TUNABLES="glibc.malloc.arena_max=2:glibc.malloc.tcache_max=64:glibc.malloc.trim_threshold=131072:glibc.malloc.mmap_threshold=131072"

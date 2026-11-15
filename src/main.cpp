@@ -141,7 +141,7 @@ void configureInputMethod() {
 void ensureSymlink(const QString& target, const QString& linkPath) {
     const QFileInfo info(linkPath);
     if (info.isSymLink()) {
-        if (info.symLinkTarget() == target && QFileInfo::exists(target)) return;
+        if (QFileInfo::exists(info.symLinkTarget())) return;
         QFile::remove(linkPath);
     } else if (info.exists()) {
         return;
@@ -150,6 +150,14 @@ void ensureSymlink(const QString& target, const QString& linkPath) {
 }
 
 void setupMinimalPluginPath() {
+    if (qEnvironmentVariableIsSet("ZALOS_BUNDLED_QT")) {
+        const QString bundledPlugins = qEnvironmentVariable("QT_PLUGIN_PATH");
+        if (!bundledPlugins.isEmpty()) {
+            QCoreApplication::setLibraryPaths(bundledPlugins.split(QDir::listSeparator(), Qt::SkipEmptyParts));
+        }
+        return;
+    }
+
     QStringList srcDirs;
     const QString systemPlugins = QLibraryInfo::path(QLibraryInfo::PluginsPath);
     if (!systemPlugins.isEmpty() && QFileInfo::exists(systemPlugins)) {

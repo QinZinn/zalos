@@ -4,7 +4,7 @@
 %global _find_debuginfo_dwz_opts %{nil}
 
 Name:           zalos
-Version:        1.2.2
+Version:        1.2.3
 Release:        1%{?dist}
 Summary:        Zalo desktop client ported to Qt6 (C++/QML) for Linux
 License:        MIT AND BSD-3-Clause
@@ -79,6 +79,11 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/%{name}.desktop
 %{_datadir}/metainfo/io.github.cpfriend1721994.zalos.metainfo.xml
 
 %changelog
+* Sun Nov 15 2026 Zalos Team <dev@zalos.local> - 1.2.3-1
+- Self-contained AppImage with surgical Qt 6.4 fallback, glibc 2.35 compatibility shim, dynamic host-ICU/libproxy forwarding, and zstd -22 compression (~22 MB).
+- Fix Qt 6.4 QML compatibility (remove read-only AnimatedImage.sourceSize and pragma ComponentBehavior: Bound in Loader files).
+- Canonical MIT LICENSE, AppStream metainfo validation, and no auto-detach in AppRun.
+
 * Sun Nov 15 2026 Zalos Team <dev@zalos.local> - 1.2.2-1
 - Release GPU scene-graph/textures on tray hide, add MADV_COLD + PR_SET_MEMORY_MERGE + GLIBC_TUNABLES, filter minimal Qt plugin path, lazily load QtMultimedia/FFmpeg and self-heal RenderGuard v2.
 - Pause animations, carousel, clock and presence polling while hidden; single-shot MessageScheduler, jittered WebSocket reconnect backoff, debounced contact refresh and versioned group sync.

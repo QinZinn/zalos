@@ -64,31 +64,31 @@ hoàn toàn bộ khung Electron/Chromium cồng kềnh:
 Chọn gói theo bản phân phối của bạn. Mỗi bản phát hành được build trên bản phân phối **cũ nhất** mà nó hỗ trợ,
 và được kiểm tra cài đặt trên cả bản cũ nhất lẫn mới nhất trong CI.
 
-| Bản phân phối | Gói | Phiên bản hỗ trợ |
+| Bản phân phối | Gói | Phiên bản hỗ trợ & Qt6 |
 |---|---|---|
-| Ubuntu (và Mint, Pop!_OS, Zorin, elementary…) | `.deb` | Ubuntu **24.04 LTS** trở lên |
-| Fedora | `.rpm` | Fedora **43** trở lên |
-| NixOS / mọi distro có Nix | Nix flake | nixos-unstable |
-| openSUSE, Debian, khác | AppImage | mọi bản phân phối gần đây |
+| Ubuntu (và Mint, Pop!_OS, Zorin, elementary…) | `.deb` | Ubuntu **24.04 LTS+** (dùng Qt6 của distro) |
+| Fedora | `.rpm` | Fedora **43+** (dùng Qt6 của distro) |
+| NixOS / mọi distro có Nix | Nix flake | `nixos-unstable` (Qt6 tách biệt trong `/nix/store`) |
+| Ubuntu 22.04+, Debian 12+, openSUSE, Arch, khác | AppImage | `glibc ≥ 2.35` (tự chứa ~22 MB; nhúng sẵn Qt 6.4 fallback nếu máy chưa có Qt6) |
 
 ### Ubuntu 24.04+ (`.deb`)
 ```bash
 # x86_64 (amd64)
-wget https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.2.2-1~ubuntu24.04_amd64.deb
-sudo apt install ./zalos_1.2.2-1~ubuntu24.04_amd64.deb
+wget https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.2.3-1~ubuntu24.04_amd64.deb
+sudo apt install ./zalos_1.2.3-1~ubuntu24.04_amd64.deb
 
 # ARM64 (aarch64)
-wget https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.2.2-1~ubuntu24.04_arm64.deb
-sudo apt install ./zalos_1.2.2-1~ubuntu24.04_arm64.deb
+wget https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.2.3-1~ubuntu24.04_arm64.deb
+sudo apt install ./zalos_1.2.3-1~ubuntu24.04_arm64.deb
 ```
 
 ### Fedora 43+ (`.rpm`)
 ```bash
 # x86_64
-sudo dnf install https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.2.2-1.fc43.x86_64.rpm
+sudo dnf install https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.2.3-1.fc43.x86_64.rpm
 
 # ARM64 (aarch64)
-sudo dnf install https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.2.2-1.fc43.aarch64.rpm
+sudo dnf install https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.2.3-1.fc43.aarch64.rpm
 ```
 
 ### NixOS / Nix
@@ -97,20 +97,19 @@ nix run github:cpfriend1721994/zalos     # chạy thử không cài
 nix profile install github:cpfriend1721994/zalos
 ```
 
-### AppImage (các bản phân phối khác)
+### AppImage (di động, glibc ≥ 2.35)
 ```bash
 # x86_64
-wget https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.2.2-x86_64.AppImage
-chmod +x Zalos-1.2.2-x86_64.AppImage
-./Zalos-1.2.2-x86_64.AppImage
+wget https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.2.3-x86_64.AppImage
+chmod +x Zalos-1.2.3-x86_64.AppImage
+./Zalos-1.2.3-x86_64.AppImage
 
 # ARM64 (aarch64)
-wget https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.2.2-aarch64.AppImage
-chmod +x Zalos-1.2.2-aarch64.AppImage
-./Zalos-1.2.2-aarch64.AppImage
+wget https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.2.3-aarch64.AppImage
+chmod +x Zalos-1.2.3-aarch64.AppImage
+./Zalos-1.2.3-aarch64.AppImage
 ```
-AppImage dùng môi trường runtime sẵn có của hệ thống; trên bản cài tối giản bạn có thể cần cài thêm các gói
-runtime desktop thông dụng.
+AppImage (~22 MB) ưu tiên dùng Qt 6 sẵn có trên máy và tự chuyển sang runtime Qt 6.4 nhúng sẵn khi hệ thống chưa cài Qt 6 (chỉ cần các thư viện desktop cơ bản và `glibc ≥ 2.35` như Ubuntu 22.04+, Debian 12+, Fedora, openSUSE, Arch).
 
 ### Arch Linux & các bản phân phối khác
 Dự án không phát hành gói dựng sẵn cho Arch Linux. Hãy **tự build từ mã nguồn** — clone kho này và làm theo
@@ -150,7 +149,7 @@ docker compose run --rm package-rpm      # dist/*.x86_64.rpm
 docker compose run --rm package-nix      # dist/*-nixos.tar.gz
 ```
 
-Đẩy một tag theo chuẩn semantic (`git tag v1.2.2 && git push origin v1.2.2`) sẽ build toàn bộ gói và phát hành
+Đẩy một tag theo chuẩn semantic (`git tag v1.2.3 && git push origin v1.2.3`) sẽ build toàn bộ gói và phát hành
 một GitHub Release.
 
 Xem [CONTRIBUTING.md](CONTRIBUTING.md) để biết quy trình đóng góp.
