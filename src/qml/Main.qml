@@ -14,6 +14,7 @@ ApplicationWindow {
     color: ThemeManager.backgroundColor
 
     readonly property bool isCompactMode: width < 680
+    property int preScreenshotVisibility: Window.AutomaticVisibility
 
     flags: Qt.Window
 
@@ -28,9 +29,21 @@ ApplicationWindow {
         }
         if (geom.maximized) mainWindow.visibility = Window.Maximized
         ZaloClient.notifyWindowVisibility(mainWindow.visible && mainWindow.visibility !== Window.Hidden)
+        mainWindow.ensureLoginWindowHeight()
     }
 
-    function recordGeometry() {
+    function ensureLoginWindowHeight(): void {
+        if (!loginLoader.active || !loginLoader.item) return;
+        if (mainWindow.visibility !== Window.Windowed && mainWindow.visibility !== Window.AutomaticVisibility) return;
+        var needed = loginLoader.item.requiredContentHeight || 0;
+        var avail = Screen.desktopAvailableHeight > 0 ? Screen.desktopAvailableHeight - 40 : needed;
+        var target = Math.min(needed, avail);
+        if (target > mainWindow.height) {
+            mainWindow.height = target;
+        }
+    }
+
+    function recordGeometry(): void {
         if (mainWindow.visibility === Window.Maximized) {
             ZaloClient.saveWindowGeometry(mainWindow.x, mainWindow.y, mainWindow.width, mainWindow.height, true)
         } else if (mainWindow.visibility === Window.Windowed || mainWindow.visibility === Window.AutomaticVisibility) {
@@ -63,20 +76,32 @@ ApplicationWindow {
             if (I18n.currentLanguage !== ZaloClient.appLanguage) I18n.setLanguage(ZaloClient.appLanguage);
         }
         function onRequestHideForScreenshot() {
-            mainWindow.hide()
+            mainWindow.preScreenshotVisibility = mainWindow.visibility;
+            mainWindow.hide();
         }
         function onRequestRestoreAfterScreenshot() {
-            mainWindow.showAndActivate()
+            if (mainWindow.preScreenshotVisibility === Window.FullScreen) {
+                mainWindow.showFullScreen();
+                mainWindow.raise();
+                mainWindow.requestActivate();
+            } else if (mainWindow.preScreenshotVisibility === Window.Maximized) {
+                mainWindow.showMaximized();
+                mainWindow.raise();
+                mainWindow.requestActivate();
+            } else {
+                mainWindow.showAndActivate();
+            }
+            mainWindow.preScreenshotVisibility = Window.AutomaticVisibility;
         }
     }
     Connections {
         target: I18n
-        function onLanguageChanged(lang) {
+        function onLanguageChanged(lang: string): void {
             if (ZaloClient.appLanguage !== lang) ZaloClient.setAppLanguage(lang);
         }
     }
 
-    function toggleVisibility() {
+    function toggleVisibility(): void {
         if (mainWindow.visible) {
             mainWindow.hide();
         } else {
@@ -101,7 +126,7 @@ ApplicationWindow {
         mainWindow.requestActivate();
     }
 
-    function toggleTheme() {
+    function toggleTheme(): void {
         ThemeManager.toggleTheme();
     }
 
@@ -199,9 +224,11 @@ ApplicationWindow {
     }
 
     Loader {
+        id: loginLoader
         active: !ZaloClient.isLoggedIn && !ZaloClient.isRestoringSession && !ZaloClient.isOfflineMode
         anchors.fill: parent
         sourceComponent: LoginView {}
+        onLoaded: mainWindow.ensureLoginWindowHeight()
     }
 
     RowLayout {
@@ -230,7 +257,7 @@ ApplicationWindow {
                 Layout.preferredWidth: mainWindow.isCompactMode ? -1 : Theme.sidebarWidth
                 Layout.fillWidth: mainWindow.isCompactMode
                 Layout.minimumWidth: mainWindow.isCompactMode ? 200 : 280
-                Layout.maximumWidth: mainWindow.isCompactMode ? -1 : 360
+                Layout.maximumWidth: mainWindow.isCompactMode ? -1 : 390
                 Layout.fillHeight: true
             }
 
@@ -281,17 +308,17 @@ ApplicationWindow {
     readonly property bool shortcutsLive: (ZaloClient.isLoggedIn || ZaloClient.isOfflineMode) && !ZaloClient.appLock.locked
 
     Shortcut {
-        sequences: ZaloClient.shortcuts.keys("privacy.antiPeeking")
+        sequences: ZaloClient.shortcuts.keySequences("privacy.antiPeeking")
         enabled: mainWindow.shortcutsLive
         onActivated: ZaloClient.setAntiPeeking(!ZaloClient.antiPeeking)
     }
     Shortcut {
-        sequences: ZaloClient.shortcuts.keys("chat.next")
+        sequences: ZaloClient.shortcuts.keySequences("chat.next")
         enabled: mainWindow.shortcutsLive
         onActivated: ZaloClient.selectAdjacentConversation(1)
     }
     Shortcut {
-        sequences: ZaloClient.shortcuts.keys("chat.previous")
+        sequences: ZaloClient.shortcuts.keySequences("chat.previous")
         enabled: mainWindow.shortcutsLive
         onActivated: ZaloClient.selectAdjacentConversation(-1)
     }
@@ -301,14 +328,14 @@ ApplicationWindow {
             id: pinnedShortcut
             required property int index
             Shortcut {
-                sequences: ZaloClient.shortcuts.keys("chat.pinned" + (pinnedShortcut.index + 1))
+                sequences: ZaloClient.shortcuts.keySequences("chat.pinned" + (pinnedShortcut.index + 1))
                 enabled: mainWindow.shortcutsLive
                 onActivated: ZaloClient.openPinnedConversation(pinnedShortcut.index + 1)
             }
         }
     }
     Shortcut {
-        sequences: ZaloClient.shortcuts.keys("composer.voice")
+        sequences: ZaloClient.shortcuts.keySequences("composer.voice")
         enabled: mainWindow.shortcutsLive && ZaloClient.currentConversationId.length > 0
         onActivated: {
             if (ZaloClient.voiceRecorder.recording) ZaloClient.voiceRecorder.stop();
@@ -316,21 +343,21 @@ ApplicationWindow {
         }
     }
     Shortcut {
-        sequences: ZaloClient.shortcuts.keys("app.lock")
+        sequences: ZaloClient.shortcuts.keySequences("app.lock")
         enabled: ZaloClient.appLock.hasPasscode && !ZaloClient.appLock.locked
         onActivated: ZaloClient.appLock.lock()
     }
     Shortcut {
-        sequences: ZaloClient.shortcuts.keys("app.hide")
+        sequences: ZaloClient.shortcuts.keySequences("app.hide")
         onActivated: mainWindow.hide()
     }
     Shortcut {
-        sequences: ZaloClient.shortcuts.keys("app.screenshot")
+        sequences: ZaloClient.shortcuts.keySequences("app.screenshot")
         enabled: mainWindow.shortcutsLive
         onActivated: ZaloClient.requestScreenshot(false)
     }
     Shortcut {
-        sequences: ZaloClient.shortcuts.keys("app.quit")
+        sequences: ZaloClient.shortcuts.keySequences("app.quit")
         onActivated: Qt.quit()
     }
 

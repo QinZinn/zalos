@@ -505,6 +505,12 @@ int ZaloOfflineStore::countMessagesBetween(const QString& convId, qint64 fromTs,
     return (q.exec() && q.next()) ? q.value(0).toInt() : 0;
 }
 
+bool ZaloOfflineStore::hasAnyMessages() const {
+    if (!m_db.isOpen()) return false;
+    QSqlQuery q(m_db);
+    return q.exec("SELECT 1 FROM messages LIMIT 1;") && q.next();
+}
+
 bool ZaloOfflineStore::addReactionEvent(const QString& msgId, const QString& uid, const QString& icon,
                                          const QString& eventId, qint64 ts) {
     if (!m_db.isOpen() || msgId.isEmpty() || uid.isEmpty() || icon.isEmpty() || eventId.isEmpty()) return false;

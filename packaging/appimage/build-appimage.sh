@@ -827,7 +827,7 @@ if [ ! -f "${TOOL}" ]; then
 fi
 
 # 8. Generate AppImage with zstd -22 + 1M block size (AppImage type2-runtime supports zlib and zstd)
-rm -f "${OUTPUT_DIR}/Zalos-${VERSION}-${ARCH}.AppImage" "${OUTPUT_DIR}/Zalos-${VERSION}-${ARCH}-AppDir.tar.gz"
+rm -f "${OUTPUT_DIR}/Zalos-${VERSION}-${ARCH}.AppImage" "${OUTPUT_DIR}/Zalos-${VERSION}-${ARCH}.AppImage.zsync" "${OUTPUT_DIR}/Zalos-${VERSION}-${ARCH}-AppDir.tar.gz"
 BUILT=0
 LOG="/tmp/tools/appimagetool-${ARCH}.log"
 : > "${LOG}"
@@ -840,7 +840,8 @@ if [ -f "${TOOL}" ] && [ -x "${TOOL}" ]; then
         fi
     fi
 
-    RUNTIME_ARGS=(-n --comp zstd --mksquashfs-opt -Xcompression-level --mksquashfs-opt 22 --mksquashfs-opt -b --mksquashfs-opt 1M)
+    UPDATE_INFO="gh-releases-zsync|cpfriend1721994|zalos|latest|Zalos-*-${ARCH}.AppImage.zsync"
+    RUNTIME_ARGS=(-n -u "${UPDATE_INFO}" --comp zstd --mksquashfs-opt -Xcompression-level --mksquashfs-opt 22 --mksquashfs-opt -b --mksquashfs-opt 1M)
     [ -s "${RUNTIME_FILE}" ] && RUNTIME_ARGS+=(--runtime-file "${RUNTIME_FILE}")
 
     echo "==> Generating AppImage via appimagetool (zstd -22 + 1M blocks)..."
@@ -860,7 +861,9 @@ if [ -f "${TOOL}" ] && [ -x "${TOOL}" ]; then
 fi
 
 if [ "${BUILT}" = "1" ] && [ -f "${OUTPUT_DIR}/Zalos-${VERSION}-${ARCH}.AppImage" ]; then
-    ls -lh "${OUTPUT_DIR}/Zalos-${VERSION}-${ARCH}.AppImage"
+    ZSYNC_NAME="Zalos-${VERSION}-${ARCH}.AppImage.zsync"
+    [ -f "${ZSYNC_NAME}" ] && mv -f "${ZSYNC_NAME}" "${OUTPUT_DIR}/"
+    ls -lh "${OUTPUT_DIR}/Zalos-${VERSION}-${ARCH}.AppImage"*
     echo "✅ Generated ${OUTPUT_DIR}/Zalos-${VERSION}-${ARCH}.AppImage"
 else
     echo "==> appimagetool could not produce an AppImage; last lines of ${LOG}:"

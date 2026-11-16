@@ -85,7 +85,7 @@ Rectangle {
                     width: 36
                     height: 36
                     radius: 18
-                    color: ThemeManager.isDarkMode ? Qt.rgba(0.2, 0.4, 0.9, 0.25) : Theme.zaloBlueLight
+                    color: ThemeManager.isDarkMode ? "#403366E6" : Theme.zaloBlueLight
 
                     ZIcon {
                         anchors.centerIn: parent
@@ -111,8 +111,8 @@ Rectangle {
                             height: 18
                             radius: 9
                             implicitWidth: statusText.implicitWidth + 12
-                            color: ZaloClient.kikiAvailable ? (ThemeManager.isDarkMode ? Qt.rgba(0.15, 0.45, 0.25, 0.35) : Qt.rgba(0.2, 0.7, 0.3, 0.15))
-                                                            : (ThemeManager.isDarkMode ? Qt.rgba(1, 1, 1, 0.08) : ThemeManager.hoverColor)
+                            color: ZaloClient.kikiAvailable ? (ThemeManager.isDarkMode ? "#59267340" : "#2633B24C")
+                                                            : (ThemeManager.isDarkMode ? "#14FFFFFF" : ThemeManager.hoverColor)
                             Text {
                                 id: statusText
                                 anchors.centerIn: parent
@@ -175,7 +175,7 @@ Rectangle {
                             width: 72
                             height: 72
                             radius: 36
-                            color: ThemeManager.isDarkMode ? Qt.rgba(0.2, 0.5, 1, 0.2) : Theme.zaloBlueLight
+                            color: ThemeManager.isDarkMode ? "#333380FF" : Theme.zaloBlueLight
 
                             ZIcon {
                                 anchors.centerIn: parent
@@ -237,7 +237,7 @@ Rectangle {
                                     width: 40
                                     height: 40
                                     radius: 20
-                                    color: ThemeManager.isDarkMode ? Qt.rgba(1, 1, 1, 0.08) : ThemeManager.hoverColor
+                                    color: ThemeManager.isDarkMode ? "#14FFFFFF" : ThemeManager.hoverColor
 
                                     ZIcon {
                                         anchors.centerIn: parent
@@ -342,7 +342,7 @@ Rectangle {
                             implicitWidth: 32
                             implicitHeight: 32
                             radius: 16
-                            color: ThemeManager.isDarkMode ? Qt.rgba(0.2, 0.4, 0.9, 0.3) : Theme.zaloBlueLight
+                            color: ThemeManager.isDarkMode ? "#4C3366E6" : Theme.zaloBlueLight
 
                             ZIcon {
                                 anchors.centerIn: parent
@@ -419,7 +419,7 @@ Rectangle {
                             implicitHeight: 26
                             implicitWidth: sendChatRow.implicitWidth + 18
                             radius: 13
-                            color: sendChatMouse.containsMouse ? (ThemeManager.isDarkMode ? Qt.rgba(0.18, 0.45, 0.75, 0.35) : Theme.zaloBlueLight)
+                            color: sendChatMouse.containsMouse ? (ThemeManager.isDarkMode ? "#592E73BF" : Theme.zaloBlueLight)
                                                                : ThemeManager.surfaceColor
                             border.color: Theme.zaloBlue
                             border.width: 1
@@ -469,7 +469,7 @@ Rectangle {
                     Layout.fillWidth: true
                     height: 40
                     radius: 20
-                    color: ThemeManager.isDarkMode ? Qt.rgba(1, 1, 1, 0.06) : ThemeManager.backgroundColor
+                    color: ThemeManager.isDarkMode ? "#0FFFFFFF" : ThemeManager.backgroundColor
                     border.color: ThemeManager.borderColor
 
                     RowLayout {

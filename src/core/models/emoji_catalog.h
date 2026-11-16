@@ -38,6 +38,7 @@ public:
     Q_INVOKABLE void selectCategory(const QString& categoryId);
     Q_INVOKABLE void search(const QString& query);
     Q_INVOKABLE void recordRecent(const QString& glyph);
+    Q_INVOKABLE QVariantList flatRows(int columns) const;
 
     static int totalCount();
     static int categoryCount();

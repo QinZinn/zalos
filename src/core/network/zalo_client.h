@@ -179,6 +179,24 @@ class ZaloClient : public QObject {
     Q_PROPERTY(QString chatBackgroundImage READ chatBackgroundImage NOTIFY chatBackgroundImageChanged FINAL)
     Q_PROPERTY(QString currentConversationBackground READ currentConversationBackground NOTIFY currentConversationBackgroundChanged FINAL)
     Q_PROPERTY(bool showLabelFolders READ showLabelFolders WRITE setShowLabelFolders NOTIFY settingsChanged FINAL)
+    Q_PROPERTY(bool showBusinessButton READ showBusinessButton WRITE setShowBusinessButton NOTIFY settingsChanged FINAL)
+    Q_PROPERTY(bool showKikiButton READ showKikiButton WRITE setShowKikiButton NOTIFY settingsChanged FINAL)
+    Q_PROPERTY(bool hardwareAcceleration READ hardwareAcceleration WRITE setHardwareAcceleration NOTIFY settingsChanged FINAL)
+    Q_PROPERTY(bool hardwareAccelerationRestartRequired READ hardwareAccelerationRestartRequired NOTIFY settingsChanged FINAL)
+    Q_PROPERTY(QString appVersion READ appVersion CONSTANT FINAL)
+    Q_PROPERTY(QString qtRuntimeVersion READ qtRuntimeVersion CONSTANT FINAL)
+    Q_PROPERTY(QString rendererBackend READ rendererBackend NOTIFY appLanguageChanged FINAL)
+    Q_PROPERTY(QString platformName READ platformName CONSTANT FINAL)
+    Q_PROPERTY(bool checkingUpdate READ checkingUpdate NOTIFY updateCheckChanged FINAL)
+    Q_PROPERTY(bool updateAvailable READ updateAvailable NOTIFY updateCheckChanged FINAL)
+    Q_PROPERTY(QString latestVersion READ latestVersion NOTIFY updateCheckChanged FINAL)
+    Q_PROPERTY(QString updateUrl READ updateUrl NOTIFY updateCheckChanged FINAL)
+    Q_PROPERTY(QString updateStatus READ updateStatus NOTIFY updateCheckChanged FINAL)
+    Q_PROPERTY(QString packageKind READ packageKind CONSTANT FINAL)
+    Q_PROPERTY(bool canInAppUpdate READ canInAppUpdate NOTIFY updateCheckChanged FINAL)
+    Q_PROPERTY(bool updatingApp READ updatingApp NOTIFY updateCheckChanged FINAL)
+    Q_PROPERTY(qreal updateProgress READ updateProgress NOTIFY updateCheckChanged FINAL)
+    Q_PROPERTY(bool updateInstalledRestartRequired READ updateInstalledRestartRequired NOTIFY updateCheckChanged FINAL)
     Q_PROPERTY(bool startHiddenInTray READ startHiddenInTray WRITE setStartHiddenInTray NOTIFY settingsChanged FINAL)
     Q_PROPERTY(bool closeToTray READ closeToTray WRITE setCloseToTray NOTIFY settingsChanged FINAL)
     Q_PROPERTY(bool startWithSystem READ startWithSystem WRITE setStartWithSystem NOTIFY settingsChanged FINAL)
@@ -294,6 +312,7 @@ public:
     bool showSyncPrompt() const { return m_showSyncPrompt; }
     Q_INVOKABLE void acceptSyncPrompt();
     Q_INVOKABLE void dismissSyncPrompt(bool permanently);
+    bool shouldOfferMobileSync() const;
     void maybeOfferMobileSync();
     Q_INVOKABLE void selectAdjacentConversation(int delta);
     Q_INVOKABLE void openPinnedConversation(int n);
@@ -431,6 +450,32 @@ public:
     Q_INVOKABLE void clearChatBackgroundImage();
     bool showLabelFolders() const { return m_showLabelFolders; }
     void setShowLabelFolders(bool val);
+    bool showBusinessButton() const { return m_showBusinessButton; }
+    void setShowBusinessButton(bool val);
+    bool showKikiButton() const { return m_showKikiButton; }
+    void setShowKikiButton(bool val);
+    bool hardwareAcceleration() const { return m_hardwareAcceleration; }
+    void setHardwareAcceleration(bool val);
+    bool hardwareAccelerationRestartRequired() const { return m_hardwareAcceleration != m_startupHardwareAcceleration; }
+    Q_INVOKABLE void restartApp();
+
+    QString appVersion() const;
+    QString qtRuntimeVersion() const;
+    QString rendererBackend() const;
+    QString platformName() const;
+    bool checkingUpdate() const { return m_checkingUpdate; }
+    bool updateAvailable() const { return m_updateAvailable; }
+    QString latestVersion() const { return m_latestVersion; }
+    QString updateUrl() const { return m_updateUrl; }
+    QString updateStatus() const;
+    QString packageKind() const;
+    bool canInAppUpdate() const;
+    bool updatingApp() const { return m_updatingApp; }
+    qreal updateProgress() const { return m_updateProgress; }
+    bool updateInstalledRestartRequired() const { return m_updateInstalledRestartRequired; }
+    Q_INVOKABLE void checkForUpdates();
+    Q_INVOKABLE void installAvailableUpdate();
+    static int compareVersions(const QString& a, const QString& b);
 
     bool startHiddenInTray() const { return m_startHiddenInTray; }
     void setStartHiddenInTray(bool val);
@@ -771,6 +816,8 @@ signals:
     void mobileSyncProgressChanged();
     void navigationTabChanged();
     void settingsChanged();
+    void updateCheckChanged();
+    void restartRequested();
     void privacySettingsChanged();
     void soundSettingsChanged();
     void previewPlayingChanged();
@@ -1128,6 +1175,38 @@ private:
     qreal m_chatBackgroundOpacity{0.15};
     QString m_chatBackgroundImage;
     bool m_showLabelFolders{false};
+    bool m_showBusinessButton{true};
+    bool m_showKikiButton{true};
+    bool m_hardwareAcceleration{true};
+    bool m_startupHardwareAcceleration{true};
+    bool m_checkingUpdate{false};
+    bool m_updateAvailable{false};
+    bool m_updatingApp{false};
+    bool m_updateInstalledRestartRequired{false};
+    qreal m_updateProgress{0.0};
+    QString m_latestVersion;
+    QString m_updateUrl;
+    QString m_updateAssetName;
+    QString m_updateAssetUrl;
+    QString m_updateShaSumsUrl;
+    QString m_updateSavedPath;
+    enum class UpdateCheckState {
+        Idle,
+        Checking,
+        NetworkError,
+        NoRelease,
+        Available,
+        UpToDate,
+        Downloading,
+        Verifying,
+        Installing,
+        InstalledRestartRequired,
+        DownloadFailed,
+        VerifyFailed,
+        InstallFailed,
+        SavedToDownloads
+    };
+    UpdateCheckState m_updateState{UpdateCheckState::Idle};
     bool m_startHiddenInTray{false};
     bool m_closeToTray{true};
     bool m_launchHidden{false};

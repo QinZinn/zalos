@@ -81,6 +81,7 @@ public:
 #endif
     qint64 messageTs(const QString& msgId, QString* convId = nullptr) const;
     int countMessagesBetween(const QString& convId, qint64 fromTs, qint64 toTs) const;
+    bool hasAnyMessages() const;
     static QByteArray encodeRaw(const QJsonObject& raw);
     static QJsonObject decodeRaw(const QVariant& stored);
     void maintenance();

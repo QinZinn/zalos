@@ -56,7 +56,7 @@ Item {
                         width: 32
                         height: 32
                         radius: 16
-                        color: ThemeManager.isDarkMode ? Qt.rgba(0.2, 0.4, 0.9, 0.25) : Theme.zaloBlueLight
+                        color: ThemeManager.isDarkMode ? "#403366E6" : Theme.zaloBlueLight
                         ZIcon {
                             anchors.centerIn: parent
                             name: "biz_tools"
@@ -124,7 +124,7 @@ Item {
                     flickableDirection: Flickable.HorizontalFlick
                     interactive: contentWidth > width
 
-                    function revealItem(item) {
+                    function revealItem(item: Item): void {
                         if (contentWidth <= width)
                             return;
                         const left = item.x;
@@ -169,7 +169,7 @@ Item {
                                 radius: 15
                                 onSelectedChanged: if (tabBtn.selected) tabFlick.revealItem(tabBtn)
                                 color: tabBtn.selected
-                                       ? (ThemeManager.isDarkMode ? Qt.rgba(0.2, 0.4, 0.9, 0.3) : Theme.zaloBlueLight)
+                                       ? (ThemeManager.isDarkMode ? "#4C3366E6" : Theme.zaloBlueLight)
                                        : (tabBtnMouse.containsMouse ? ThemeManager.hoverColor : ThemeManager.hoverClearColor)
 
                                 RowLayout {
@@ -445,7 +445,7 @@ Item {
                                         width: 44
                                         height: 44
                                         radius: 22
-                                        color: ThemeManager.isDarkMode ? Qt.rgba(1, 1, 1, 0.06) : ThemeManager.hoverColor
+                                        color: ThemeManager.isDarkMode ? "#0FFFFFFF" : ThemeManager.hoverColor
 
                                         ZIcon {
                                             anchors.centerIn: parent
@@ -494,7 +494,7 @@ Item {
                                         width: 48
                                         height: 48
                                         radius: 6
-                                        color: ThemeManager.isDarkMode ? Qt.rgba(1, 1, 1, 0.08) : ThemeManager.hoverColor
+                                        color: ThemeManager.isDarkMode ? "#14FFFFFF" : ThemeManager.hoverColor
                                         ZIcon {
                                             anchors.centerIn: parent
                                             name: "catalog"
@@ -671,7 +671,7 @@ Item {
                                     width: 44
                                     height: 44
                                     radius: 22
-                                    color: Qt.rgba(1, 1, 1, 0.2)
+                                    color: "#33FFFFFF"
                                     ZIcon {
                                         anchors.centerIn: parent
                                         name: "biz_tools"
@@ -722,7 +722,7 @@ Item {
                                     width: 20
                                     height: 20
                                     radius: 10
-                                    color: Qt.rgba(0.2, 0.7, 0.4, 0.2)
+                                    color: "#3333B266"
                                     ZIcon {
                                         anchors.centerIn: parent
                                         name: "check"

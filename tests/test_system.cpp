@@ -27,6 +27,7 @@
 #include <QDir>
 #include <QUrl>
 #include <QVideoSink>
+#include "platform/app_updater.h"
 
 #include "core/network/zalo_client.h"
 #include "core/platform/theme_manager.h"
@@ -1729,6 +1730,13 @@ private slots:
         RP::Inputs forced = vm;              // explicit override wins
         forced.override = "opengl";
         QCOMPARE(RP::decide(forced).backend, RP::Backend::OpenGL);
+
+        RP::Inputs sw = amd;
+        sw.vulkanFailedBefore = false;
+        sw.hardwareAcceleration = false;
+        QCOMPARE(RP::decide(sw).backend, RP::Backend::Software);
+        sw.override = "vulkan";
+        QCOMPARE(RP::decide(sw).backend, RP::Backend::Vulkan);
     }
 
 
@@ -4635,6 +4643,12 @@ private slots:
         // First sign-in prompt: shown once per account until synced or declined for good.
         ZaloClient client;
         client.setMyUidForTesting("u-prompt-owner");
+        if (client.offlineStore()) client.offlineStore()->bindOwner("u-prompt-owner");
+        Zalos::Core::Models::ConversationItem emptyGroup;
+        emptyGroup.id = QStringLiteral("g-prompt");
+        emptyGroup.name = QStringLiteral("Fixture Prompt Group");
+        emptyGroup.isGroup = true;
+        client.conversationModel()->upsertConversation(emptyGroup);
         QSettings settings;
         settings.remove("mobileSync/done/u-prompt-owner");
         settings.remove("mobileSync/neverAsk/u-prompt-owner");
@@ -5326,6 +5340,172 @@ private slots:
                 QCOMPARE(recorder.available(), false);
                 QCOMPARE(recorder.unavailableReason(), QStringLiteral("no_microphone"));
             }
+        }
+    }
+
+    void testUiFeatureSettingsAndKikiFallback() {
+        QSettings settings("Zalos", "ZalosApp");
+        settings.remove("settings/showBusinessButton");
+        settings.remove("settings/showKikiButton");
+        settings.remove("render/hardwareAcceleration");
+
+        Zalos::Core::Network::ZaloClient client;
+        QCOMPARE(client.showBusinessButton(), true);
+        QCOMPARE(client.showKikiButton(), true);
+        QCOMPARE(client.hardwareAcceleration(), true);
+
+        client.setCurrentNavigationTab(QStringLiteral("kiki"));
+        QCOMPARE(client.currentNavigationTab(), QStringLiteral("kiki"));
+        client.setShowKikiButton(false);
+        QCOMPARE(client.showKikiButton(), false);
+        QCOMPARE(client.currentNavigationTab(), QStringLiteral("messages"));
+
+        client.setShowBusinessToolsModal(true);
+        QVERIFY(client.showBusinessToolsModal());
+        client.setShowBusinessButton(false);
+        QCOMPARE(client.showBusinessButton(), false);
+        QCOMPARE(client.showBusinessToolsModal(), false);
+
+        client.setHardwareAcceleration(false);
+        QCOMPARE(client.hardwareAcceleration(), false);
+        QCOMPARE(settings.value("render/hardwareAcceleration").toBool(), false);
+        QCOMPARE(Zalos::Core::Platform::RenderProfile::probeSystem().hardwareAcceleration, false);
+
+        client.setShowBusinessButton(true);
+        client.setShowKikiButton(true);
+        client.setHardwareAcceleration(true);
+    }
+
+    void testSmartMobileSyncOfferLogic() {
+        Zalos::Core::Network::ZaloClient client;
+        client.setMyUidForTesting(QStringLiteral("u-smart-sync"));
+        if (client.offlineStore()) client.offlineStore()->bindOwner(QStringLiteral("u-smart-sync"));
+        client.setLoggedInForTesting(true);
+        QSettings settings;
+        settings.remove(QStringLiteral("mobileSync/done/u-smart-sync"));
+        settings.remove(QStringLiteral("mobileSync/neverAsk/u-smart-sync"));
+
+        // No non-cloud conversations yet -> should not offer
+        QCOMPARE(client.shouldOfferMobileSync(), false);
+
+        // Add an empty group conversation without messages -> should offer
+        Zalos::Core::Models::ConversationItem emptyGroup;
+        emptyGroup.id = QStringLiteral("g-empty");
+        emptyGroup.name = QStringLiteral("Fixture Empty Group");
+        emptyGroup.isGroup = true;
+        client.conversationModel()->upsertConversation(emptyGroup);
+        QCOMPARE(client.shouldOfferMobileSync(), true);
+
+        // Once a conversation has a lastMessage and timestamp -> should not offer
+        emptyGroup.lastMessage = QStringLiteral("Hello");
+        emptyGroup.lastTs = 1700000000000LL;
+        client.conversationModel()->upsertConversation(emptyGroup);
+        QCOMPARE(client.shouldOfferMobileSync(), false);
+    }
+
+    void testAboutVersionComparison() {
+        using ZC = Zalos::Core::Network::ZaloClient;
+        QVERIFY(ZC::compareVersions(QStringLiteral("v1.2.5"), QStringLiteral("1.2.4")) > 0);
+        QVERIFY(ZC::compareVersions(QStringLiteral("1.2.4"), QStringLiteral("v1.2.4")) == 0);
+        QVERIFY(ZC::compareVersions(QStringLiteral("1.2.3"), QStringLiteral("1.2.4")) < 0);
+        QVERIFY(ZC::compareVersions(QStringLiteral("v1.10.0"), QStringLiteral("1.2.9")) > 0);
+
+        ZC client;
+        QVERIFY(!client.appVersion().isEmpty());
+        QVERIFY(!client.qtRuntimeVersion().isEmpty());
+        QVERIFY(!client.rendererBackend().isEmpty());
+    }
+
+    void testAppUpdaterPolicyAndVerify() {
+        using namespace Zalos::Core::Platform;
+        QCOMPARE(detectPackageKind(QStringLiteral("/tmp/Zalos.AppImage"), QStringLiteral("/usr/bin/zalos"), true, true), PackageKind::AppImage);
+        QCOMPARE(detectPackageKind(QString(), QStringLiteral("/nix/store/abc-zalos/bin/zalos"), true, true), PackageKind::Nix);
+        QCOMPARE(detectPackageKind(QString(), QStringLiteral("/usr/bin/zalos"), true, false), PackageKind::Deb);
+        QCOMPARE(detectPackageKind(QString(), QStringLiteral("/usr/bin/zalos"), false, true), PackageKind::Rpm);
+        QCOMPARE(detectPackageKind(QString(), QStringLiteral("/usr/local/bin/zalos"), false, false), PackageKind::Unknown);
+
+        const QJsonArray assets{
+            QJsonObject{{QStringLiteral("name"), QStringLiteral("Zalos-1.2.5-x86_64.AppImage.zsync")},
+                        {QStringLiteral("browser_download_url"), QStringLiteral("https://example.invalid/zsync")}},
+            QJsonObject{{QStringLiteral("name"), QStringLiteral("Zalos-1.2.5-x86_64.AppImage")},
+                        {QStringLiteral("browser_download_url"), QStringLiteral("https://example.invalid/appimage")}},
+            QJsonObject{{QStringLiteral("name"), QStringLiteral("zalos_1.2.5_amd64.deb")},
+                        {QStringLiteral("browser_download_url"), QStringLiteral("https://example.invalid/deb")}},
+            QJsonObject{{QStringLiteral("name"), QStringLiteral("zalos-1.2.5-1.fc43.aarch64.rpm")},
+                        {QStringLiteral("browser_download_url"), QStringLiteral("https://example.invalid/rpm")}},
+            QJsonObject{{QStringLiteral("name"), QStringLiteral("SHA256SUMS")},
+                        {QStringLiteral("browser_download_url"), QStringLiteral("https://example.invalid/sums")}},
+        };
+
+        const auto appSel = selectAssetsForKind(PackageKind::AppImage, QStringLiteral("x86_64"), assets);
+        QCOMPARE(appSel.package.name, QStringLiteral("Zalos-1.2.5-x86_64.AppImage"));
+        QCOMPARE(appSel.sha256Sums.name, QStringLiteral("SHA256SUMS"));
+
+        const auto debSel = selectAssetsForKind(PackageKind::Deb, QStringLiteral("x86_64"), assets);
+        QCOMPARE(debSel.package.name, QStringLiteral("zalos_1.2.5_amd64.deb"));
+
+        const auto rpmSel = selectAssetsForKind(PackageKind::Rpm, QStringLiteral("arm64"), assets);
+        QCOMPARE(rpmSel.package.name, QStringLiteral("zalos-1.2.5-1.fc43.aarch64.rpm"));
+
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString targetPath = dir.filePath(QStringLiteral("Zalos.AppImage"));
+        const QString newPath = dir.filePath(QStringLiteral("Zalos-new.AppImage"));
+        {
+            QFile f(targetPath);
+            QVERIFY(f.open(QIODevice::WriteOnly));
+            f.write("old");
+        }
+        const QByteArray newBytes("new-appimage-payload");
+        {
+            QFile f(newPath);
+            QVERIFY(f.open(QIODevice::WriteOnly));
+            f.write(newBytes);
+        }
+        const QString expectedHex = QString::fromLatin1(
+            QCryptographicHash::hash(newBytes, QCryptographicHash::Sha256).toHex());
+        const QByteArray sums = expectedHex.toUtf8() + "  dist/Zalos-1.2.5-x86_64.AppImage\n";
+        QCOMPARE(parseSha256ForFile(sums, QStringLiteral("Zalos-1.2.5-x86_64.AppImage")), expectedHex);
+        QVERIFY(verifyFileSha256(newPath, expectedHex));
+        QVERIFY(!verifyFileSha256(newPath, QString(64, QLatin1Char('0'))));
+        QVERIFY(replaceAppImageFile(targetPath, newPath));
+        {
+            QFile f(targetPath);
+            QVERIFY(f.open(QIODevice::ReadOnly));
+            QCOMPARE(f.readAll(), newBytes);
+        }
+    }
+
+    void testSettingsRoundTripAndUrlPolicy() {
+        QSettings settings(QStringLiteral("Zalos"), QStringLiteral("ZalosApp"));
+        settings.remove(QStringLiteral("settings/showBusinessButton"));
+        settings.remove(QStringLiteral("settings/showKikiButton"));
+        settings.remove(QStringLiteral("settings/showLabelFolders"));
+        settings.remove(QStringLiteral("render/hardwareAcceleration"));
+
+        {
+            Zalos::Core::Network::ZaloClient writer;
+            writer.setShowBusinessButton(false);
+            writer.setShowKikiButton(false);
+            writer.setShowLabelFolders(true);
+            writer.setHardwareAcceleration(false);
+        }
+
+        {
+            Zalos::Core::Network::ZaloClient reader;
+            QCOMPARE(reader.showBusinessButton(), false);
+            QCOMPARE(reader.showKikiButton(), false);
+            QCOMPARE(reader.showLabelFolders(), true);
+            QCOMPARE(reader.hardwareAcceleration(), false);
+            reader.setShowBusinessButton(true);
+            reader.setShowKikiButton(true);
+            reader.setShowLabelFolders(false);
+            reader.setHardwareAcceleration(true);
+
+            QSignalSpy noticeSpy(&reader, &Zalos::Core::Network::ZaloClient::notice);
+            reader.openExternalUrl(QStringLiteral("javascript:alert(1)"));
+            reader.openExternalUrl(QStringLiteral("file:///etc/passwd"));
+            QCOMPARE(noticeSpy.count(), 2);
         }
     }
 };

@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.5] - 2026-11-16
+
+### Added & Improved
+- **Redesigned 2-Column Login Screen:** updated `LoginView` with a balanced two-column card layout for QR sign-in and Chromium browser-session detection, responsive narrow-window fallback, and live language toggle.
+- **Convenient per-package updates & `appimage.org` zsync:** embeds `gh-releases-zsync` update info in AppImage builds (publishing `.AppImage.zsync` assets), detects runtime package type (`AppImage`, `.deb`, `.rpm`, `Nix`), verifies `SHA256SUMS` before applying updates, supports in-place atomic AppImage self-update and `pkexec` / desktop installer upgrade for `.deb`/`.rpm` from **Settings → About**.
+- **Settings → About & Hardware Acceleration:** added the **About** tab (app version, Qt & platform info, active graphics renderer, GitHub Releases changelog, and update checker) plus an inline **Restart now** prompt when toggling GPU hardware acceleration.
+- **Conversation Type Filter & Sidebar Polish:** added a filter dropdown next to the Label filter to switch between **All conversations**, **Group chats only**, or **Direct chats only**, widened the conversation list, and added optional Settings toggles to show/hide **zBusiness** and **Kiki** on the navigation rail.
+- **Smart Mobile History Sync Prompt:** detects when signed-in group conversations have no cached messages and surfaces the phone history sync prompt automatically.
+- **UI, Window & Localization Fixes:** auto-closes the Emoji/Sticker picker on outside click or toolbar re-click, restores maximized/fullscreen window state after screenshot capture, unified **Sticker** terminology across Vietnamese and English, fixed My Documents icon rendering in conversation avatars, synced GitHub Pages screenshots (`app-ui-dark.png`, `app-ui-light.png`), and made C++ update/renderer/composer status strings update live when switching languages.
+- **QML AOT ≥ 90% & Quality Gates:** extracted `ChatMessageRow.qml`, enabled `pragma ComponentBehavior: Bound` in `ChatArea.qml`, raised `ZALOS_AOT_MIN` to `90%`, and expanded `qml_style_lint` & `test_system` automated gates while keeping Qt 6.4 (Ubuntu 24.04) compatibility.
+
 ## [1.2.4] - 2026-11-15
 
 ### Calls & Packaging

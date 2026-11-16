@@ -298,27 +298,28 @@ Rectangle {
                                 { k: "sent", vi: "Đã gửi", en: "Sent" }
                             ]
                             Rectangle {
+                                id: subTabChip
                                 required property var modelData
-                                readonly property bool on: root.invitesTab === modelData.k
+                                readonly property bool on: root.invitesTab === subTabChip.modelData.k
                                 Layout.preferredHeight: 28
                                 Layout.preferredWidth: subTabText.implicitWidth + 20
                                 radius: 14
-                                color: on ? Theme.zaloBlueLight : ThemeManager.hoverColor
+                                color: subTabChip.on ? Theme.zaloBlueLight : ThemeManager.hoverColor
                                 Text {
                                     id: subTabText
                                     anchors.centerIn: parent
-                                    text: I18n.t(parent.modelData.vi, parent.modelData.en)
+                                    text: I18n.t(subTabChip.modelData.vi, subTabChip.modelData.en)
                                     font.family: Theme.fontFamily
                                     font.pixelSize: 12
-                                    font.bold: parent.on
-                                    color: parent.on ? Theme.zaloBlueTonalText : ThemeManager.textColor
+                                    font.bold: subTabChip.on
+                                    color: subTabChip.on ? Theme.zaloBlueTonalText : ThemeManager.textColor
                                 }
                                 MouseArea {
                                     anchors.fill: parent
                                     cursorShape: Qt.PointingHandCursor
                                     onClicked: {
-                                        root.invitesTab = parent.modelData.k;
-                                        if (parent.modelData.k === "sent") ZaloClient.refreshSentFriendRequests();
+                                        root.invitesTab = subTabChip.modelData.k;
+                                        if (subTabChip.modelData.k === "sent") ZaloClient.refreshSentFriendRequests();
                                     }
                                 }
                             }

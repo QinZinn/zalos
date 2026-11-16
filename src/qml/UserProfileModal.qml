@@ -146,8 +146,8 @@ Item {
                 width: 30
                 height: 30
                 radius: 15
-                color: closeMouse.containsMouse ? Qt.rgba(1, 1, 1, 1.0) : Qt.rgba(1, 1, 1, 0.85)
-                border.color: Qt.rgba(0, 0, 0, 0.08)
+                color: closeMouse.containsMouse ? "#FFFFFFFF" : "#D9FFFFFF"
+                border.color: "#14000000"
                 border.width: 1
 
                 ZIcon {
@@ -662,7 +662,7 @@ Item {
                                     width: 18
                                     height: 18
                                     radius: 9
-                                    color: Qt.rgba(0, 0, 0, 0.6)
+                                    color: "#99000000"
                                     ZIcon { anchors.centerIn: parent; name: "close"; size: 10; color: "#FFFFFF" }
                                     MouseArea {
                                         anchors.fill: parent

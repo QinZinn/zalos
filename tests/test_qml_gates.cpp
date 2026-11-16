@@ -125,6 +125,51 @@ void TestQmlGates::qmlStyle() {
 
             if (line.contains(QStringLiteral("\"transparent\"")) && line.contains(QLatin1Char('?')) && hoverEnd.match(line).hasMatch())
                 errors << QStringLiteral("%1: R5 \"transparent\" as a hover end (use ThemeManager.hoverClearColor)").arg(where);
+
+            if (line.contains(QStringLiteral("Qt.openUrlExternally(")))
+                errors << QStringLiteral("%1: R6 direct Qt.openUrlExternally (use ZaloClient.openExternalUrl)").arg(where);
+
+            if (QRegularExpression(QStringLiteral(R"re(\.atYEnd\b)re")).match(line).hasMatch())
+                errors << QStringLiteral("%1: R7 ListView.atYEnd (use distanceToEnd)").arg(where);
+        }
+    }
+
+    // R8: every Q_PROPERTY in src/core/**/*.h must declare FINAL or CONSTANT for Qt 6.11 AOT.
+    QDirIterator hdrIt(QStringLiteral(ZALOS_SOURCE_DIR) + QStringLiteral("/src/core"), {QStringLiteral("*.h")},
+                       QDir::Files, QDirIterator::Subdirectories);
+    while (hdrIt.hasNext()) {
+        const QString path = hdrIt.next();
+        const QString rel = path.mid(QStringLiteral(ZALOS_SOURCE_DIR).size() + 1);
+        const QStringList lines = readLines(path);
+        for (int i = 0; i < lines.size(); ++i) {
+            if (lines[i].contains(QStringLiteral("Q_PROPERTY("))
+                && !lines[i].contains(QStringLiteral("FINAL"))
+                && !lines[i].contains(QStringLiteral("CONSTANT"))) {
+                errors << QStringLiteral("%1:%2: R8 Q_PROPERTY missing FINAL or CONSTANT").arg(rel).arg(i + 1);
+            }
+        }
+    }
+
+    // R9: every *.qml in src/qml must be listed in CMakeLists.txt.
+    const QString cmakeText = readLines(QStringLiteral(ZALOS_SOURCE_DIR) + QStringLiteral("/CMakeLists.txt")).join(QLatin1Char('\n'));
+    for (const QString& name : qmlFiles(qmlDir)) {
+        if (!cmakeText.contains(QStringLiteral("src/qml/") + name))
+            errors << QStringLiteral("CMakeLists.txt: R9 missing src/qml/%1 in qt_add_qml_module").arg(name);
+    }
+
+    // R10: SettingsModal.qml tabKeys, rail model, and activeTabHeight() must stay in sync.
+    const QString settingsText = readLines(qmlDir + QStringLiteral("/SettingsModal.qml")).join(QLatin1Char('\n'));
+    const QRegularExpression tabKeysRe(QStringLiteral(R"re(tabKeys:\s*\[([^\]]+)\])re"));
+    const QRegularExpressionMatch tkMatch = tabKeysRe.match(settingsText);
+    if (tkMatch.hasMatch()) {
+        QStringList keys;
+        const QRegularExpression keyLitRe(QStringLiteral(R"re("([a-z_]+)")re"));
+        for (auto it = keyLitRe.globalMatch(tkMatch.captured(1)); it.hasNext();) keys << it.next().captured(1);
+        for (const QString& k : keys) {
+            if (!settingsText.contains(QStringLiteral("key: \"%1\"").arg(k)))
+                errors << QStringLiteral("SettingsModal.qml: R10 rail model missing tab \"%1\"").arg(k);
+            if (k != QLatin1String("general") && !settingsText.contains(QStringLiteral("case \"%1\":").arg(k)))
+                errors << QStringLiteral("SettingsModal.qml: R10 activeTabHeight() missing case \"%1\"").arg(k);
         }
     }
     for (const QString& e : errors) qInfo("%s", qPrintable(e));

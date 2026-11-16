@@ -41,6 +41,7 @@ class ConversationModel : public QAbstractListModel {
     Q_PROPERTY(QString activeCategory READ activeCategory WRITE setCategoryFilter NOTIFY filterChanged FINAL)
     Q_PROPERTY(QString searchQuery READ searchQuery WRITE setSearchFilter NOTIFY filterChanged FINAL)
     Q_PROPERTY(int labelFilter READ labelFilter WRITE setLabelFilter NOTIFY filterChanged FINAL)
+    Q_PROPERTY(QString typeFilter READ typeFilter WRITE setTypeFilter NOTIFY filterChanged FINAL)
     Q_PROPERTY(bool strangerOnly READ strangerOnly WRITE setStrangerOnly NOTIFY filterChanged FINAL)
     Q_PROPERTY(QString viewMode READ viewMode WRITE setViewMode NOTIFY filterChanged FINAL)
     Q_PROPERTY(int totalUnreadCount READ totalUnreadCount NOTIFY unreadCountChanged FINAL)
@@ -84,6 +85,8 @@ public:
     Q_INVOKABLE void setSearchFilter(const QString& query);
     int labelFilter() const { return m_labelFilter; }
     Q_INVOKABLE void setLabelFilter(int labelId);
+    QString typeFilter() const { return m_typeFilter; }
+    Q_INVOKABLE void setTypeFilter(const QString& filter);
     QString viewMode() const { return m_viewMode; }
     Q_INVOKABLE void setViewMode(const QString& mode);
     void setHiddenThreads(const QSet<QString>& ids);
@@ -152,6 +155,7 @@ private:
     QString m_activeCategory{"priority"};
     QString m_searchQuery;
     int m_labelFilter{0};
+    QString m_typeFilter{QStringLiteral("all")};
     QString m_viewMode{QStringLiteral("normal")};
     QSet<QString> m_hiddenIds;
     bool m_hiddenPinReveal{false};

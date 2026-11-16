@@ -31,8 +31,8 @@ namespace {
 
 constexpr int kDefaultDiameter = 96;
 constexpr int kDefaultCoverWidth = 0;
-constexpr int kMaxAvatarCacheKiB = 8 * 1024;
-constexpr int kMaxMediaCacheKiB = 16 * 1024;
+constexpr int kMaxAvatarCacheKiB = 4 * 1024;
+constexpr int kMaxMediaCacheKiB = 8 * 1024;
 constexpr int kMaxCachedMediaImageKiB = 4 * 1024;
 constexpr int kRetryDelayMs = 750;
 constexpr qint64 kTouchIntervalSecs = 24 * 3600;

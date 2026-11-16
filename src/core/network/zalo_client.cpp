@@ -18,8 +18,12 @@
 #include "platform/shortcut_map.h"
 #include "platform/storage_manager.h"
 #include "platform/system_tray.h"
+#include "platform/render_profile.h"
+#include "platform/app_updater.h"
 #include "qrcodegen.hpp"
 #include <QClipboard>
+#include <QGuiApplication>
+#include <QVersionNumber>
 #include <QProcess>
 #include <QAudioOutput>
 #include <QMediaPlayer>
@@ -782,6 +786,10 @@ void ZaloClient::loadSession() {
     if (m_chatBackgroundMode == QLatin1String("custom") && m_chatBackgroundImage.isEmpty())
         m_chatBackgroundMode = QStringLiteral("none");
     m_showLabelFolders = settings.value("settings/showLabelFolders", false).toBool();
+    m_showBusinessButton = settings.value("settings/showBusinessButton", true).toBool();
+    m_showKikiButton = settings.value("settings/showKikiButton", true).toBool();
+    m_hardwareAcceleration = settings.value("render/hardwareAcceleration", true).toBool();
+    m_startupHardwareAcceleration = m_hardwareAcceleration;
     m_hiddenDismissedAt = settings.value("settings/hiddenUnreadDismissedAt", 0).toLongLong();
     m_startHiddenInTray = settings.value("settings/startHiddenInTray", false).toBool();
     m_closeToTray = settings.value("settings/closeToTray", true).toBool();
@@ -816,6 +824,9 @@ void ZaloClient::saveSession() {
     settings.remove(QLatin1String("settings/useAvatarAsChatBackground"));
     settings.setValue("settings/chatBackgroundImage", m_chatBackgroundImage);
     settings.setValue("settings/showLabelFolders", m_showLabelFolders);
+    settings.setValue("settings/showBusinessButton", m_showBusinessButton);
+    settings.setValue("settings/showKikiButton", m_showKikiButton);
+    settings.setValue("render/hardwareAcceleration", m_hardwareAcceleration);
     settings.setValue("settings/startHiddenInTray", m_startHiddenInTray);
     settings.setValue("settings/closeToTray", m_closeToTray);
     settings.setValue("settings/language", m_appLanguage);
@@ -907,7 +918,6 @@ void ZaloClient::onSessionLoggedIn() {
     m_myUid = session->uid();
     loadDrafts();
     pumpStickerQueue();
-    QTimer::singleShot(1500, this, &ZaloClient::maybeOfferMobileSync);
     if (m_offlineStore && m_offlineStore->bindOwner(m_myUid)) {
         m_conversationModel->clearAll();
         m_messageModel->clearAll();
@@ -1133,7 +1143,10 @@ void ZaloClient::loadAccountData() {
 
     m_pendingSyncJobs = 4;
     auto finishJob = [this]() {
-        if (--m_pendingSyncJobs <= 0) setSyncing(false);
+        if (--m_pendingSyncJobs <= 0) {
+            setSyncing(false);
+            maybeOfferMobileSync();
+        }
     };
 
     session->fetchAccountInfo([this, session, finishJob](bool ok, const QJsonValue& data, const QString&, int) {
@@ -2227,7 +2240,7 @@ Models::MessageItem ZaloClient::toMessageItem(const QJsonObject& msg, bool isGro
             item.mediaUrl = info.value("url").toString();
             item.extra.insert("sticker", info);
         }
-        label = L("[Nhãn dán]", "[Sticker]");
+        label = L("[Sticker]", "[Sticker]");
     } else if (type == "chat.voice") {
         const QJsonObject params = QJsonDocument::fromJson(obj.value("params").toString().toUtf8()).object();
         item.messageType = "voice";
@@ -3052,7 +3065,7 @@ void ZaloClient::setReplyTarget(const QString& msgId) {
     QString text = msg.value("text").toString();
     if (text.isEmpty()) {
         const QString type = msg.value("messageType").toString();
-        text = type == "image" ? L("[Hình ảnh]", "[Photo]") : type == "sticker" ? L("[Nhãn dán]", "[Sticker]")
+        text = type == "image" ? L("[Hình ảnh]", "[Photo]") : type == "sticker" ? L("[Sticker]", "[Sticker]")
              : type == "file" ? L("[Tệp]", "[File]") : L("[Tin nhắn]", "[Message]");
     }
     QString sender = msg.value("isMine").toBool() ? L("Bạn", "You") : msg.value("senderName").toString();
@@ -5441,12 +5454,28 @@ void ZaloClient::setMobileSyncState(int state, const QString& status, int progre
     emit mobileSyncProgressChanged();
 }
 
-void ZaloClient::maybeOfferMobileSync() {
-    if (!m_isLoggedIn || m_myUid.isEmpty() || m_showSyncPrompt) return;
+bool ZaloClient::shouldOfferMobileSync() const {
+    if (!m_isLoggedIn || m_myUid.isEmpty() || m_showSyncPrompt) return false;
     QSettings settings;
-    if (settings.value(QStringLiteral("mobileSync/done/") + m_myUid).toBool()) return;
-    if (settings.value(QStringLiteral("mobileSync/neverAsk/") + m_myUid).toBool()) return;
-    if (m_mobileSyncState != 0 && m_mobileSyncState != 5) return;
+    if (settings.value(QStringLiteral("mobileSync/done/") + m_myUid).toBool()) return false;
+    if (settings.value(QStringLiteral("mobileSync/neverAsk/") + m_myUid).toBool()) return false;
+    if (m_mobileSyncState != 0 && m_mobileSyncState != 5) return false;
+    if (m_messageModel && m_messageModel->hasAnyMessages()) return false;
+    if (m_offlineStore && m_offlineStore->isDatabaseOpen() && m_offlineStore->hasAnyMessages()) return false;
+
+    bool hasNonCloudConversation = false;
+    const QString cloudId = myCloudId();
+    const auto& convs = m_conversationModel->conversations();
+    for (const auto& conv : convs) {
+        if (!cloudId.isEmpty() && conv.id == cloudId) continue;
+        hasNonCloudConversation = true;
+        if (!conv.lastMessage.trimmed().isEmpty() && conv.lastTs > 0) return false;
+    }
+    return hasNonCloudConversation;
+}
+
+void ZaloClient::maybeOfferMobileSync() {
+    if (!shouldOfferMobileSync()) return;
     m_showSyncPrompt = true;
     emit syncPromptChanged();
 }
@@ -5588,6 +5617,380 @@ void ZaloClient::setShowLabelFolders(bool val) {
         saveSession();
         emit settingsChanged();
     }
+}
+
+void ZaloClient::setShowBusinessButton(bool val) {
+    if (m_showBusinessButton != val) {
+        m_showBusinessButton = val;
+        if (!val && m_showBusinessToolsModal) {
+            setShowBusinessToolsModal(false);
+        }
+        saveSession();
+        emit settingsChanged();
+    }
+}
+
+void ZaloClient::setShowKikiButton(bool val) {
+    if (m_showKikiButton != val) {
+        m_showKikiButton = val;
+        if (!val && m_currentNavigationTab == QLatin1String("kiki")) {
+            setCurrentNavigationTab(QStringLiteral("messages"));
+        }
+        saveSession();
+        emit settingsChanged();
+    }
+}
+
+void ZaloClient::setHardwareAcceleration(bool val) {
+    if (m_hardwareAcceleration != val) {
+        m_hardwareAcceleration = val;
+        saveSession();
+        emit settingsChanged();
+    }
+}
+
+void ZaloClient::restartApp() {
+    emit restartRequested();
+}
+
+QString ZaloClient::appVersion() const {
+#ifdef ZALOS_APP_VERSION
+    return QStringLiteral(ZALOS_APP_VERSION);
+#else
+    return QCoreApplication::applicationVersion();
+#endif
+}
+
+QString ZaloClient::qtRuntimeVersion() const {
+    return QString::fromLatin1(qVersion());
+}
+
+QString ZaloClient::rendererBackend() const {
+    const auto profile = Platform::RenderProfile::decide(Platform::RenderProfile::probeSystem());
+    switch (profile.backend) {
+    case Platform::RenderProfile::Backend::Vulkan:
+        return QStringLiteral("Vulkan");
+    case Platform::RenderProfile::Backend::OpenGL:
+        return QStringLiteral("OpenGL");
+    case Platform::RenderProfile::Backend::Software:
+        return L("Phần mềm (Software)", "Software");
+    case Platform::RenderProfile::Backend::Default:
+    default:
+        return L("Mặc định (OpenGL/Qt)", "Default (OpenGL/Qt)");
+    }
+}
+
+QString ZaloClient::platformName() const {
+    return QGuiApplication::platformName();
+}
+
+int ZaloClient::compareVersions(const QString& a, const QString& b) {
+    auto clean = [](const QString& s) {
+        QString t = s.trimmed();
+        if (t.startsWith(QLatin1Char('v'), Qt::CaseInsensitive)) t = t.mid(1);
+        const int dash = t.indexOf(QLatin1Char('-'));
+        if (dash >= 0) t.truncate(dash);
+        return QVersionNumber::fromString(t);
+    };
+    return QVersionNumber::compare(clean(a), clean(b));
+}
+
+QString ZaloClient::packageKind() const {
+    return Platform::packageKindKey(Platform::detectRuntimePackageKind());
+}
+
+bool ZaloClient::canInAppUpdate() const {
+    const auto kind = Platform::detectRuntimePackageKind();
+    return m_updateAvailable
+           && !m_updateAssetUrl.isEmpty()
+           && (kind == Platform::PackageKind::AppImage
+               || kind == Platform::PackageKind::Deb
+               || kind == Platform::PackageKind::Rpm);
+}
+
+QString ZaloClient::updateStatus() const {
+    switch (m_updateState) {
+    case UpdateCheckState::Checking:
+        return L("Đang kiểm tra bản cập nhật...", "Checking for updates...");
+    case UpdateCheckState::NetworkError:
+        return L("Không kiểm tra được bản cập nhật. Vui lòng thử lại sau.",
+                 "Couldn't check for updates. Please try again later.");
+    case UpdateCheckState::NoRelease:
+        return L("Chưa có thông tin bản phát hành mới.", "No release information found.");
+    case UpdateCheckState::Available:
+        return L("Đã có phiên bản mới: ", "New version available: ") + m_latestVersion;
+    case UpdateCheckState::UpToDate:
+        return L("Bạn đang dùng phiên bản mới nhất (v", "You are on the latest version (v")
+               + appVersion() + QStringLiteral(").");
+    case UpdateCheckState::Downloading:
+        return L("Đang tải bản cập nhật (%1%)...", "Downloading update (%1%)...")
+            .arg(qRound(m_updateProgress * 100.0));
+    case UpdateCheckState::Verifying:
+        return L("Đang kiểm tra toàn vẹn SHA-256...", "Verifying SHA-256 checksum...");
+    case UpdateCheckState::Installing:
+        return L("Đang cài đặt bản cập nhật...", "Installing update...");
+    case UpdateCheckState::InstalledRestartRequired:
+        return L("Đã cập nhật xong. Khởi động lại Zalos để dùng phiên bản mới.",
+                 "Update installed. Restart Zalos to use the new version.");
+    case UpdateCheckState::DownloadFailed:
+        return L("Tải bản cập nhật thất bại. Vui lòng thử lại hoặc tải từ GitHub.",
+                 "Update download failed. Please retry or download from GitHub.");
+    case UpdateCheckState::VerifyFailed:
+        return L("Kiểm tra SHA-256 không khớp. Đã hủy cập nhật để đảm bảo an toàn.",
+                 "SHA-256 verification failed. Update aborted for safety.");
+    case UpdateCheckState::InstallFailed:
+        return L("Không thể tự cài đặt gói cập nhật. File đã tải tại: ",
+                 "Could not install automatically. Downloaded file: ") + m_updateSavedPath;
+    case UpdateCheckState::SavedToDownloads:
+        return L("Thư mục AppImage không có quyền ghi. Đã tải bản mới về: ",
+                 "AppImage folder is read-only. Downloaded update to: ") + m_updateSavedPath;
+    case UpdateCheckState::Idle:
+    default:
+        return QString();
+    }
+}
+
+void ZaloClient::checkForUpdates() {
+    if (m_checkingUpdate || m_updatingApp) return;
+    m_checkingUpdate = true;
+    m_updateAvailable = false;
+    m_updateInstalledRestartRequired = false;
+    m_updateProgress = 0.0;
+    m_latestVersion.clear();
+    m_updateUrl.clear();
+    m_updateAssetName.clear();
+    m_updateAssetUrl.clear();
+    m_updateShaSumsUrl.clear();
+    m_updateSavedPath.clear();
+    m_updateState = UpdateCheckState::Checking;
+    emit updateCheckChanged();
+
+    auto* nam = new QNetworkAccessManager(this);
+    QNetworkRequest req(QUrl(QStringLiteral("https://api.github.com/repos/cpfriend1721994/zalos/releases/latest")));
+    req.setTransferTimeout(15000);
+    req.setRawHeader("Accept", "application/vnd.github+json");
+    req.setRawHeader("User-Agent", QByteArray("Zalos/") + appVersion().toUtf8());
+
+    QNetworkReply* reply = nam->get(req);
+    connect(reply, &QNetworkReply::finished, this, [this, nam, reply]() {
+        const auto err = reply->error();
+        const QByteArray body = reply->readAll();
+        reply->deleteLater();
+        nam->deleteLater();
+
+        m_checkingUpdate = false;
+        if (err != QNetworkReply::NoError) {
+            m_updateState = UpdateCheckState::NetworkError;
+            emit updateCheckChanged();
+            return;
+        }
+
+        const QJsonObject obj = QJsonDocument::fromJson(body).object();
+        const QString tag = obj.value(QStringLiteral("tag_name")).toString().trimmed();
+        const QString htmlUrl = obj.value(QStringLiteral("html_url")).toString().trimmed();
+        if (tag.isEmpty()) {
+            m_updateState = UpdateCheckState::NoRelease;
+            emit updateCheckChanged();
+            return;
+        }
+
+        m_latestVersion = tag;
+        m_updateUrl = htmlUrl.isEmpty()
+                      ? QStringLiteral("https://github.com/cpfriend1721994/zalos/releases")
+                      : htmlUrl;
+        if (compareVersions(tag, appVersion()) > 0) {
+            m_updateAvailable = true;
+            m_updateState = UpdateCheckState::Available;
+            const auto selected = Platform::selectAssetsForKind(
+                Platform::detectRuntimePackageKind(),
+                QSysInfo::currentCpuArchitecture(),
+                obj.value(QStringLiteral("assets")).toArray());
+            m_updateAssetName = selected.package.name;
+            m_updateAssetUrl = selected.package.url;
+            m_updateShaSumsUrl = selected.sha256Sums.url;
+        } else {
+            m_updateAvailable = false;
+            m_updateState = UpdateCheckState::UpToDate;
+        }
+        emit updateCheckChanged();
+    });
+}
+
+void ZaloClient::installAvailableUpdate() {
+    if (m_updatingApp || m_checkingUpdate || !canInAppUpdate()) return;
+
+    const auto kind = Platform::detectRuntimePackageKind();
+    const QString appImageTarget = qEnvironmentVariable("APPIMAGE");
+    QString downloadDir = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
+    if (downloadDir.isEmpty()) downloadDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
+    QDir().mkpath(downloadDir);
+    const QString destPath = downloadDir + QLatin1Char('/') + m_updateAssetName;
+
+    m_updatingApp = true;
+    m_updateInstalledRestartRequired = false;
+    m_updateProgress = 0.0;
+    m_updateSavedPath.clear();
+    m_updateState = UpdateCheckState::Downloading;
+    emit updateCheckChanged();
+
+    auto* nam = new QNetworkAccessManager(this);
+    auto* outFile = new QFile(destPath + QStringLiteral(".part"), this);
+    if (!outFile->open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        outFile->deleteLater();
+        nam->deleteLater();
+        m_updatingApp = false;
+        m_updateState = UpdateCheckState::DownloadFailed;
+        emit updateCheckChanged();
+        return;
+    }
+
+    QNetworkRequest req((QUrl(m_updateAssetUrl)));
+    req.setTransferTimeout(120000);
+    req.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
+    req.setRawHeader("User-Agent", QByteArray("Zalos/") + appVersion().toUtf8());
+
+    QNetworkReply* reply = nam->get(req);
+    connect(reply, &QNetworkReply::readyRead, this, [reply, outFile]() {
+        const QByteArray chunk = reply->readAll();
+        if (!chunk.isEmpty()) outFile->write(chunk);
+    });
+    connect(reply, &QNetworkReply::downloadProgress, this, [this](qint64 recv, qint64 total) {
+        if (total <= 0) return;
+        const qreal next = qBound(0.0, qreal(recv) / qreal(total), 1.0);
+        if (qAbs(next - m_updateProgress) >= 0.02 || next >= 1.0) {
+            m_updateProgress = next;
+            emit updateCheckChanged();
+        }
+    });
+    connect(reply, &QNetworkReply::finished, this, [this, nam, reply, outFile, destPath, kind, appImageTarget]() {
+        const QByteArray tail = reply->readAll();
+        if (!tail.isEmpty()) outFile->write(tail);
+        outFile->flush();
+        outFile->close();
+        const auto err = reply->error();
+        reply->deleteLater();
+
+        if (err != QNetworkReply::NoError) {
+            outFile->remove();
+            outFile->deleteLater();
+            nam->deleteLater();
+            m_updatingApp = false;
+            m_updateState = UpdateCheckState::DownloadFailed;
+            emit updateCheckChanged();
+            return;
+        }
+
+        QFile::remove(destPath);
+        if (!outFile->rename(destPath)) {
+            outFile->remove();
+            outFile->deleteLater();
+            nam->deleteLater();
+            m_updatingApp = false;
+            m_updateState = UpdateCheckState::DownloadFailed;
+            emit updateCheckChanged();
+            return;
+        }
+        outFile->deleteLater();
+
+        auto applyPackage = [this, destPath, kind, appImageTarget]() {
+            if (kind == Platform::PackageKind::AppImage) {
+                const QFileInfo targetInfo(appImageTarget);
+                if (!targetInfo.dir().exists() || !QFileInfo(targetInfo.dir().absolutePath()).isWritable()) {
+                    m_updatingApp = false;
+                    m_updateSavedPath = destPath;
+                    m_updateState = UpdateCheckState::SavedToDownloads;
+                    emit updateCheckChanged();
+                    QDesktopServices::openUrl(QUrl::fromLocalFile(QFileInfo(destPath).absolutePath()));
+                    return;
+                }
+                m_updateState = UpdateCheckState::Installing;
+                emit updateCheckChanged();
+                QString replaceErr;
+                if (!Platform::replaceAppImageFile(appImageTarget, destPath, &replaceErr)) {
+                    m_updatingApp = false;
+                    m_updateSavedPath = destPath;
+                    m_updateState = UpdateCheckState::InstallFailed;
+                    emit updateCheckChanged();
+                    return;
+                }
+                QFile::remove(destPath);
+                m_updatingApp = false;
+                m_updateInstalledRestartRequired = true;
+                m_updateState = UpdateCheckState::InstalledRestartRequired;
+                emit updateCheckChanged();
+                return;
+            }
+
+            m_updateState = UpdateCheckState::Installing;
+            emit updateCheckChanged();
+
+            const QString pkexec = QStandardPaths::findExecutable(QStringLiteral("pkexec"));
+            if (pkexec.isEmpty()) {
+                m_updatingApp = false;
+                m_updateSavedPath = destPath;
+                m_updateState = UpdateCheckState::InstallFailed;
+                emit updateCheckChanged();
+                QDesktopServices::openUrl(QUrl::fromLocalFile(destPath));
+                return;
+            }
+
+            QStringList args;
+            if (kind == Platform::PackageKind::Deb) {
+                args = {QStringLiteral("apt-get"), QStringLiteral("install"), QStringLiteral("-y"), destPath};
+            } else {
+                args = {QStringLiteral("dnf"), QStringLiteral("install"), QStringLiteral("-y"), destPath};
+            }
+
+            auto* proc = new QProcess(this);
+            connect(proc, &QProcess::finished, this, [this, proc, destPath](int exitCode, QProcess::ExitStatus status) {
+                proc->deleteLater();
+                m_updatingApp = false;
+                if (status == QProcess::NormalExit && exitCode == 0) {
+                    QFile::remove(destPath);
+                    m_updateInstalledRestartRequired = true;
+                    m_updateState = UpdateCheckState::InstalledRestartRequired;
+                } else {
+                    m_updateSavedPath = destPath;
+                    m_updateState = UpdateCheckState::InstallFailed;
+                    QDesktopServices::openUrl(QUrl::fromLocalFile(destPath));
+                }
+                emit updateCheckChanged();
+            });
+            proc->start(pkexec, args);
+        };
+
+        if (m_updateShaSumsUrl.isEmpty()) {
+            nam->deleteLater();
+            applyPackage();
+            return;
+        }
+
+        m_updateState = UpdateCheckState::Verifying;
+        emit updateCheckChanged();
+        QNetworkRequest sumReq((QUrl(m_updateShaSumsUrl)));
+        sumReq.setTransferTimeout(15000);
+        sumReq.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
+        sumReq.setRawHeader("User-Agent", QByteArray("Zalos/") + appVersion().toUtf8());
+        QNetworkReply* sumReply = nam->get(sumReq);
+        connect(sumReply, &QNetworkReply::finished, this, [this, nam, sumReply, destPath, applyPackage]() {
+            const auto sumErr = sumReply->error();
+            const QByteArray sumBody = sumReply->readAll();
+            sumReply->deleteLater();
+            nam->deleteLater();
+
+            const QString expected = sumErr == QNetworkReply::NoError
+                ? Platform::parseSha256ForFile(sumBody, m_updateAssetName)
+                : QString();
+            if (expected.isEmpty() || !Platform::verifyFileSha256(destPath, expected)) {
+                QFile::remove(destPath);
+                m_updatingApp = false;
+                m_updateState = UpdateCheckState::VerifyFailed;
+                emit updateCheckChanged();
+                return;
+            }
+            applyPackage();
+        });
+    });
 }
 
 void ZaloClient::setStartHiddenInTray(bool val) {
@@ -6236,7 +6639,7 @@ void ZaloClient::sendStickerItem(qint64 stickerId, qint64 cateId, int type) {
     local.id = QStringLiteral("local-%1-%2").arg(now).arg(++m_localSeq);
     local.cliMsgId = cliMsgId;
     local.messageType = QStringLiteral("sticker");
-    local.text = L("[Nhãn dán]", "[Sticker]");
+    local.text = L("[Sticker]", "[Sticker]");
     local.mediaUrl = stickerThumb(QString::number(stickerId));
     local.ts = now;
     local.timeStr = QDateTime::fromMSecsSinceEpoch(now).toString("HH:mm");
@@ -6245,7 +6648,7 @@ void ZaloClient::sendStickerItem(qint64 stickerId, qint64 cateId, int type) {
     local.senderName = m_userName;
     local.status = QStringLiteral("sending");
     m_messageModel->mergeMessages(convId, {local});
-    m_conversationModel->recordMessage(convId, L("[Nhãn dán]", "[Sticker]"), L("Bạn: ", "You: "), now, false);
+    m_conversationModel->recordMessage(convId, L("[Sticker]", "[Sticker]"), L("Bạn: ", "You: "), now, false);
 
     const QString localId = local.id;
     const qint64 ttl = m_autoDeleteTtl.value(convId, 0);
@@ -6257,7 +6660,7 @@ void ZaloClient::sendStickerItem(qint64 stickerId, qint64 cateId, int type) {
                 if (!serverId.isEmpty()) m_messageModel->confirmMessage(convId, localId, serverId);
             } else {
                 m_messageModel->setStatus(convId, localId, QStringLiteral("failed"));
-                emit notice(L("Không gửi được nhãn dán: ", "Couldn't send the sticker: ") + friendlyError(error, code));
+                emit notice(L("Không gửi được sticker: ", "Couldn't send the sticker: ") + friendlyError(error, code));
             }
         }, cliMsgId, ttl);
 }
@@ -7371,6 +7774,8 @@ void ZaloClient::setAppLanguage(const QString& lang) {
         m_apiClient->setLanguage(lang);
         saveSession();
         emit appLanguageChanged();
+        emit updateCheckChanged();
+        emit composerStateChanged();
     }
 }
 

@@ -11,7 +11,7 @@ Item {
     z: 998
 
     readonly property var systemSounds: ZaloClient.systemSounds()
-    readonly property var tabKeys: ["general", "language", "appearance", "notifications", "privacy", "security", "storage", "sync"]
+    readonly property list<string> tabKeys: ["general", "language", "appearance", "notifications", "privacy", "security", "storage", "sync", "about"]
     property string currentTab: normalizeTab(ZaloClient.settingsInitialTab)
 
     readonly property bool compact: dialogCard.width < 560
@@ -358,10 +358,12 @@ Item {
                         }
                     }
                     delegate: ItemDelegate {
+                        id: soundDel
+                        required property var modelData
                         width: soundCombo.width - 8
                         height: 32
                         contentItem: Text {
-                            text: modelData.label
+                            text: soundDel.modelData.label
                             color: ThemeManager.textColor
                             font.family: Theme.fontFamily
                             font.pixelSize: 13
@@ -369,7 +371,7 @@ Item {
                         }
                         background: Rectangle {
                             radius: 4
-                            color: highlighted ? ThemeManager.hoverColor : ThemeManager.hoverClearColor
+                            color: soundDel.highlighted ? ThemeManager.hoverColor : ThemeManager.hoverClearColor
                         }
                     }
                 }
@@ -544,7 +546,8 @@ Item {
                                     { key: "privacy", label: I18n.t("Quyền riêng tư", "Privacy"), icon: "lock" },
                                     { key: "security", label: I18n.t("Bảo mật", "Security"), icon: "shield" },
                                     { key: "storage", label: I18n.t("Dữ liệu & bộ nhớ", "Data & storage"), icon: "download" },
-                                    { key: "sync", label: I18n.t("Đồng bộ tin nhắn", "Sync messages"), icon: "refresh" }
+                                    { key: "sync", label: I18n.t("Đồng bộ tin nhắn", "Sync messages"), icon: "refresh" },
+                                    { key: "about", label: I18n.t("Về ứng dụng", "About"), icon: "info" }
                                 ]
 
                                 Rectangle {
@@ -628,6 +631,7 @@ Item {
                             case "security": return securityTabLoader.implicitHeight;
                             case "storage": return storageTabLoader.implicitHeight;
                             case "sync": return syncTabLoader.implicitHeight;
+                            case "about": return aboutTabLoader.implicitHeight;
                             default: return generalTabLoader.implicitHeight;
                             }
                         }
@@ -669,6 +673,49 @@ Item {
                                                      "The close button only hides the window and Zalos keeps receiving messages; quit with Ctrl+Q or the tray menu")
                                     checked: ZaloClient.closeToTray
                                     onToggled: (value) => ZaloClient.closeToTray = value
+                                }
+
+                                ToggleRow {
+                                    title: I18n.t("Tăng tốc phần cứng (GPU)", "Hardware acceleration (GPU)")
+                                    subtitle: I18n.t("Tắt tùy chọn này để dùng kết xuất phần mềm và giảm RAM đồ họa (cần khởi động lại Zalos)",
+                                                     "Turn off to use software rendering and reduce GPU memory usage (requires restarting Zalos)")
+                                    checked: ZaloClient.hardwareAcceleration
+                                    onToggled: (value) => ZaloClient.hardwareAcceleration = value
+                                }
+
+                                Rectangle {
+                                    visible: ZaloClient.hardwareAccelerationRestartRequired
+                                    Layout.fillWidth: true
+                                    implicitHeight: gpuRestartRow.implicitHeight + 16
+                                    radius: Theme.radiusMedium
+                                    color: Theme.zaloBlueLight
+                                    border.color: Theme.zaloBlue
+                                    border.width: 1
+
+                                    RowLayout {
+                                        id: gpuRestartRow
+                                        anchors.left: parent.left
+                                        anchors.right: parent.right
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        anchors.margins: 12
+                                        spacing: 10
+
+                                        Text {
+                                            Layout.fillWidth: true
+                                            wrapMode: Text.WordWrap
+                                            text: I18n.t("Cần khởi động lại Zalos để áp dụng thay đổi tăng tốc phần cứng.",
+                                                         "Restart Zalos to apply the hardware acceleration change.")
+                                            font.family: Theme.fontFamily
+                                            font.pixelSize: 12
+                                            color: ThemeManager.textColor
+                                        }
+
+                                        ZButton {
+                                            variant: "primary"
+                                            text: I18n.t("Khởi động lại ngay", "Restart now")
+                                            onClicked: ZaloClient.restartApp()
+                                        }
+                                    }
                                 }
 
                                 Text {
@@ -1053,6 +1100,18 @@ Item {
                                     checked: ZaloClient.showLabelFolders
                                     onToggled: (value) => ZaloClient.showLabelFolders = value
                                 }
+
+                                ToggleRow {
+                                    title: I18n.t("Hiển thị công cụ zBusiness", "Show zBusiness tools")
+                                    checked: ZaloClient.showBusinessButton
+                                    onToggled: (value) => ZaloClient.showBusinessButton = value
+                                }
+
+                                ToggleRow {
+                                    title: I18n.t("Hiển thị trợ lý Kiki", "Show Kiki assistant")
+                                    checked: ZaloClient.showKikiButton
+                                    onToggled: (value) => ZaloClient.showKikiButton = value
+                                }
                             }
                         }
 
@@ -1423,7 +1482,7 @@ Item {
                                             }
                                             ZComboBox {
                                                 id: autoLockBox
-                                                readonly property var minutes: [0, 1, 5, 15, 60]
+                                                readonly property list<int> minutes: [0, 1, 5, 15, 60]
                                                 model: [I18n.t("Tắt", "Off"), I18n.t("1 phút", "1 minute"), I18n.t("5 phút", "5 minutes"),
                                                         I18n.t("15 phút", "15 minutes"), I18n.t("1 giờ", "1 hour")]
                                                 currentIndex: Math.max(0, minutes.indexOf(ZaloClient.appLock.autoLockMinutes))
@@ -1572,7 +1631,7 @@ Item {
                                     }
                                     ZComboBox {
                                         id: avatarLimitBox
-                                        readonly property var sizes: [100, 300, 500, 1000, 2000]
+                                        readonly property list<int> sizes: [100, 300, 500, 1000, 2000]
                                         model: ["100 MB", "300 MB", "500 MB", "1 GB", "2 GB"]
                                         currentIndex: Math.max(0, sizes.indexOf(ZaloClient.storage.avatarLimitMb))
                                         onActivated: (index) => ZaloClient.storage.avatarLimitMb = avatarLimitBox.sizes[index]
@@ -1590,7 +1649,7 @@ Item {
                                     }
                                     ZComboBox {
                                         id: ageBox
-                                        readonly property var days: [7, 31, 90, 365]
+                                        readonly property list<int> days: [7, 31, 90, 365]
                                         model: [I18n.t("7 ngày", "7 days"), I18n.t("1 tháng", "1 month"), I18n.t("3 tháng", "3 months"), I18n.t("1 năm", "1 year")]
                                         currentIndex: Math.max(0, days.indexOf(ZaloClient.storage.maxAgeDays))
                                         onActivated: (index) => ZaloClient.storage.maxAgeDays = ageBox.days[index]
@@ -1638,8 +1697,8 @@ Item {
                                                 width: 44
                                                 height: 44
                                                 radius: 22
-                                                color: ZaloClient.mobileSyncState === 4 ? Qt.rgba(43/255, 182/255, 115/255, 0.15)
-                                                       : (ZaloClient.mobileSyncState === 5 ? Qt.rgba(229/255, 56/255, 59/255, 0.15) : Qt.rgba(0, 104/255, 255/255, 0.12))
+                                                color: ZaloClient.mobileSyncState === 4 ? "#262BB673"
+                                                       : (ZaloClient.mobileSyncState === 5 ? "#26E5383B" : "#1F0068FF")
 
                                                 ZIcon {
                                                     anchors.centerIn: parent
@@ -1750,6 +1809,288 @@ Item {
                                                 }
                                             }
                                         }
+                                    }
+                                }
+                            }
+                        }
+
+                        Loader {
+                            id: aboutTabLoader
+                            active: root.currentTab === "about"
+                            x: contentContainer.contentPadding
+                            y: contentContainer.contentPadding
+                            width: contentContainer.width - 2 * contentContainer.contentPadding
+                            sourceComponent: ColumnLayout {
+                                id: aboutTab
+                                width: parent.width
+                                spacing: 16
+
+                                SectionTitle { text: I18n.t("Về ứng dụng", "About Zalos") }
+
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: aboutHeaderRow.implicitHeight + 28
+                                    radius: 12
+                                    color: ThemeManager.cardBackgroundColor
+                                    border.color: ThemeManager.borderColor
+                                    border.width: 1
+
+                                    RowLayout {
+                                        id: aboutHeaderRow
+                                        anchors.left: parent.left
+                                        anchors.right: parent.right
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        anchors.margins: 14
+                                        spacing: 14
+
+                                        Image {
+                                            Layout.preferredWidth: 48
+                                            Layout.preferredHeight: 48
+                                            source: "qrc:/Zalos/assets/icons/zalos.svg"
+                                            sourceSize.width: Math.ceil(48 * Screen.devicePixelRatio)
+                                            sourceSize.height: Math.ceil(48 * Screen.devicePixelRatio)
+                                        }
+
+                                        ColumnLayout {
+                                            Layout.fillWidth: true
+                                            spacing: 3
+
+                                            Text {
+                                                text: "Zalos v" + ZaloClient.appVersion
+                                                font.family: Theme.fontFamily
+                                                font.pixelSize: 16
+                                                font.bold: true
+                                                color: ThemeManager.textColor
+                                            }
+
+                                            Text {
+                                                Layout.fillWidth: true
+                                                wrapMode: Text.WordWrap
+                                                text: I18n.t("Ứng dụng nhắn tin Zalo dành cho Linux (C++/Qt6, mã nguồn mở MIT).",
+                                                             "Native Zalo desktop client for Linux (C++/Qt6, MIT open source).")
+                                                font.family: Theme.fontFamily
+                                                font.pixelSize: 12
+                                                color: ThemeManager.secondaryTextColor
+                                            }
+                                        }
+                                    }
+                                }
+
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: aboutMetaCol.implicitHeight + 24
+                                    radius: 10
+                                    color: ThemeManager.cardBackgroundColor
+                                    border.color: ThemeManager.borderColor
+                                    border.width: 1
+
+                                    ColumnLayout {
+                                        id: aboutMetaCol
+                                        anchors.left: parent.left
+                                        anchors.right: parent.right
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        anchors.margins: 14
+                                        spacing: 10
+
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            Text {
+                                                Layout.fillWidth: true
+                                                text: I18n.t("Tăng tốc phần cứng (GPU)", "Hardware acceleration (GPU)")
+                                                font.family: Theme.fontFamily
+                                                font.pixelSize: 13
+                                                color: ThemeManager.secondaryTextColor
+                                            }
+                                            Text {
+                                                text: ZaloClient.hardwareAcceleration
+                                                      ? I18n.t("Đang bật", "Enabled")
+                                                      : I18n.t("Đang tắt", "Disabled")
+                                                font.family: Theme.fontFamily
+                                                font.pixelSize: 13
+                                                font.bold: true
+                                                color: ZaloClient.hardwareAcceleration ? Theme.zaloBlue : ThemeManager.textColor
+                                            }
+                                        }
+
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            Text {
+                                                Layout.fillWidth: true
+                                                text: I18n.t("Bộ kết xuất đồ họa", "Graphics renderer")
+                                                font.family: Theme.fontFamily
+                                                font.pixelSize: 13
+                                                color: ThemeManager.secondaryTextColor
+                                            }
+                                            Text {
+                                                text: ZaloClient.rendererBackend
+                                                font.family: Theme.fontFamily
+                                                font.pixelSize: 13
+                                                font.bold: true
+                                                color: ThemeManager.textColor
+                                            }
+                                        }
+
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            Text {
+                                                Layout.fillWidth: true
+                                                text: I18n.t("Phiên bản Qt & nền tảng", "Qt version & platform")
+                                                font.family: Theme.fontFamily
+                                                font.pixelSize: 13
+                                                color: ThemeManager.secondaryTextColor
+                                            }
+                                            Text {
+                                                text: "Qt " + ZaloClient.qtRuntimeVersion + " (" + ZaloClient.platformName + ")"
+                                                font.family: Theme.fontFamily
+                                                font.pixelSize: 13
+                                                font.bold: true
+                                                color: ThemeManager.textColor
+                                            }
+                                        }
+
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            Text {
+                                                Layout.fillWidth: true
+                                                text: I18n.t("Chủ đề giao diện", "Theme mode")
+                                                font.family: Theme.fontFamily
+                                                font.pixelSize: 13
+                                                color: ThemeManager.secondaryTextColor
+                                            }
+                                            Text {
+                                                text: ThemeManager.themeMode === 1
+                                                      ? I18n.t("Tối", "Dark")
+                                                      : (ThemeManager.themeMode === 2
+                                                         ? I18n.t("Theo hệ thống", "System")
+                                                         : I18n.t("Sáng", "Light"))
+                                                font.family: Theme.fontFamily
+                                                font.pixelSize: 13
+                                                font.bold: true
+                                                color: ThemeManager.textColor
+                                            }
+                                        }
+                                    }
+                                }
+
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 10
+
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        spacing: 10
+
+                                        ZButton {
+                                            variant: "primary"
+                                            iconName: "refresh"
+                                            enabled: !ZaloClient.checkingUpdate && !ZaloClient.updatingApp
+                                            text: ZaloClient.checkingUpdate
+                                                  ? I18n.t("Đang kiểm tra...", "Checking...")
+                                                  : I18n.t("Kiểm tra cập nhật", "Check for updates")
+                                            onClicked: ZaloClient.checkForUpdates()
+                                        }
+
+                                        ZButton {
+                                            visible: ZaloClient.canInAppUpdate && !ZaloClient.updateInstalledRestartRequired
+                                            enabled: !ZaloClient.updatingApp
+                                            variant: "tonal"
+                                            iconName: "download"
+                                            text: ZaloClient.packageKind === "deb"
+                                                  ? I18n.t("Tải & cài đặt (.deb)", "Download & install (.deb)")
+                                                  : (ZaloClient.packageKind === "rpm"
+                                                     ? I18n.t("Tải & cài đặt (.rpm)", "Download & install (.rpm)")
+                                                     : I18n.t("Tải & cập nhật", "Download & update"))
+                                            onClicked: ZaloClient.installAvailableUpdate()
+                                        }
+
+                                        ZButton {
+                                            visible: ZaloClient.updateInstalledRestartRequired
+                                            variant: "primary"
+                                            iconName: "refresh"
+                                            text: I18n.t("Khởi động lại ngay", "Restart now")
+                                            onClicked: ZaloClient.restartApp()
+                                        }
+
+                                        ZButton {
+                                            visible: ZaloClient.updateAvailable && ZaloClient.updateUrl.length > 0 && !ZaloClient.updateInstalledRestartRequired
+                                            variant: ZaloClient.canInAppUpdate ? "secondary" : "tonal"
+                                            iconName: ZaloClient.canInAppUpdate ? "open_external" : "download"
+                                            text: ZaloClient.canInAppUpdate
+                                                  ? I18n.t("Trang phát hành", "Release page")
+                                                  : I18n.t("Tải bản mới", "Download update")
+                                            onClicked: ZaloClient.openExternalUrl(ZaloClient.updateUrl)
+                                        }
+                                    }
+
+                                    Rectangle {
+                                        visible: ZaloClient.updatingApp
+                                        Layout.fillWidth: true
+                                        Layout.preferredHeight: 6
+                                        radius: 3
+                                        color: ThemeManager.hoverColor
+
+                                        Rectangle {
+                                            anchors.left: parent.left
+                                            anchors.top: parent.top
+                                            anchors.bottom: parent.bottom
+                                            width: parent.width * Math.max(0.0, Math.min(1.0, ZaloClient.updateProgress))
+                                            radius: 3
+                                            color: Theme.zaloBlue
+                                        }
+                                    }
+
+                                    Text {
+                                        visible: ZaloClient.updateStatus.length > 0
+                                        Layout.fillWidth: true
+                                        wrapMode: Text.WordWrap
+                                        text: ZaloClient.updateStatus
+                                        font.family: Theme.fontFamily
+                                        font.pixelSize: 12
+                                        font.bold: ZaloClient.updateAvailable
+                                        color: ZaloClient.updateAvailable ? Theme.zaloBlue : ThemeManager.secondaryTextColor
+                                    }
+
+                                    Text {
+                                        visible: ZaloClient.updateAvailable && ZaloClient.packageKind === "nix"
+                                        Layout.fillWidth: true
+                                        wrapMode: Text.WordWrap
+                                        text: I18n.t("Bản Nix chạy từ /nix/store chỉ đọc — hãy cập nhật bằng nix flake update.",
+                                                     "Nix runs from read-only /nix/store — update with nix flake update.")
+                                        font.family: Theme.fontFamily
+                                        font.pixelSize: 11
+                                        color: ThemeManager.secondaryTextColor
+                                    }
+                                }
+
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: 1
+                                    color: ThemeManager.borderColor
+                                }
+
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 10
+
+                                    ZButton {
+                                        variant: "secondary"
+                                        iconName: "open_external"
+                                        text: I18n.t("Nhật ký thay đổi", "Changelog")
+                                        onClicked: ZaloClient.openExternalUrl("https://github.com/cpfriend1721994/zalos/releases")
+                                    }
+
+                                    ZButton {
+                                        variant: "secondary"
+                                        iconName: "globe"
+                                        text: "GitHub"
+                                        onClicked: ZaloClient.openExternalUrl("https://github.com/cpfriend1721994/zalos")
+                                    }
+
+                                    ZButton {
+                                        variant: "secondary"
+                                        iconName: "help"
+                                        text: I18n.t("Báo lỗi", "Report issue")
+                                        onClicked: ZaloClient.openExternalUrl("https://github.com/cpfriend1721994/zalos/issues")
                                     }
                                 }
                             }

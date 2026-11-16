@@ -39,6 +39,9 @@ RenderProfile RenderProfile::decide(const Inputs& in) {
     if (o == "vulkan" || o == "opengl" || o == "software") {
         p.backend = o == "vulkan" ? Backend::Vulkan : o == "opengl" ? Backend::OpenGL : Backend::Software;
         p.reason = QStringLiteral("ZALOS_RENDERER=%1").arg(o);
+    } else if (!in.hardwareAcceleration) {
+        p.backend = Backend::Software;
+        p.reason = QStringLiteral("hardware acceleration disabled in settings");
     } else if (!in.hasRenderNode) {
         p.backend = Backend::Software;
         p.reason = QStringLiteral("no GPU render node: software renderer instead of llvmpipe");
@@ -84,6 +87,7 @@ RenderProfile::Inputs RenderProfile::probeSystem() {
     in.qtHasVulkan = true;
 #endif
     in.vulkanFailedBefore = RenderGuard::vulkanFailedBefore();
+    in.hardwareAcceleration = QSettings("Zalos", "ZalosApp").value("render/hardwareAcceleration", true).toBool();
     const QString meminfo = readTrimmed(QStringLiteral("/proc/meminfo"));
     for (const QString& line : meminfo.split('\n')) {
         if (line.startsWith(QLatin1String("MemTotal:"))) {

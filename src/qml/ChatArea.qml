@@ -1,3 +1,4 @@
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
@@ -83,13 +84,13 @@ Rectangle {
         root.reactionMsgId = msgId;
         root.reactionTab = "";
         root.reactionInfo = ZaloClient.reactionDetails(msgId);
-        root.popupOf(reactionPopupLoader).open();
+        reactionPopup.open();
     }
 
-    property var seenDetailsUids: []
-    function openSeenDetails(uids: var): void {
+    property list<string> seenDetailsUids: []
+    function openSeenDetails(uids: list<string>): void {
         root.seenDetailsUids = uids || [];
-        root.popupOf(seenPopupLoader).open();
+        seenPopup.open();
     }
 
     function openHeaderTarget(): void {
@@ -109,14 +110,8 @@ Rectangle {
     function openMessageMenu(item: Item, msg: var, mx: real, my: real): void {
         root.menuMessage = msg;
         const p = root.mapFromItem(item, mx, my);
-        const menu = root.popupOf(messageMenuLoader);
-        root.placePopup(menu, p.x, p.y);
-        menu.open();
-    }
-
-    function popupOf(loader: Loader): Popup {
-        loader.active = true;
-        return (loader.item as PopupHost).popup;
+        root.placePopup(messageMenu, p.x, p.y);
+        messageMenu.open();
     }
 
     property string draftConvId: ""
@@ -817,13 +812,14 @@ Rectangle {
                         model: [ { icon: "arrow_up", step: -1, vi: "Kết quả trước", en: "Previous result" },
                                  { icon: "arrow_down", step: 1, vi: "Kết quả sau", en: "Next result" } ]
                         Rectangle {
+                            id: searchStepBtn
                             required property var modelData
                             visible: root.searchHits.length > 1
                             width: 24
                             height: 24
                             radius: 12
                             color: stepMouse.containsMouse ? ThemeManager.hoverColor : ThemeManager.hoverClearColor
-                            ZIcon { anchors.centerIn: parent; name: modelData.icon; size: 14; color: ThemeManager.secondaryTextColor }
+                            ZIcon { anchors.centerIn: parent; name: searchStepBtn.modelData.icon; size: 14; color: ThemeManager.secondaryTextColor }
                             MouseArea {
                                 id: stepMouse
                                 anchors.fill: parent
@@ -831,8 +827,8 @@ Rectangle {
                                 cursorShape: Qt.PointingHandCursor
                                 ToolTip.visible: containsMouse
                                 ToolTip.delay: 400
-                                ToolTip.text: I18n.t(modelData.vi, modelData.en)
-                                onClicked: root.stepSearch(modelData.step)
+                                ToolTip.text: I18n.t(searchStepBtn.modelData.vi, searchStepBtn.modelData.en)
+                                onClicked: root.stepSearch(searchStepBtn.modelData.step)
                             }
                         }
                     }
@@ -974,6 +970,17 @@ Rectangle {
                                 ZaloClient.sendMessage("👋 Xin chào!");
                             }
                         }
+                    }
+
+                    ZButton {
+                        Layout.alignment: Qt.AlignHCenter
+                        visible: ZaloClient.currentConversationIsGroup
+                                 && !ZaloClient.currentConversationIsCloud
+                                 && !ZaloClient.isLoadingHistory
+                                 && ZaloClient.mobileSyncState !== 4
+                        variant: "tonal"
+                        text: I18n.t("Đồng bộ tin nhắn từ điện thoại", "Sync messages from phone")
+                        onClicked: ZaloClient.acceptSyncPrompt()
                     }
                 }
             }
@@ -1309,1377 +1316,16 @@ Rectangle {
                     }
                 }
 
-                delegate: Item {
-                    id: msgRow
-                    objectName: "messageRow"
-                    width: messageList.width
-                    visible: !model.inMediaRun
-                    height: model.inMediaRun ? 0 : rowCol.implicitHeight + (model.lastInGroup ? 10 : 2)
-
-                    required property var model
-                    required property string messageType
-                    required property bool isMine
-                    required property string text
-                    required property string quoteText
-                    required property string msgId
-                    required property string href
-                    required property string mediaUrl
-                    required property var mediaRun
-
-                    ListView.onReused: msgText.deselect()
-
-                    readonly property bool mine: isMine
-                    readonly property bool isPhoto: messageType === "image" || messageType === "video"
-                    readonly property bool isSticker: messageType === "sticker"
-                    readonly property bool runHead: mediaRun.length > 1
-                    readonly property bool isFile: messageType === "file"
-                    readonly property bool isSystem: messageType === "system"
-                    readonly property bool isEcard: messageType === "ecard"
-                    readonly property bool isLink: messageType === "link"
-                    readonly property bool isVoice: messageType === "voice"
-                    readonly property bool isCall: messageType === "call"
-                    readonly property bool isPoll: messageType === "poll"
-                    readonly property bool isContactCard: messageType === "card"
-                    readonly property bool isLocation: messageType === "location"
-                    readonly property bool isBankCard: messageType === "bankcard"
-                    readonly property bool hasCard: isFile || isLink || isVoice || isCall || isPoll || isContactCard || isLocation
-                                                    || isBankCard
-                    readonly property bool bubbleless: (isPhoto && text.length === 0 && quoteText.length === 0) || isSticker
-                    readonly property real maxBubble: Math.min(messageList.width * 0.7, 560)
-                    readonly property bool isSearchHit: root.searchFocusId.length > 0 && msgId === root.searchFocusId
-                    readonly property var menuInfo: ({ id: msgRow.msgId, text: msgRow.text, isMine: msgRow.isMine,
-                                                       messageType: msgRow.messageType,
-                                                       url: msgRow.href.length > 0 ? msgRow.href : msgRow.mediaUrl })
-
-                    HoverHandler { id: rowHover }
-
-                    Rectangle {
-                        anchors.fill: parent
-                        z: -1
-                        radius: 6
-                        color: Theme.zaloBlueLight
-                        opacity: root.flashMsgId.length > 0 && msgRow.msgId === root.flashMsgId ? 0.7 : 0
-                        Behavior on opacity { NumberAnimation { duration: 300 } }
-                    }
-
-                    ColumnLayout {
-                        id: rowCol
-                        width: parent.width
-                        spacing: 4
-
-                        Loader {
-                            active: model.dateSeparator
-                            visible: active
-                            Layout.fillWidth: true
-                            Layout.topMargin: 6
-                            sourceComponent: Item {
-                                id: datePill
-                                implicitHeight: 30
-                                Rectangle {
-                                    anchors.centerIn: parent
-                                    width: dateText.implicitWidth + 20
-                                    height: 22
-                                    radius: 10
-                                    color: Theme.timestampPill
-                                    Text {
-                                        id: dateText
-                                        anchors.centerIn: parent
-                                        text: root.dateLabel(model.ts)
-                                        color: "#FFFFFF"
-                                        font.family: Theme.fontFamily
-                                        font.pixelSize: 12
-                                    }
-                                }
-                            }
-                        }
-
-                        Loader {
-                            active: model.unreadMarker
-                            visible: active
-                            Layout.fillWidth: true
-                            Layout.topMargin: 4
-                            sourceComponent: ChatUnreadBar {
-                            }
-                        }
-
-                        Text {
-                            visible: msgRow.isSystem
-                            Layout.fillWidth: true
-                            Layout.leftMargin: 40
-                            Layout.rightMargin: 40
-                            horizontalAlignment: Text.AlignHCenter
-                            wrapMode: Text.Wrap
-                            text: msgRow.text
-                            font.family: Theme.fontFamily
-                            font.pixelSize: 12
-                            font.underline: systemLinkMouse.enabled && systemLinkMouse.containsMouse
-                            color: systemLinkMouse.enabled ? Theme.zaloBlue : ThemeManager.secondaryTextColor
-
-                            MouseArea {
-                                id: systemLinkMouse
-                                anchors.fill: parent
-                                enabled: msgRow.isSystem && !!model.extra.reminderEventId
-                                hoverEnabled: true
-                                cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-                                onClicked: ZaloClient.showConversationInfo = true
-                            }
-                        }
-
-                        Loader {
-                            active: msgRow.isEcard
-                            visible: active
-                            Layout.alignment: Qt.AlignHCenter
-                            Layout.topMargin: 4
-                            Layout.bottomMargin: 4
-                            sourceComponent: Rectangle {
-                                id: ecardCard
-                                readonly property bool suggest: model.extra.suggestStickers === true
-                                readonly property var stickers: (model.extra.stickers && model.extra.stickers.length > 0)
-                                                                ? model.extra.stickers
-                                                                : (ecardCard.suggest ? ZaloClient.stickers.birthdayStickers : [])
-                                readonly property string desc: ecardCard.suggest && ecardCard.stickers.length === 0 ? "" : (model.extra.desc || "")
-                                implicitWidth: Math.min(340, messageList.width - 48)
-                                implicitHeight: ecardCol.implicitHeight + 24
-                                radius: 12
-                                color: ThemeManager.surfaceColor
-                                border.color: ThemeManager.borderColor
-                                border.width: 1
-                                function prefetch(): void {
-                                    if (ecardCard.suggest) ZaloClient.stickers.loadBirthdayStickers();
-                                    else if (ecardCard.stickers.length > 0) ZaloClient.prefetchStickers(ecardCard.stickers);
-                                }
-                                Component.onCompleted: ecardCard.prefetch()
-                                onStickersChanged: ecardCard.prefetch()
-
-                                ColumnLayout {
-                                    id: ecardCol
-                                    anchors.left: parent.left
-                                    anchors.right: parent.right
-                                    anchors.top: parent.top
-                                    anchors.margins: 12
-                                    spacing: 8
-
-                                    ZAvatar {
-                                        Layout.alignment: Qt.AlignHCenter
-                                        size: 56
-                                        avatarUrl: model.senderAvatar
-                                        name: model.senderName
-                                        showStatusDot: false
-                                    }
-
-                                    Text {
-                                        Layout.fillWidth: true
-                                        horizontalAlignment: Text.AlignHCenter
-                                        wrapMode: Text.Wrap
-                                        text: msgRow.text
-                                        font.family: Theme.fontFamily
-                                        font.pixelSize: 14
-                                        font.bold: true
-                                        color: ThemeManager.textColor
-                                    }
-
-                                    Text {
-                                        visible: ecardCard.desc.length > 0
-                                        Layout.fillWidth: true
-                                        horizontalAlignment: Text.AlignHCenter
-                                        wrapMode: Text.Wrap
-                                        text: ecardCard.desc
-                                        font.family: Theme.fontFamily
-                                        font.pixelSize: 12
-                                        color: ThemeManager.secondaryTextColor
-                                    }
-
-                                    ListView {
-                                        id: ecardStickers
-                                        visible: ecardCard.stickers.length > 0
-                                        Layout.fillWidth: true
-                                        Layout.preferredHeight: 64
-                                        orientation: ListView.Horizontal
-                                        spacing: 6
-                                        clip: true
-                                        boundsBehavior: Flickable.StopAtBounds
-                                        model: ecardCard.stickers
-                                        delegate: Rectangle {
-                                            id: ecardSticker
-                                            required property var modelData
-                                            width: 64
-                                            height: 64
-                                            radius: 8
-                                            color: ecardStickerMouse.containsMouse ? ThemeManager.hoverColor : ThemeManager.hoverClearColor
-                                            Image {
-                                                anchors.fill: parent
-                                                anchors.margins: 4
-                                                fillMode: Image.PreserveAspectFit
-                                                asynchronous: true
-                                                source: ZaloClient.stickerRevision >= 0 ? ZaloClient.stickerThumb(ecardSticker.modelData.id) : ""
-                                            }
-                                            MouseArea {
-                                                id: ecardStickerMouse
-                                                anchors.fill: parent
-                                                hoverEnabled: true
-                                                cursorShape: Qt.PointingHandCursor
-                                                onClicked: ZaloClient.sendStickerItem(Number(ecardSticker.modelData.id), Number(ecardSticker.modelData.cateId),
-                                                                                      Number(ecardSticker.modelData.type))
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        RowLayout {
-                            id: bubbleRow
-                            visible: !msgRow.isSystem && !msgRow.isEcard
-                            Layout.fillWidth: true
-                            spacing: 8
-
-                            Item { visible: msgRow.mine; Layout.fillWidth: true }
-
-                            Item {
-                                visible: !msgRow.mine
-                                Layout.leftMargin: 16
-                                Layout.alignment: Qt.AlignTop
-                                implicitWidth: 32
-                                implicitHeight: 32
-                                Loader {
-                                    anchors.fill: parent
-                                    active: model.firstInGroup
-                                    sourceComponent: Item {
-                                        ZAvatar {
-                                            anchors.fill: parent
-                                            size: 32
-                                            avatarUrl: (model.senderAvatar && model.senderAvatar.length > 0)
-                                                       ? model.senderAvatar
-                                                       : (ZaloClient.currentConversationIsGroup ? "" : ZaloClient.currentConversationAvatar)
-                                            name: (model.senderName && model.senderName.length > 0) ? model.senderName
-                                                  : (ZaloClient.currentConversationIsGroup ? "" : ZaloClient.currentConversationName)
-                                            showStatusDot: false
-                                        }
-                                        MouseArea {
-                                            visible: model.senderId.length > 0
-                                            anchors.fill: parent
-                                            cursorShape: Qt.PointingHandCursor
-                                            onClicked: ZaloClient.viewProfile(model.senderId)
-                                        }
-                                    }
-                                }
-                            }
-
-                            ColumnLayout {
-                                id: contentCol
-                                Layout.maximumWidth: msgRow.maxBubble
-                                Layout.rightMargin: msgRow.mine ? 24 : 0
-                                opacity: (ZaloClient.antiPeeking && !rowHover.hovered) ? 0.08 : 1.0
-                                Behavior on opacity { NumberAnimation { duration: 150 } }
-                                spacing: 0
-
-                                Text {
-                                    id: senderNameText
-                                    visible: !msgRow.mine && ZaloClient.currentConversationIsGroup && model.firstInGroup
-                                             && (model.senderName.length > 0 || (model.senderId.length > 0 && model.senderId !== "system"))
-                                    Layout.bottomMargin: 4
-                                    text: model.senderName.length > 0 ? model.senderName : I18n.t("Người dùng Zalo", "Zalo user")
-                                    font.family: Theme.fontFamily
-                                    font.pixelSize: 12
-                                    color: senderNameMouse.containsMouse ? Theme.zaloBlue : ThemeManager.secondaryTextColor
-
-                                    MouseArea {
-                                        id: senderNameMouse
-                                        anchors.fill: parent
-                                        hoverEnabled: true
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: { if (model.senderId.length > 0) ZaloClient.viewProfile(model.senderId); }
-                                    }
-                                }
-
-                                Loader {
-                                    id: mediaLoader
-                                    active: msgRow.isPhoto && msgRow.mediaUrl.length > 0 && !msgRow.runHead
-                                    visible: active
-                                    Layout.alignment: msgRow.mine ? Qt.AlignRight : Qt.AlignLeft
-                                    sourceComponent: Item {
-                                        id: mediaBox
-                                        readonly property real srcW: mediaImg.implicitImageWidth > 0 ? mediaImg.implicitImageWidth : 240
-                                        readonly property real srcH: mediaImg.implicitImageHeight > 0 ? mediaImg.implicitImageHeight : 180
-                                        readonly property real fit: Math.min(Math.min(360, messageList.width - 237) / srcW, 368 / srcH, 1.0)
-                                        implicitWidth: Math.max(150, srcW * fit)
-                                        implicitHeight: Math.max(110, srcH * fit)
-
-                                        ZRoundedImage {
-                                            id: mediaImg
-                                            anchors.fill: parent
-                                            source: msgRow.mediaUrl
-                                            animatedSource: model.extra.animatedUrl ? model.extra.animatedUrl : ""
-                                            sourceSize.width: Math.ceil(360 * (Screen.devicePixelRatio || 1))
-                                            topOnly: !msgRow.bubbleless
-                                        }
-                                        ColumnLayout {
-                                            objectName: "mediaExpiredHint"
-                                            visible: mediaImg.status === Image.Error
-                                            anchors.centerIn: parent
-                                            spacing: 6
-                                            ZIcon {
-                                                Layout.alignment: Qt.AlignHCenter
-                                                name: msgRow.messageType === "video" ? "video" : "image"
-                                                size: 24
-                                                color: ThemeManager.secondaryTextColor
-                                            }
-                                            Text {
-                                                Layout.alignment: Qt.AlignHCenter
-                                                text: msgRow.messageType === "video" ? I18n.t("Video đã hết hạn", "Video expired")
-                                                                                     : I18n.t("Ảnh đã hết hạn", "Photo expired")
-                                                font.family: Theme.fontFamily
-                                                font.pixelSize: 12
-                                                color: ThemeManager.secondaryTextColor
-                                            }
-                                        }
-                                        Rectangle {
-                                            anchors.fill: parent
-                                            radius: 8
-                                            color: Theme.mediaHover
-                                            visible: mediaMouse.containsMouse
-                                        }
-                                        Rectangle {
-                                            visible: msgRow.messageType === "video"
-                                            anchors.centerIn: parent
-                                            width: 44
-                                            height: 44
-                                            radius: 22
-                                            color: Qt.rgba(0, 0, 0, 0.55)
-                                            ZIcon { anchors.centerIn: parent; name: "play"; size: 26; color: "#FFFFFF" }
-                                        }
-                                        MouseArea {
-                                            id: mediaMouse
-                                            anchors.fill: parent
-                                            hoverEnabled: true
-                                            cursorShape: Qt.PointingHandCursor
-                                            acceptedButtons: Qt.LeftButton | Qt.RightButton
-                                            ToolTip.visible: containsMouse && msgRow.messageType === "video"
-                                            ToolTip.delay: 600
-                                            ToolTip.text: I18n.t("Xem video", "Watch video")
-                                            onClicked: function(mouse) {
-                                                if (mouse.button === Qt.RightButton) {
-                                                    root.openMessageMenu(mediaMouse, msgRow.menuInfo, mouse.x, mouse.y);
-                                                } else {
-                                                    root.openViewer(msgRow.msgId);
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-
-                                Loader {
-                                    id: stickerLoader
-                                    active: msgRow.isSticker && !msgRow.runHead
-                                    visible: active
-                                    Layout.alignment: msgRow.mine ? Qt.AlignRight : Qt.AlignLeft
-                                    sourceComponent: Item {
-                                        id: stickerBox
-                                        implicitWidth: 130
-                                        implicitHeight: 130
-                                        ZSticker {
-                                            id: stickerImage
-                                            anchors.fill: parent
-                                            info: model.extra.sticker ? model.extra.sticker : ({})
-                                            fallbackUrl: msgRow.mediaUrl
-                                            playing: msgRow.visible
-                                        }
-                                        Rectangle {
-                                            anchors.fill: parent
-                                            visible: stickerImage.status !== Image.Ready
-                                            radius: 12
-                                            color: Theme.mediaPlaceholder
-                                            Column {
-                                                anchors.centerIn: parent
-                                                spacing: 6
-                                                ZIcon { anchors.horizontalCenter: parent.horizontalCenter; name: "sticker"; size: 32; color: ThemeManager.secondaryTextColor }
-                                                Text {
-                                                    anchors.horizontalCenter: parent.horizontalCenter
-                                                    text: stickerImage.status === Image.Loading ? I18n.t("Đang tải…", "Loading…")
-                                                          : stickerImage.status === Image.Error ? I18n.t("Không tải được", "Couldn't load")
-                                                          : I18n.t("Nhãn dán", "Sticker")
-                                                    color: ThemeManager.secondaryTextColor
-                                                    font.family: Theme.fontFamily
-                                                    font.pixelSize: 11
-                                                }
-                                            }
-                                        }
-                                        MouseArea {
-                                            anchors.fill: parent
-                                            acceptedButtons: Qt.LeftButton | Qt.RightButton
-                                            cursorShape: stickerImage.status === Image.Ready ? Qt.PointingHandCursor : Qt.ArrowCursor
-                                            onClicked: function(mouse) {
-                                                if (mouse.button === Qt.RightButton) {
-                                                    root.openMessageMenu(stickerBox, msgRow.menuInfo, mouse.x, mouse.y);
-                                                } else if (stickerImage.status === Image.Ready) {
-                                                    ImageViewerState.show([{ msgId: msgRow.msgId, url: msgRow.mediaUrl, thumb: msgRow.mediaUrl,
-                                                                             senderName: model.senderName, isMine: msgRow.isMine, ts: model.ts }], 0);
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-
-                                Loader {
-                                    id: runLoader
-                                    active: msgRow.runHead
-                                    visible: active
-                                    Layout.alignment: msgRow.mine ? Qt.AlignRight : Qt.AlignLeft
-                                    sourceComponent: Item {
-                                        implicitWidth: Math.min(runFlow.maxW, runFlow.naturalW)
-                                        implicitHeight: runFlow.implicitHeight
-                                    Flow {
-                                        id: runFlow
-                                        width: parent.width
-                                        spacing: 4
-                                        layoutDirection: msgRow.mine ? Qt.RightToLeft : Qt.LeftToRight
-                                        readonly property real maxW: Math.max(150, Math.min(msgRow.maxBubble, messageList.width - 140))
-                                        readonly property real naturalW: {
-                                            let w = 0;
-                                            for (let i = 0; i < msgRow.mediaRun.length; ++i)
-                                                w += (msgRow.mediaRun[i].messageType === "sticker" ? 130 : 150) + (i > 0 ? spacing : 0);
-                                            return w;
-                                        }
-                                        Repeater {
-                                            model: msgRow.mediaRun
-                                            delegate: Item {
-                                                id: tile
-                                                required property var modelData
-                                                readonly property bool sticker: tile.modelData.messageType === "sticker"
-                                                width: tile.sticker ? 130 : 150
-                                                height: tile.sticker ? 130 : 150
-                                                ZRoundedImage {
-                                                    id: tileImage
-                                                    visible: !tile.sticker
-                                                    anchors.fill: parent
-                                                    source: tile.sticker ? "" : tile.modelData.mediaUrl
-                                                    animatedSource: !tile.sticker && tile.modelData.animatedUrl ? tile.modelData.animatedUrl : ""
-                                                    sourceSize.width: 320
-                                                }
-                                                Text {
-                                                    visible: !tile.sticker && tileImage.status === Image.Error
-                                                    anchors.centerIn: parent
-                                                    text: I18n.t("Ảnh đã hết hạn", "Photo expired")
-                                                    font.family: Theme.fontFamily
-                                                    font.pixelSize: 12
-                                                    color: ThemeManager.secondaryTextColor
-                                                }
-                                                ZSticker {
-                                                    id: tileSticker
-                                                    visible: tile.sticker
-                                                    anchors.fill: parent
-                                                    info: tile.sticker && tile.modelData.sticker ? tile.modelData.sticker : ({})
-                                                    fallbackUrl: tile.sticker ? tile.modelData.mediaUrl : ""
-                                                    playing: visible
-                                                }
-                                                Rectangle {
-                                                    anchors.fill: parent
-                                                    visible: tile.sticker && tileSticker.status !== Image.Ready
-                                                    radius: 12
-                                                    color: Theme.mediaPlaceholder
-                                                    ZIcon { anchors.centerIn: parent; name: "sticker"; size: 28; color: ThemeManager.secondaryTextColor }
-                                                }
-                                                Rectangle {
-                                                    anchors.fill: parent
-                                                    radius: 8
-                                                    color: Theme.mediaHover
-                                                    visible: tileMouse.containsMouse && !tile.sticker
-                                                }
-                                                MouseArea {
-                                                    id: tileMouse
-                                                    anchors.fill: parent
-                                                    hoverEnabled: true
-                                                    cursorShape: Qt.PointingHandCursor
-                                                    acceptedButtons: Qt.LeftButton | Qt.RightButton
-                                                    onClicked: function(mouse) {
-                                                        const t = tile.modelData;
-                                                        if (mouse.button === Qt.RightButton) {
-                                                            root.openMessageMenu(tile, { id: t.msgId, text: "", isMine: t.isMine, messageType: t.messageType,
-                                                                                         url: t.href.length > 0 ? t.href : t.mediaUrl }, mouse.x, mouse.y);
-                                                        } else if (tile.sticker) {
-                                                            if (tileSticker.status === Image.Ready)
-                                                                ImageViewerState.show([{ msgId: t.msgId, url: t.mediaUrl, thumb: t.mediaUrl,
-                                                                                         senderName: t.senderName, isMine: t.isMine, ts: t.ts }], 0);
-                                                        } else {
-                                                            root.openViewer(t.msgId);
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-}
-                                }
-
-                                Rectangle {
-                                    id: bubbleRect
-                                    visible: !msgRow.bubbleless
-                                    readonly property real innerMax: msgRow.maxBubble - 24
-                                    implicitWidth: msgRow.isPhoto ? mediaLoader.implicitWidth
-                                                                  : Math.min(bubbleInner.implicitWidth + 24, msgRow.maxBubble)
-                                    implicitHeight: bubbleInner.implicitHeight + (msgRow.isPhoto ? 17 : 16)
-                                    Layout.preferredWidth: implicitWidth
-                                    Layout.preferredHeight: implicitHeight
-                                    Layout.alignment: msgRow.mine ? Qt.AlignRight : Qt.AlignLeft
-                                    radius: 8
-                                    color: msgRow.mine ? ThemeManager.chatBubbleMine : ThemeManager.chatBubbleTheir
-                                    border.color: msgRow.isSearchHit ? Theme.zaloBlue : (msgRow.mine ? "transparent" : ThemeManager.borderColor)
-                                    border.width: msgRow.isSearchHit ? 2 : 1
-                                    Rectangle {
-                                        visible: msgRow.isPhoto
-                                        width: parent.width
-                                        height: 8
-                                        color: parent.color
-                                    }
-
-                                    MouseArea {
-                                        anchors.fill: parent
-                                        acceptedButtons: Qt.RightButton
-                                        onClicked: function(mouse) {
-                                            if (!model.isRecalled) root.openMessageMenu(bubbleRect, msgRow.menuInfo, mouse.x, mouse.y);
-                                        }
-                                    }
-
-                                    ColumnLayout {
-                                        id: bubbleInner
-                                        x: 12
-                                        y: msgRow.isPhoto ? 7 : 8
-                                        width: bubbleRect.width - 24
-                                        spacing: 4
-
-                                        Loader {
-                                            active: model.quoteMsgId.length > 0 || msgRow.quoteText.length > 0
-                                            visible: active
-                                            Layout.fillWidth: true
-                                            Layout.minimumWidth: 160
-                                            sourceComponent: Rectangle {
-                                                implicitHeight: quoteCol.implicitHeight + 10
-                                                implicitWidth: Math.min(quoteCol.implicitWidth + 18, bubbleRect.innerMax)
-                                                radius: 4
-                                                color: quoteMouse.containsMouse ? ThemeManager.selectedColor : ThemeManager.hoverColor
-                                                Rectangle { width: 3; height: parent.height; radius: 1.5; color: Theme.zaloBlue }
-                                                ColumnLayout {
-                                                    id: quoteCol
-                                                    anchors.fill: parent
-                                                    anchors.leftMargin: 10
-                                                    anchors.rightMargin: 8
-                                                    anchors.topMargin: 5
-                                                    anchors.bottomMargin: 5
-                                                    spacing: 1
-                                                    Text {
-                                                        Layout.fillWidth: true
-                                                        text: model.quoteSender
-                                                        elide: Text.ElideRight
-                                                        font.family: Theme.fontFamily
-                                                        font.pixelSize: 12
-                                                        font.bold: true
-                                                        color: ThemeManager.textColor
-                                                    }
-                                                    Text {
-                                                        Layout.fillWidth: true
-                                                        text: msgRow.quoteText
-                                                        elide: Text.ElideRight
-                                                        maximumLineCount: 2
-                                                        wrapMode: Text.Wrap
-                                                        font.family: Theme.fontFamily
-                                                        font.pixelSize: 12
-                                                        color: ThemeManager.secondaryTextColor
-                                                    }
-                                                }
-                                                MouseArea {
-                                                    id: quoteMouse
-                                                    anchors.fill: parent
-                                                    hoverEnabled: true
-                                                    cursorShape: Qt.PointingHandCursor
-                                                    onClicked: { if (model.quoteMsgId.length > 0) root.jumpToMessage(model.quoteMsgId, ""); }
-                                                }
-                                            }
-                                        }
-
-                                        Loader {
-                                            active: msgRow.isFile
-                                            visible: active
-                                            sourceComponent: Item {
-                                                id: fileCardBox
-                                                implicitWidth: Math.min(352, messageList.width - 184)
-                                                implicitHeight: fileCard.implicitHeight
-                                            RowLayout {
-                                                id: fileCard
-                                                anchors.fill: parent
-                                                spacing: 12
-                                                readonly property string ext: {
-                                                    const n = msgRow.text || "";
-                                                    const dot = n.lastIndexOf(".");
-                                                    return dot > 0 ? n.substring(dot + 1).toLowerCase() : "";
-                                                }
-                                                Rectangle {
-                                                    Layout.preferredWidth: 38
-                                                    Layout.preferredHeight: 48
-                                                    radius: 6
-                                                    color: root.fileColor(fileCard.ext)
-                                                    Text {
-                                                        anchors.centerIn: parent
-                                                        width: parent.width - 4
-                                                        horizontalAlignment: Text.AlignHCenter
-                                                        text: (fileCard.ext || "file").toUpperCase().substring(0, 4)
-                                                        color: "#FFFFFF"
-                                                        font.family: Theme.fontFamily
-                                                        font.pixelSize: 10
-                                                        font.bold: true
-                                                        elide: Text.ElideRight
-                                                    }
-                                                }
-                                                ColumnLayout {
-                                                    Layout.fillWidth: true
-                                                    spacing: 2
-                                                    Text {
-                                                        Layout.fillWidth: true
-                                                        text: msgRow.text
-                                                        elide: Text.ElideMiddle
-                                                        font.family: Theme.fontFamily
-                                                        font.pixelSize: 14
-                                                        font.weight: Font.DemiBold
-                                                        color: ThemeManager.textColor
-                                                    }
-                                                    Text {
-                                                        Layout.fillWidth: true
-                                                        text: root.fileSizeText(model.fileSize)
-                                                        font.family: Theme.fontFamily
-                                                        font.pixelSize: 12
-                                                        color: ThemeManager.secondaryTextColor
-                                                    }
-                                                }
-                                                Rectangle {
-                                                    Layout.preferredWidth: 32
-                                                    Layout.preferredHeight: 32
-                                                    radius: 4
-                                                    color: fileOpenMouse.containsMouse ? ThemeManager.hoverColor : ThemeManager.hoverClearColor
-                                                    ZIcon { anchors.centerIn: parent; name: "download"; size: 20; color: ThemeManager.secondaryTextColor }
-                                                }
-                                            }
-                                                MouseArea {
-                                                    id: fileOpenMouse
-                                                    anchors.fill: parent
-                                                    hoverEnabled: true
-                                                    cursorShape: Qt.PointingHandCursor
-                                                    ToolTip.visible: containsMouse
-                                                    ToolTip.delay: 500
-                                                    ToolTip.text: I18n.t("Tải về và mở (lưu trong Tải xuống/Zalos)", "Download and open (saved in Downloads/Zalos)")
-                                                    onClicked: ZaloClient.openFileMessage(msgRow.href.length > 0 ? msgRow.href : msgRow.mediaUrl, msgRow.text)
-                                                }
-                                            }
-                                        }
-
-                                        Loader {
-                                            active: msgRow.isContactCard && !model.isRecalled
-                                            visible: active
-                                            Layout.preferredWidth: Math.min(280, bubbleRect.innerMax)
-                                            sourceComponent: ColumnLayout {
-                                                id: contactCard
-                                                readonly property string uid: model.extra.uid || ""
-                                                readonly property string phone: model.extra.phone || ""
-                                                spacing: 8
-                                                Item {
-                                                    Layout.fillWidth: true
-                                                    implicitHeight: contactHeaderRow.implicitHeight
-                                                    RowLayout {
-                                                        id: contactHeaderRow
-                                                        anchors.fill: parent
-                                                        spacing: 10
-                                                        ZAvatar {
-                                                            size: 48
-                                                            avatarUrl: msgRow.mediaUrl
-                                                            name: msgRow.text
-                                                        }
-                                                        ColumnLayout {
-                                                            Layout.fillWidth: true
-                                                            spacing: 2
-                                                            Text {
-                                                                Layout.fillWidth: true
-                                                                text: msgRow.text
-                                                                elide: Text.ElideRight
-                                                                font.family: Theme.fontFamily
-                                                                font.pixelSize: 15
-                                                                font.weight: Font.DemiBold
-                                                                color: contactHeaderMouse.containsMouse && contactCard.uid.length > 0
-                                                                       ? Theme.zaloBlue : ThemeManager.textColor
-                                                            }
-                                                            Text {
-                                                                Layout.fillWidth: true
-                                                                text: contactCard.phone.length > 0 ? contactCard.phone
-                                                                      : (model.extra.official ? I18n.t("Official Account", "Official Account")
-                                                                                              : I18n.t("Danh thiếp Zalo", "Zalo contact card"))
-                                                                elide: Text.ElideRight
-                                                                font.family: Theme.fontFamily
-                                                                font.pixelSize: 12
-                                                                color: ThemeManager.secondaryTextColor
-                                                            }
-                                                        }
-                                                    }
-                                                    MouseArea {
-                                                        id: contactHeaderMouse
-                                                        anchors.fill: parent
-                                                        enabled: contactCard.uid.length > 0
-                                                        hoverEnabled: true
-                                                        cursorShape: contactCard.uid.length > 0 ? Qt.PointingHandCursor : Qt.ArrowCursor
-                                                        onClicked: if (contactCard.uid.length > 0) ZaloClient.viewProfile(contactCard.uid)
-                                                    }
-                                                }
-                                                Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: ThemeManager.dividerColor }
-                                                RowLayout {
-                                                    Layout.fillWidth: true
-                                                    spacing: 8
-                                                    ZButton {
-                                                        Layout.fillWidth: true
-                                                        variant: "tonal"
-                                                        enabled: contactCard.uid.length > 0 && contactCard.uid !== ZaloClient.myUid
-                                                        text: I18n.t("Nhắn tin", "Message")
-                                                        onClicked: ZaloClient.openConversationWithContact(contactCard.uid, msgRow.text, msgRow.mediaUrl)
-                                                    }
-                                                    ZButton {
-                                                        Layout.fillWidth: true
-                                                        variant: "secondary"
-                                                        enabled: contactCard.uid.length > 0
-                                                        text: I18n.t("Xem hồ sơ", "View profile")
-                                                        onClicked: ZaloClient.viewProfile(contactCard.uid)
-                                                    }
-                                                }
-                                            }
-                                        }
-
-                                        Loader {
-                                            active: msgRow.isLink && !model.isRecalled
-                                            visible: active
-                                            Layout.preferredWidth: Math.min(320, bubbleRect.innerMax)
-                                            sourceComponent: ColumnLayout {
-                                                spacing: 4
-                                                Image {
-                                                    visible: msgRow.mediaUrl.length > 0 && status !== Image.Error
-                                                    Layout.fillWidth: true
-                                                    Layout.preferredHeight: visible ? 150 : 0
-                                                    source: msgRow.isLink ? MediaSource.toSource(msgRow.mediaUrl) : ""
-                                                    asynchronous: true
-                                                    fillMode: Image.PreserveAspectCrop
-                                                    sourceSize.width: Math.ceil(320 * (Screen.devicePixelRatio || 1))
-                                                    clip: true
-                                                }
-                                                Text {
-                                                    Layout.fillWidth: true
-                                                    text: msgRow.text
-                                                    wrapMode: Text.Wrap
-                                                    maximumLineCount: 2
-                                                    elide: Text.ElideRight
-                                                    font.family: Theme.fontFamily
-                                                    font.pixelSize: 14
-                                                    font.weight: Font.DemiBold
-                                                    color: ThemeManager.textColor
-                                                }
-                                                Text {
-                                                    visible: text.length > 0
-                                                    Layout.fillWidth: true
-                                                    text: msgRow.isLink ? (model.extra.desc || "") : ""
-                                                    wrapMode: Text.Wrap
-                                                    maximumLineCount: msgRow.href.length > 0 ? 2 : 8
-                                                    elide: Text.ElideRight
-                                                    font.family: Theme.fontFamily
-                                                    font.pixelSize: 12
-                                                    color: ThemeManager.secondaryTextColor
-                                                }
-                                                Text {
-                                                    visible: msgRow.href.length > 0
-                                                    Layout.fillWidth: true
-                                                    text: msgRow.isLink ? (model.extra.domain || msgRow.href) : ""
-                                                    elide: Text.ElideRight
-                                                    font.family: Theme.fontFamily
-                                                    font.pixelSize: 12
-                                                    color: Theme.linkColor
-                                                }
-                                                TapHandler {
-                                                    enabled: msgRow.href.length > 0
-                                                    onTapped: ZaloClient.openLink(msgRow.href, msgRow.text, msgRow.mediaUrl)
-                                                }
-                                                HoverHandler { cursorShape: msgRow.href.length > 0 ? Qt.PointingHandCursor : Qt.ArrowCursor }
-                                            }
-                                        }
-
-                                        Loader {
-                                            active: msgRow.isBankCard && !model.isRecalled
-                                            visible: active
-                                            Layout.preferredWidth: Math.min(280, bubbleRect.innerMax)
-                                            sourceComponent: RowLayout {
-                                                spacing: 10
-                                                Rectangle {
-                                                    Layout.preferredWidth: 40
-                                                    Layout.preferredHeight: 40
-                                                    radius: 20
-                                                    color: Theme.zaloBlueLight
-                                                    ZIcon { anchors.centerIn: parent; name: "contacts"; size: 20; color: Theme.zaloBlueTonalText }
-                                                }
-                                                ColumnLayout {
-                                                    Layout.fillWidth: true
-                                                    spacing: 2
-                                                    Text {
-                                                        Layout.fillWidth: true
-                                                        text: I18n.t("Thông tin chuyển khoản", "Bank transfer details")
-                                                        font.family: Theme.fontFamily
-                                                        font.pixelSize: 14
-                                                        font.weight: Font.DemiBold
-                                                        color: ThemeManager.textColor
-                                                    }
-                                                    Text {
-                                                        visible: msgRow.text !== I18n.t("Thông tin chuyển khoản", "Bank transfer details")
-                                                        Layout.fillWidth: true
-                                                        text: msgRow.text
-                                                        wrapMode: Text.Wrap
-                                                        maximumLineCount: 2
-                                                        elide: Text.ElideRight
-                                                        font.family: Theme.fontFamily
-                                                        font.pixelSize: 13
-                                                        color: ThemeManager.textColor
-                                                    }
-                                                    Text {
-                                                        Layout.fillWidth: true
-                                                        text: msgRow.isBankCard ? (model.extra.desc || "") : ""
-                                                        wrapMode: Text.Wrap
-                                                        font.family: Theme.fontFamily
-                                                        font.pixelSize: 12
-                                                        color: ThemeManager.secondaryTextColor
-                                                    }
-                                                }
-                                            }
-                                        }
-
-                                        Loader {
-                                            active: msgRow.isLocation && !model.isRecalled
-                                            visible: active
-                                            Layout.preferredWidth: Math.min(280, bubbleRect.innerMax)
-                                            sourceComponent: RowLayout {
-                                                spacing: 10
-                                                Rectangle {
-                                                    Layout.preferredWidth: 40
-                                                    Layout.preferredHeight: 40
-                                                    radius: 20
-                                                    color: Theme.zaloBlueLight
-                                                    ZIcon { anchors.centerIn: parent; name: "location"; size: 20; color: Theme.zaloBlueTonalText }
-                                                }
-                                                ColumnLayout {
-                                                    Layout.fillWidth: true
-                                                    spacing: 2
-                                                    Text {
-                                                        Layout.fillWidth: true
-                                                        text: msgRow.text
-                                                        wrapMode: Text.Wrap
-                                                        maximumLineCount: 2
-                                                        elide: Text.ElideRight
-                                                        font.family: Theme.fontFamily
-                                                        font.pixelSize: 14
-                                                        font.weight: Font.DemiBold
-                                                        color: ThemeManager.textColor
-                                                    }
-                                                    Text {
-                                                        visible: text.length > 0
-                                                        Layout.fillWidth: true
-                                                        text: msgRow.isLocation ? (model.extra.desc || model.extra.coords || "") : ""
-                                                        wrapMode: Text.Wrap
-                                                        maximumLineCount: 2
-                                                        elide: Text.ElideRight
-                                                        font.family: Theme.fontFamily
-                                                        font.pixelSize: 12
-                                                        color: ThemeManager.secondaryTextColor
-                                                    }
-                                                    Text {
-                                                        visible: msgRow.href.length > 0
-                                                        text: I18n.t("Mở bản đồ", "Open map")
-                                                        font.family: Theme.fontFamily
-                                                        font.pixelSize: 12
-                                                        color: Theme.linkColor
-                                                    }
-                                                }
-                                                TapHandler {
-                                                    onTapped: if (msgRow.href.length > 0) ZaloClient.openExternalUrl(msgRow.href)
-                                                }
-                                                HoverHandler { cursorShape: msgRow.href.length > 0 ? Qt.PointingHandCursor : Qt.ArrowCursor }
-                                            }
-                                        }
-
-                                        Loader {
-                                            active: msgRow.isVoice && !model.isRecalled
-                                            visible: active
-                                            sourceComponent: RowLayout {
-                                                id: voiceRow
-                                                spacing: 10
-                                                readonly property bool playing: ZaloClient.playingVoiceId === msgRow.msgId
-                                                Rectangle {
-                                                    Layout.preferredWidth: 32
-                                                    Layout.preferredHeight: 32
-                                                    radius: 16
-                                                    color: Theme.zaloBlue
-                                                    ZIcon { anchors.centerIn: parent; name: voiceRow.playing ? "pause" : "play"; size: 18; color: "#FFFFFF" }
-                                                    MouseArea {
-                                                        anchors.fill: parent
-                                                        hoverEnabled: true
-                                                        cursorShape: Qt.PointingHandCursor
-                                                        ToolTip.visible: containsMouse
-                                                        ToolTip.delay: 500
-                                                        ToolTip.text: I18n.t("Phát / dừng tin nhắn thoại", "Play / stop voice message")
-                                                        onClicked: ZaloClient.toggleVoice(msgRow.msgId, msgRow.href)
-                                                    }
-                                                }
-                                                Text {
-                                                    text: I18n.t("Tin nhắn thoại", "Voice message")
-                                                    font.family: Theme.fontFamily
-                                                    font.pixelSize: 14
-                                                    color: ThemeManager.textColor
-                                                }
-                                                Text {
-                                                    readonly property int secs: msgRow.isVoice ? Math.round((model.extra.durationMs || 0) / 1000) : 0
-                                                    visible: secs > 0
-                                                    text: Math.floor(secs / 60) + ":" + ("0" + (secs % 60)).slice(-2)
-                                                    font.family: Theme.fontFamily
-                                                    font.pixelSize: 12
-                                                    color: ThemeManager.secondaryTextColor
-                                                }
-                                            }
-                                        }
-
-                                        Loader {
-                                            active: msgRow.isCall
-                                            visible: active
-                                            sourceComponent: RowLayout {
-                                                spacing: 10
-                                                Rectangle {
-                                                    Layout.preferredWidth: 32
-                                                    Layout.preferredHeight: 32
-                                                    radius: 16
-                                                    color: msgRow.isCall && model.extra.missed ? Theme.badgeRed : ThemeManager.hoverColor
-                                                    ZIcon {
-                                                        anchors.centerIn: parent
-                                                        name: msgRow.isCall && model.extra.video ? "video" : "phone"
-                                                        size: 16
-                                                        color: msgRow.isCall && model.extra.missed ? "#FFFFFF" : ThemeManager.textColor
-                                                    }
-                                                }
-                                                ColumnLayout {
-                                                    spacing: 0
-                                                    Text {
-                                                        text: msgRow.text
-                                                        font.family: Theme.fontFamily
-                                                        font.pixelSize: 14
-                                                        font.weight: Font.DemiBold
-                                                        color: msgRow.isCall && model.extra.missed ? Theme.badgeRed : ThemeManager.textColor
-                                                    }
-                                                    Text {
-                                                        visible: text.length > 0
-                                                        text: msgRow.isCall ? (model.extra.duration || "") : ""
-                                                        font.family: Theme.fontFamily
-                                                        font.pixelSize: 12
-                                                        color: ThemeManager.secondaryTextColor
-                                                    }
-                                                }
-                                                Rectangle {
-                                                    visible: !ZaloClient.currentConversationIsGroup
-                                                    Layout.leftMargin: 6
-                                                    Layout.preferredHeight: 28
-                                                    Layout.preferredWidth: callBackText.implicitWidth + 20
-                                                    radius: 14
-                                                    color: callBackMouse.containsMouse ? Theme.zaloBlueLight : ThemeManager.hoverColor
-                                                    Text {
-                                                        id: callBackText
-                                                        anchors.centerIn: parent
-                                                        text: I18n.t("Gọi lại", "Call back")
-                                                        font.family: Theme.fontFamily
-                                                        font.pixelSize: 12
-                                                        color: Theme.zaloBlueTonalText
-                                                    }
-                                                    MouseArea {
-                                                        id: callBackMouse
-                                                        anchors.fill: parent
-                                                        hoverEnabled: true
-                                                        cursorShape: Qt.PointingHandCursor
-                                                        onClicked: {
-                                                            if (model.extra.video) ZaloClient.startVideoCall();
-                                                            else ZaloClient.startVoiceCall();
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-
-                                        Loader {
-                                            active: msgRow.isPoll && !model.isRecalled
-                                            visible: active
-                                            Layout.preferredWidth: Math.min(320, bubbleRect.innerMax)
-                                            sourceComponent: ColumnLayout {
-                                                id: pollCard
-                                                spacing: 6
-                                                readonly property var poll: msgRow.isPoll ? model.pollData : ({})
-                                                readonly property int total: pollCard.poll.num_vote || 0
-                                                readonly property var pollId: msgRow.isPoll ? (model.pollData.poll_id || 0) : 0
-                                                function refresh(): void {
-                                                    if (pollCard.pollId > 0) ZaloClient.refreshPoll(pollCard.pollId, false);
-                                                }
-                                                Component.onCompleted: pollCard.refresh()
-                                                onPollIdChanged: pollCard.refresh()
-                                                Text {
-                                                    text: I18n.t("BÌNH CHỌN", "POLL")
-                                                    font.family: Theme.fontFamily
-                                                    font.pixelSize: 11
-                                                    font.bold: true
-                                                    color: ThemeManager.secondaryTextColor
-                                                }
-                                                Text {
-                                                    Layout.fillWidth: true
-                                                    text: msgRow.text
-                                                    wrapMode: Text.Wrap
-                                                    font.family: Theme.fontFamily
-                                                    font.pixelSize: 15
-                                                    font.weight: Font.DemiBold
-                                                    color: ThemeManager.textColor
-                                                }
-                                                Repeater {
-                                                    model: pollCard.poll.options || []
-                                                    delegate: Rectangle {
-                                                        id: optRow
-                                                        required property var modelData
-                                                        Layout.fillWidth: true
-                                                        implicitHeight: 34
-                                                        radius: 6
-                                                        color: ThemeManager.hoverColor
-                                                        border.color: optRow.modelData.voted ? Theme.zaloBlue : "transparent"
-                                                        border.width: 1
-                                                        Rectangle {
-                                                            width: pollCard.total > 0 ? parent.width * (optRow.modelData.votes / pollCard.total) : 0
-                                                            height: parent.height
-                                                            radius: 6
-                                                            color: Theme.zaloBlueLight
-                                                        }
-                                                        RowLayout {
-                                                            anchors.fill: parent
-                                                            anchors.leftMargin: 10
-                                                            anchors.rightMargin: 10
-                                                            Text {
-                                                                Layout.fillWidth: true
-                                                                text: optRow.modelData.content
-                                                                elide: Text.ElideRight
-                                                                font.family: Theme.fontFamily
-                                                                font.pixelSize: 13
-                                                                color: ThemeManager.textColor
-                                                            }
-                                                            Text {
-                                                                text: optRow.modelData.votes
-                                                                font.family: Theme.fontFamily
-                                                                font.pixelSize: 12
-                                                                color: ThemeManager.secondaryTextColor
-                                                            }
-                                                        }
-                                                        MouseArea {
-                                                            anchors.fill: parent
-                                                            enabled: !pollCard.poll.closed && !optRow.modelData.voted
-                                                            cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-                                                            onClicked: ZaloClient.votePoll(pollCard.poll.poll_id, optRow.modelData.option_id)
-                                                        }
-                                                    }
-                                                }
-                                                Text {
-                                                    Layout.fillWidth: true
-                                                    wrapMode: Text.Wrap
-                                                    text: !pollCard.poll.loaded
-                                                          ? ((pollCard.poll.poll_id || 0) > 0 ? I18n.t("Đang tải kết quả bình chọn…", "Loading poll results…")
-                                                                                             : I18n.t("Không đọc được mã bình chọn", "Poll id unavailable"))
-                                                          : (pollCard.total + I18n.t(" lượt bình chọn", " votes")
-                                                             + (pollCard.poll.closed ? I18n.t(" · Đã khóa", " · Closed") : ""))
-                                                    font.family: Theme.fontFamily
-                                                    font.pixelSize: 12
-                                                    color: ThemeManager.secondaryTextColor
-                                                }
-                                            }
-                                        }
-
-                                        TextEdit {
-                                            id: msgText
-                                            visible: !msgRow.hasCard && msgRow.text.length > 0 && !model.isRecalled
-                                            Layout.preferredWidth: Math.min(implicitWidth, bubbleRect.innerMax)
-                                            Layout.fillWidth: msgRow.isPhoto
-                                            readOnly: true
-                                            selectByMouse: true
-                                            persistentSelection: false
-                                            textFormat: TextEdit.RichText
-                                            wrapMode: TextEdit.Wrap
-                                            text: "<style>a{color:" + Theme.linkColor + ";text-decoration:none}</style>" + model.richText
-                                            font.family: Theme.fontFamily
-                                            font.pixelSize: 14
-                                            color: ThemeManager.textColor
-                                            selectionColor: Theme.zaloBlueLight
-                                            selectedTextColor: ThemeManager.textColor
-                                            onLinkActivated: function(link) {
-                                                if (link.startsWith("zalos-mention:")) {
-                                                    const uid = link.substring(14);
-                                                    if (uid !== "-1") ZaloClient.viewProfile(uid);
-                                                } else {
-                                                    ZaloClient.openLink(link);
-                                                }
-                                            }
-                                            HoverHandler { cursorShape: msgText.hoveredLink.length > 0 ? Qt.PointingHandCursor : Qt.IBeamCursor }
-                                        }
-                                        Text {
-                                            visible: model.isRecalled
-                                            text: msgRow.text
-                                            font.family: Theme.fontFamily
-                                            font.pixelSize: 14
-                                            font.italic: true
-                                            color: ThemeManager.secondaryTextColor
-                                        }
-                                    }
-                                }
-
-                                Item {
-                                    id: reactionRow
-                                    readonly property bool canReact: !model.isRecalled && !msgRow.isSystem && !msgRow.isEcard
-                                                                     && !msgRow.msgId.startsWith("local-") && ZaloClient.isLoggedIn
-                                    readonly property real contentEdge: Math.max(
-                                        bubbleRect.visible ? bubbleRect.x + bubbleRect.width : 0,
-                                        mediaLoader.visible ? mediaLoader.x + mediaLoader.width : 0,
-                                        stickerLoader.visible ? stickerLoader.x + stickerLoader.width : 0,
-                                        runLoader.visible ? runLoader.x + runLoader.width : 0)
-                                    readonly property real contentLeft: Math.min(
-                                        bubbleRect.visible ? bubbleRect.x : 1e6,
-                                        mediaLoader.visible ? mediaLoader.x : 1e6,
-                                        stickerLoader.visible ? stickerLoader.x : 1e6,
-                                        runLoader.visible ? runLoader.x : 1e6)
-                                    Layout.fillWidth: true
-                                    implicitHeight: model.reaction.length > 0 ? 12 : 0
-                                    z: 2
-                                    Row {
-                                        id: reactionPills
-                                        x: Math.max(0, reactionRow.contentEdge - width - 6)
-                                        y: -10
-                                        spacing: 4
-                                        Loader {
-                                            active: model.reaction.length > 0
-                                            visible: active
-                                            sourceComponent: Rectangle {
-                                                implicitHeight: 22
-                                                implicitWidth: reactionText.implicitWidth + 14
-                                                radius: 11
-                                                color: Theme.reactionBackground
-                                                border.color: ThemeManager.borderColor
-                                                border.width: 1
-                                                Text {
-                                                    id: reactionText
-                                                    anchors.centerIn: parent
-                                                    text: model.reaction
-                                                    font.pixelSize: 12
-                                                    color: ThemeManager.textColor
-                                                }
-                                                MouseArea {
-                                                    id: reactionPillMouse
-                                                    anchors.fill: parent
-                                                    hoverEnabled: true
-                                                    cursorShape: Qt.PointingHandCursor
-                                                    onClicked: root.openReactionDetails(msgRow.msgId, parent)
-                                                }
-                                                ToolTip.visible: reactionPillMouse.containsMouse
-                                                ToolTip.delay: 400
-                                                ToolTip.text: I18n.t("Xem ai đã thả cảm xúc", "See who reacted")
-                                            }
-                                        }
-                                        Loader {
-                                            active: reactionRow.canReact && rowHover.hovered
-                                            visible: active
-                                            sourceComponent: Rectangle {
-                                                implicitWidth: 22
-                                                implicitHeight: 22
-                                                radius: 11
-                                                color: quickLikeMouse.containsMouse ? ThemeManager.inputFillHoverColor : Theme.reactionBackground
-                                                border.color: ThemeManager.borderColor
-                                                border.width: 1
-                                                Text {
-                                                    anchors.centerIn: parent
-                                                    text: "👍"
-                                                    font.pixelSize: 11
-                                                }
-                                                MouseArea {
-                                                    id: quickLikeMouse
-                                                    anchors.fill: parent
-                                                    hoverEnabled: true
-                                                    cursorShape: Qt.PointingHandCursor
-                                                    onClicked: ZaloClient.reactToMessage(msgRow.msgId, "like")
-                                                }
-                                                ToolTip.visible: quickLikeMouse.containsMouse
-                                                ToolTip.delay: 400
-                                                ToolTip.text: I18n.t("Thích", "Like")
-                                            }
-                                        }
-                                    }
-                                }
-
-                                Loader {
-                                    active: model.lastInGroup || model.showStatus
-                                    visible: active
-                                    Layout.alignment: msgRow.mine ? Qt.AlignRight : Qt.AlignLeft
-                                    Layout.topMargin: 4
-                                    sourceComponent: RowLayout {
-                                        spacing: 6
-                                        Text {
-                                            id: messageTimeLabel
-                                            visible: model.lastInGroup
-                                            text: model.time
-                                            font.family: Theme.fontFamily
-                                            font.pixelSize: 12
-                                            color: ThemeManager.secondaryTextColor
-
-                                            MouseArea {
-                                                id: timeHoverArea
-                                                anchors.fill: parent
-                                                hoverEnabled: true
-                                                cursorShape: Qt.ArrowCursor
-                                            }
-
-                                            ToolTip.visible: timeHoverArea.containsMouse && messageTimeLabel.text.length > 0
-                                            ToolTip.delay: 300
-                                            ToolTip.text: root.fullTimestamp(model.ts, model.time)
-                                        }
-                                        Row {
-                                            id: groupSeenRow
-                                            readonly property var rawUids: (typeof model !== "undefined" && model && model.seenUids) ? model.seenUids : []
-                                            readonly property var uids: rawUids.slice().reverse()
-                                            visible: msgRow.mine && ZaloClient.currentConversationIsGroup && groupSeenRow.uids.length > 0
-                                            spacing: -6
-                                            Layout.alignment: Qt.AlignVCenter
-                                            height: 16
-
-                                            Repeater {
-                                                model: groupSeenRow.uids.slice(0, 4)
-                                                delegate: Rectangle {
-                                                    id: seenAvatarItem
-                                                    required property string modelData
-                                                    required property int index
-                                                    z: 10 - index
-                                                    width: 16
-                                                    height: 16
-                                                    radius: 8
-                                                    color: ThemeManager.chatBubbleMine
-                                                    border.color: ThemeManager.surfaceColor
-                                                    border.width: 1
-                                                    clip: true
-                                                    Image {
-                                                        anchors.fill: parent
-                                                        source: ZaloClient.avatarOf(seenAvatarItem.modelData).length > 0
-                                                            ? "image://avatar/" + encodeURIComponent(ZaloClient.avatarOf(seenAvatarItem.modelData)) : ""
-                                                        sourceSize.width: 16
-                                                        sourceSize.height: 16
-                                                        fillMode: Image.PreserveAspectCrop
-                                                        asynchronous: true
-                                                    }
-                                                    ZIcon {
-                                                        anchors.centerIn: parent
-                                                        visible: ZaloClient.avatarOf(seenAvatarItem.modelData).length === 0
-                                                        name: "user"
-                                                        size: 10
-                                                        color: ThemeManager.textColor
-                                                    }
-                                                }
-                                            }
-
-                                            Rectangle {
-                                                visible: groupSeenRow.uids.length > 4
-                                                z: 20
-                                                width: 16
-                                                height: 16
-                                                radius: 8
-                                                color: ThemeManager.hoverColor
-                                                border.color: ThemeManager.surfaceColor
-                                                border.width: 1
-                                                Text {
-                                                    anchors.centerIn: parent
-                                                    text: "+" + Math.max(0, groupSeenRow.uids.length - 4)
-                                                    font.pixelSize: 8
-                                                    font.bold: true
-                                                    color: ThemeManager.textColor
-                                                }
-                                            }
-
-                                            HoverHandler {
-                                                id: groupSeenHover
-                                                cursorShape: Qt.PointingHandCursor
-                                            }
-
-                                            TapHandler {
-                                                onTapped: root.openSeenDetails(groupSeenRow.uids)
-                                            }
-
-                                            ToolTip.visible: groupSeenHover.hovered
-                                            ToolTip.delay: 200
-                                            ToolTip.text: root.seenTooltipText(groupSeenRow.uids)
-                                        }
-                                        Text {
-                                            visible: model.showStatus && (!ZaloClient.currentConversationIsGroup || !model.seenUids || model.seenUids.length === 0)
-                                            text: root.statusLabel(model.status)
-                                            font.family: Theme.fontFamily
-                                            font.pixelSize: 12
-                                            color: model.status === "failed" ? Theme.badgeRed
-                                                   : model.status === "seen" ? Theme.zaloBlue : ThemeManager.secondaryTextColor
-                                        }
-                                    }
-                                }
-
-                            }
-
-                            Item { visible: !msgRow.mine; Layout.fillWidth: true }
-                        }
-                    }
-
-                    Loader {
-                        active: rowHover.hovered && !model.isRecalled && !msgRow.isSystem && !msgRow.isEcard && !msgRow.msgId.startsWith("local-")
-                        y: bubbleRow.y + (senderNameText.visible ? (senderNameText.height + 4) : 0) + 2
-                        x: msgRow.mine ? contentCol.x + Math.min(reactionRow.contentLeft, contentCol.width) - width - 8
-                                       : contentCol.x + Math.max(reactionRow.contentEdge, 0) + 8
-                        sourceComponent: Rectangle {
-                            width: actionRow.implicitWidth + 8
-                            height: 28
-                            radius: 6
-                            color: Theme.reactionBackground
-                            border.color: ThemeManager.borderColor
-                            border.width: 1
-                            Row {
-                                id: actionRow
-                                anchors.centerIn: parent
-                                spacing: 2
-                                Repeater {
-                                    model: [ { icon: "reply", vi: "Trả lời", en: "Reply", act: "reply" },
-                                             { icon: "forward", vi: "Chuyển tiếp", en: "Forward", act: "forward" },
-                                             { icon: "more_horiz", vi: "Thêm", en: "More", act: "more" } ]
-                                    Rectangle {
-                                        required property var modelData
-                                        width: 26
-                                        height: 24
-                                        radius: 4
-                                        color: actMouse.containsMouse ? ThemeManager.hoverColor : ThemeManager.hoverClearColor
-                                        ZIcon { anchors.centerIn: parent; name: modelData.icon; size: 16; color: ThemeManager.secondaryTextColor }
-                                        MouseArea {
-                                            id: actMouse
-                                            anchors.fill: parent
-                                            hoverEnabled: true
-                                            cursorShape: Qt.PointingHandCursor
-                                            ToolTip.visible: containsMouse
-                                            ToolTip.delay: 400
-                                            ToolTip.text: I18n.t(modelData.vi, modelData.en)
-                                            onClicked: function(mouse) {
-                                                if (modelData.act === "reply") {
-                                                    ZaloClient.setReplyTarget(msgRow.msgId);
-                                                    msgInput.forceActiveFocus();
-                                                } else if (modelData.act === "forward") {
-                                                    ZaloClient.openForwardModal(msgRow.msgId, msgRow.text);
-                                                } else {
-                                                    root.openMessageMenu(actMouse, msgRow.menuInfo, mouse.x, mouse.y);
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
+                delegate: ChatMessageRow {
+                    listWidth: messageList.width
+                    searchFocusId: root.searchFocusId
+                    flashMsgId: root.flashMsgId
+                    onFocusComposerRequested: msgInput.forceActiveFocus()
+                    onOpenMessageMenuRequested: (item, msg, mx, my) => root.openMessageMenu(item, msg, mx, my)
+                    onOpenReactionDetailsRequested: (msgId, anchor) => root.openReactionDetails(msgId, anchor)
+                    onOpenSeenDetailsRequested: (uids) => root.openSeenDetails(uids)
+                    onOpenViewerRequested: (url, sender, isMine, ts) => root.openViewer(url, sender, isMine, ts)
+                    onJumpToMessageRequested: (msgId, cliMsgId) => root.jumpToMessage(msgId, cliMsgId)
                 }
             }
 
@@ -2947,7 +1593,7 @@ Rectangle {
                             width: 18
                             height: 18
                             radius: 9
-                            color: removeDraftMouse.containsMouse ? "#D32F2F" : Qt.rgba(0, 0, 0, 0.6)
+                            color: removeDraftMouse.containsMouse ? "#D32F2F" : "#99000000"
                             ZIcon { anchors.centerIn: parent; name: "close"; size: 10; color: "#FFFFFF" }
                             MouseArea {
                                 id: removeDraftMouse
@@ -3150,10 +1796,16 @@ Rectangle {
                                 anchors.fill: parent
                                 hoverEnabled: true
                                 cursorShape: Qt.PointingHandCursor
+                                property bool wasOpenOnPress: false
                                 ToolTip.visible: containsMouse
                                 ToolTip.delay: 350
                                 ToolTip.text: I18n.t("Biểu tượng cảm xúc (Emoji/Stickers)", "Stickers & Emojis")
-                                onClicked: { emojiPickerLoader.active = true; root.emojiPickerOpen = !root.emojiPickerOpen; }
+                                onPressed: wasOpenOnPress = root.emojiPickerOpen
+                                onClicked: {
+                                    if (!wasOpenOnPress) {
+                                        root.emojiPickerOpen = true;
+                                    }
+                                }
                             }
                         }
 
@@ -3355,7 +2007,7 @@ Rectangle {
                                 ToolTip.visible: containsMouse
                                 ToolTip.delay: 350
                                 ToolTip.text: I18n.t("Hẹn giờ gửi tin nhắn", "Schedule message")
-                                onClicked: root.popupOf(reminderPopupLoader).open()
+                                onClicked: reminderPopup.open()
                             }
                         }
 
@@ -3383,7 +2035,7 @@ Rectangle {
                                 ToolTip.visible: containsMouse
                                 ToolTip.delay: 350
                                 ToolTip.text: I18n.t("Tin nhắn nhanh", "Quick message")
-                                onClicked: root.popupOf(quickMsgPopupLoader).open()
+                                onClicked: quickMsgPopup.open()
                             }
                         }
 
@@ -3863,7 +2515,7 @@ Rectangle {
     Rectangle {
         anchors.fill: parent
         visible: root.infoOverlay
-        color: Qt.rgba(0, 0, 0, 0.25)
+        color: "#40000000"
         z: 40
         MouseArea {
             anchors.fill: parent
@@ -3881,44 +2533,49 @@ Rectangle {
         anchors.right: parent.right
         width: root.infoPanelWidth
         z: 41
-        sourceComponent: ConversationInfoPanel {
-            objectName: "conversationInfoPanel"
-            anchors.fill: parent
-        }
+        source: active ? Qt.resolvedUrl("ConversationInfoPanel.qml") : ""
+        onLoaded: if (item) item.objectName = "conversationInfoPanel"
     }
 
     property bool emojiPickerOpen: false
-    Loader {
-        id: emojiPickerLoader
-        active: false
-        visible: root.emojiPickerOpen
-        anchors.bottom: parent.bottom
-        anchors.left: parent.left
-        anchors.leftMargin: 16
-        anchors.bottomMargin: composerBox.height + 6
-        z: 99
-        sourceComponent: EmojiPickerPopup {
-            id: emojiPicker
-            width: Math.min(380, root.width - 32)
-            height: Math.min(root.height - 32, 420)
-            onEmojiSelected: function(emoji) {
-                msgInput.insert(msgInput.cursorPosition, emoji);
-                msgInput.forceActiveFocus();
-                root.emojiPickerOpen = false;
-            }
-            onStickerSelected: function(sticker) {
-                ZaloClient.stickers.send(sticker);
-                root.emojiPickerOpen = false;
-                msgInput.forceActiveFocus();
-            }
+    onEmojiPickerOpenChanged: {
+        if (emojiPickerOpen) emojiPopup.open();
+        else emojiPopup.close();
+    }
+    Popup {
+        id: emojiPopup
+        parent: root
+        x: 16
+        y: Math.max(16, root.height - composerBox.height - 6 - height)
+        width: Math.min(380, root.width - 32)
+        height: Math.min(root.height - 32, 420)
+        padding: 0
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        onClosed: root.emojiPickerOpen = false
+        background: Item {}
+        contentItem: Loader {
+            id: emojiPickerLoader
+            active: root.emojiPickerOpen
+            anchors.fill: parent
+            source: active ? Qt.resolvedUrl("EmojiPickerPopup.qml") : ""
+        }
+    }
+    Connections {
+        target: emojiPickerLoader.item
+        ignoreUnknownSignals: true
+        function onEmojiSelected(emoji: string): void {
+            msgInput.insert(msgInput.cursorPosition, emoji);
+            msgInput.forceActiveFocus();
+            root.emojiPickerOpen = false;
+        }
+        function onStickerSelected(sticker: var): void {
+            ZaloClient.stickers.send(sticker);
+            root.emojiPickerOpen = false;
+            msgInput.forceActiveFocus();
         }
     }
 
-    Loader {
-        id: pinDetailPopupLoader
-        anchors.fill: parent
-        active: false
-        sourceComponent: PinDetailHost {
+    PinDetailHost {
             id: pinDetailHost
             popup: pinDetailPopup
             Popup {
@@ -4126,15 +2783,12 @@ Rectangle {
                 }
             }
         }
-    }
 
     function openPinDetail(topicId: string): void {
         if (topicId.length === 0) return;
-        pinDetailPopupLoader.active = true;
-        const host = pinDetailPopupLoader.item as PinDetailHost;
-        host.topicId = "";
-        host.topicId = topicId;
-        root.popupOf(pinDetailPopupLoader).open();
+        pinDetailHost.topicId = "";
+        pinDetailHost.topicId = topicId;
+        pinDetailPopup.open();
     }
 
     function copyPinText(text: string): void {
@@ -4142,11 +2796,7 @@ Rectangle {
         ZaloClient.showNotice(I18n.t("Đã sao chép", "Copied"));
     }
 
-    Loader {
-        id: pinItemMenuLoader
-        anchors.fill: parent
-        active: false
-        sourceComponent: PinMenuHost {
+    PinMenuHost {
             id: pinMenuHost
             popup: pinItemMenu
             Popup {
@@ -4194,25 +2844,15 @@ Rectangle {
                 }
             }
         }
-    }
 
     function openPinMenu(topic: var, index: int, anchorItem: Item): void {
-        pinItemMenuLoader.active = true;
-        const host = pinItemMenuLoader.item as PinMenuHost;
-        host.topic = topic;
-        host.topicIndex = index;
-        const menu = root.popupOf(pinItemMenuLoader);
+        pinMenuHost.topic = topic;
+        pinMenuHost.topicIndex = index;
         const p = root.mapFromItem(anchorItem, anchorItem.width, anchorItem.height);
-        root.placePopup(menu, p.x - Math.max(menu.width, menu.implicitWidth), p.y + 4);
-        menu.open();
+        root.placePopup(pinItemMenu, p.x - Math.max(pinItemMenu.width, pinItemMenu.implicitWidth), p.y + 4);
+        pinItemMenu.open();
     }
 
-    Loader {
-        id: reactionPopupLoader
-        anchors.fill: parent
-        active: false
-        sourceComponent: PopupHost {
-            popup: reactionPopup
             Popup {
                 id: reactionPopup
                 focus: true
@@ -4338,15 +2978,7 @@ Rectangle {
                     }
                 }
             }
-        }
-    }
 
-    Loader {
-        id: seenPopupLoader
-        anchors.fill: parent
-        active: false
-        sourceComponent: PopupHost {
-            popup: seenPopup
             Popup {
                 id: seenPopup
                 focus: true
@@ -4427,8 +3059,6 @@ Rectangle {
                     }
                 }
             }
-        }
-    }
 
     component PinMoreButton: Rectangle {
         id: pinMoreBtn
@@ -4645,12 +3275,6 @@ Rectangle {
         }
     }
 
-    Loader {
-        id: quickMsgPopupLoader
-        anchors.fill: parent
-        active: false
-        sourceComponent: PopupHost {
-            popup: quickMsgPopup
             Popup {
                 id: quickMsgPopup
                 property bool formOpen: false
@@ -4857,15 +3481,7 @@ Rectangle {
                     }
                 }
             }
-        }
-    }
 
-    Loader {
-        id: reminderPopupLoader
-        anchors.fill: parent
-        active: false
-        sourceComponent: PopupHost {
-            popup: reminderPopup
             Popup {
                 id: reminderPopup
                 onAboutToShow: scheduleContentInput.text = msgInput.text
@@ -4987,15 +3603,7 @@ Rectangle {
                     }
                 }
             }
-        }
-    }
 
-    Loader {
-        id: messageMenuLoader
-        anchors.fill: parent
-        active: false
-        sourceComponent: PopupHost {
-            popup: messageMenu
             Popup {
                 id: messageMenu
                 margins: 8
@@ -5166,8 +3774,6 @@ Rectangle {
                     }
                 }
             }
-        }
-    }
 
     FileDialog {
         id: saveImageDialog

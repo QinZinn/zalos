@@ -518,6 +518,39 @@ private slots:
         QCOMPARE(reloadedSections.first().toMap().value(QStringLiteral("id")).toString(), QStringLiteral("recent"));
         const QVariantList reloadedRecent = reloadedSections.first().toMap().value(QStringLiteral("items")).toList();
         QCOMPARE(reloadedRecent.at(0).toMap().value(QStringLiteral("glyph")).toString(), QStringLiteral("🚀"));
+
+        const QVariantList rows = reloaded.flatRows(8);
+        QVERIFY(rows.size() > reloadedSections.size());
+        QVERIFY(rows.first().toMap().value(QStringLiteral("isHeader")).toBool());
+        QVERIFY(!rows.at(1).toMap().value(QStringLiteral("isHeader")).toBool());
+        QVERIFY(rows.at(1).toMap().value(QStringLiteral("items")).toList().size() <= 8);
+    }
+
+    void testConversationTypeFilter() {
+        ConversationModel model;
+        ConversationItem direct;
+        direct.id = QStringLiteral("u-1");
+        direct.name = QStringLiteral("Fixture Direct");
+        direct.isGroup = false;
+        ConversationItem group;
+        group.id = QStringLiteral("g-1");
+        group.name = QStringLiteral("Fixture Group");
+        group.isGroup = true;
+        model.setConversations({direct, group});
+
+        QCOMPARE(model.typeFilter(), QStringLiteral("all"));
+        QCOMPARE(model.rowCount(), 2);
+
+        model.setTypeFilter(QStringLiteral("group"));
+        QCOMPARE(model.rowCount(), 1);
+        QCOMPARE(model.data(model.index(0, 0), ConversationModel::IdRole).toString(), QStringLiteral("g-1"));
+
+        model.setTypeFilter(QStringLiteral("direct"));
+        QCOMPARE(model.rowCount(), 1);
+        QCOMPARE(model.data(model.index(0, 0), ConversationModel::IdRole).toString(), QStringLiteral("u-1"));
+
+        model.setTypeFilter(QStringLiteral("all"));
+        QCOMPARE(model.rowCount(), 2);
     }
 };
 

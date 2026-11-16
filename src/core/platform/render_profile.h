@@ -16,6 +16,7 @@ struct RenderProfile {
         bool mesaVulkanIcd{false};
         bool qtHasVulkan{false};
         bool vulkanFailedBefore{false};
+        bool hardwareAcceleration{true};
         qint64 memTotalKb{0};
         int cpuCores{0};
         QString override;

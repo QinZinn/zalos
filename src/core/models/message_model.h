@@ -116,6 +116,13 @@ public:
     void markDeliveredUpTo(const QString& convId, const QString& msgId);
     bool contains(const QString& convId, const QString& msgId) const;
     int threadSize(const QString& convId) const { return int(threadOf(convId).size()); }
+    bool hasAnyMessages() const {
+        if (!m_items.isEmpty()) return true;
+        for (const auto& list : m_store) {
+            if (!list.isEmpty()) return true;
+        }
+        return false;
+    }
     bool isActiveThreadDuplicatedForTesting() const { return !m_currentConvId.isEmpty() && m_store.contains(m_currentConvId); }
     QString oldestMessageId(const QString& convId) const;
     qint64 oldestTimestamp(const QString& convId) const;

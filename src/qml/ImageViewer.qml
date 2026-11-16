@@ -1,3 +1,4 @@
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Dialogs
@@ -7,13 +8,12 @@ import Zalos
 
 Rectangle {
     id: root
-    color: Qt.rgba(0, 0, 0, 0.92)
+    color: "#EB000000"
     focus: true
 
-    readonly property var items: ImageViewerState.items
-    readonly property int count: items.length
-    readonly property var current: count > 0 ? items[ImageViewerState.index] : ({})
-    readonly property bool isVideo: !!(root.current && root.current.isVideo)
+    readonly property int count: ImageViewerState.count
+    readonly property string currentUrl: ImageViewerState.currentUrl
+    readonly property bool isVideo: ImageViewerState.currentIsVideo
     property real zoom: 1.0
     property real angle: 0
     readonly property real minZoom: 0.25
@@ -32,7 +32,7 @@ Rectangle {
                 ZaloClient.copyImage("file://" + tempPath)
             })
         } else {
-            ZaloClient.copyImage(root.current.url)
+            ZaloClient.copyImage(root.currentUrl)
         }
     }
     property MediaPlayer videoPlayer: null
@@ -46,8 +46,8 @@ Rectangle {
     readonly property bool videoSeekable: !!videoPlayer && videoPlayer.seekable
 
     function requestCanvasRepaint(): void {
-        if (canvasLoader.item) {
-            canvasLoader.item.requestPaint();
+        if (drawCanvas.visible) {
+            drawCanvas.requestPaint();
         }
     }
 
@@ -95,15 +95,15 @@ Rectangle {
         videoPlayer.play();
     }
 
-    onCurrentChanged: {
-        stopVideo();
-        if (root.isVideo && root.current.url) loadVideo(root.current.url);
+    onCurrentUrlChanged: {
+        root.stopVideo();
+        if (root.isVideo && root.currentUrl.length > 0) root.loadVideo(root.currentUrl);
         else if (videoPlayer) videoPlayer.source = "";
     }
 
     Component.onCompleted: {
         forceActiveFocus();
-        if (root.isVideo && root.current.url) loadVideo(root.current.url);
+        if (root.isVideo && root.currentUrl) loadVideo(root.currentUrl);
     }
     Component.onDestruction: stopVideo()
     Keys.onEscapePressed: { root.stopVideo(); ImageViewerState.close(); }
@@ -116,7 +116,7 @@ Rectangle {
         else if (event.key === Qt.Key_0) { resetView(); event.accepted = true; }
         else if (event.key === Qt.Key_R && !root.isVideo) { angle += (event.modifiers & Qt.ShiftModifier) ? -90 : 90; event.accepted = true; }
         else if ((event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_C && !root.isVideo) { root.copyCurrentImage(); event.accepted = true; }
-        else if ((event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_P && !root.isVideo) { ZaloClient.printMedia(current.url); event.accepted = true; }
+        else if ((event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_P && !root.isVideo) { ZaloClient.printMedia(root.currentUrl); event.accepted = true; }
         else if ((event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_S) { saveDialog.open(); event.accepted = true; }
         else if ((event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_Z && root.annotating) {
             if (root.strokes.length > 0) {
@@ -137,7 +137,7 @@ Rectangle {
 
     MouseArea {
         anchors.fill: parent
-        onClicked: { stopVideo(); ImageViewerState.close(); }
+        onClicked: { root.stopVideo(); ImageViewerState.close(); }
     }
 
     Item {
@@ -154,7 +154,7 @@ Rectangle {
             visible: !root.isVideo
             width: stage.width
             height: stage.height
-            source: !root.isVideo ? (root.current.url || "") : ""
+            source: !root.isVideo ? root.currentUrl : ""
             asynchronous: true
             cache: true
             fillMode: Image.PreserveAspectFit
@@ -182,18 +182,14 @@ Rectangle {
                 target: photo
             }
 
-            Loader {
-                id: canvasLoader
+            Canvas {
+                id: drawCanvas
                 anchors.centerIn: parent
                 width: photo.paintedWidth
                 height: photo.paintedHeight
-                active: root.annotating && !root.isVideo && photo.status === Image.Ready
-                visible: active
+                visible: root.annotating && !root.isVideo && photo.status === Image.Ready
                 z: 2
-                sourceComponent: Canvas {
-                    id: drawCanvas
-                    anchors.fill: parent
-                    onPaint: {
+                onPaint: {
                         var ctx = getContext("2d")
                         ctx.clearRect(0, 0, width, height)
                         for (var i = 0; i < root.strokes.length; i++) {
@@ -264,12 +260,9 @@ Rectangle {
                             } else if (root.currentDrawTool === "arrow") {
                                 root.currentStroke = { type: "arrow", color: root.drawColor.toString(), x1: mouse.x, y1: mouse.y, x2: mouse.x, y2: mouse.y }
                             } else if (root.currentDrawTool === "text") {
-                                textInputDialogLoader.active = true;
-                                if (textInputDialogLoader.item) {
-                                    textInputDialogLoader.item.targetX = mouse.x;
-                                    textInputDialogLoader.item.targetY = mouse.y;
-                                    textInputDialogLoader.item.open();
-                                }
+                                textInputDialog.targetX = mouse.x;
+                                textInputDialog.targetY = mouse.y;
+                                textInputDialog.open();
                             }
                         }
                         onPositionChanged: function(mouse) {
@@ -297,7 +290,6 @@ Rectangle {
                     }
                 }
             }
-        }
 
         VideoOutput {
             id: videoOut
@@ -317,7 +309,7 @@ Rectangle {
                 width: 64
                 height: 64
                 radius: 32
-                color: Qt.rgba(0, 0, 0, 0.6)
+                color: "#99000000"
                 ZIcon { anchors.centerIn: parent; name: "play"; size: 32; color: "#FFFFFF" }
             }
         }
@@ -346,32 +338,33 @@ Rectangle {
                 font.pixelSize: 14
             }
             ZButton {
-                visible: root.isVideo && String(root.current.url || "").length > 0
+                visible: root.isVideo && root.currentUrl.length > 0
                 Layout.alignment: Qt.AlignHCenter
                 text: I18n.t("Mở bằng trình phát ngoài", "Open in external player")
-                onClicked: ZaloClient.openExternalUrl(String(root.current.url || ""))
+                onClicked: ZaloClient.openExternalUrl(root.currentUrl)
             }
         }
 
         Repeater {
             model: [ { step: -1, icon: "chevron_left", left: true }, { step: 1, icon: "chevron_right", left: false } ]
             Rectangle {
+                id: navBtn
                 required property var modelData
                 visible: root.count > 1
                 width: 44
                 height: 44
                 radius: 22
                 anchors.verticalCenter: parent.verticalCenter
-                anchors.left: modelData.left ? parent.left : undefined
-                anchors.right: modelData.left ? undefined : parent.right
-                color: navMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.28) : Qt.rgba(1, 1, 1, 0.14)
-                ZIcon { anchors.centerIn: parent; name: modelData.icon; size: 24; color: "#FFFFFF" }
+                anchors.left: navBtn.modelData.left ? parent.left : undefined
+                anchors.right: navBtn.modelData.left ? undefined : parent.right
+                color: navMouse.containsMouse ? "#47FFFFFF" : "#24FFFFFF"
+                ZIcon { anchors.centerIn: parent; name: navBtn.modelData.icon; size: 24; color: "#FFFFFF" }
                 MouseArea {
                     id: navMouse
                     anchors.fill: parent
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
-                    onClicked: root.go(modelData.step)
+                    onClicked: root.go(navBtn.modelData.step)
                 }
             }
         }
@@ -386,7 +379,7 @@ Rectangle {
         width: Math.min(parent.width - 48, 640)
         height: 44
         radius: 22
-        color: Qt.rgba(0, 0, 0, 0.65)
+        color: "#A6000000"
         MouseArea { anchors.fill: parent }
 
         RowLayout {
@@ -399,7 +392,7 @@ Rectangle {
                 Layout.preferredWidth: 32
                 Layout.preferredHeight: 32
                 radius: 16
-                color: playBtnMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.18) : ThemeManager.hoverClearColor
+                color: playBtnMouse.containsMouse ? "#2EFFFFFF" : ThemeManager.hoverClearColor
                 ZIcon {
                     anchors.centerIn: parent
                     name: root.videoPlaying ? "pause" : "play"
@@ -439,7 +432,7 @@ Rectangle {
                     width: seekSlider.availableWidth
                     height: implicitHeight
                     radius: 2
-                    color: Qt.rgba(1, 1, 1, 0.25)
+                    color: "#40FFFFFF"
                     Rectangle {
                         width: seekSlider.visualPosition * parent.width
                         height: parent.height
@@ -461,7 +454,7 @@ Rectangle {
                 Layout.preferredWidth: 32
                 Layout.preferredHeight: 32
                 radius: 16
-                color: muteBtnMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.18) : ThemeManager.hoverClearColor
+                color: muteBtnMouse.containsMouse ? "#2EFFFFFF" : ThemeManager.hoverClearColor
                 ZIcon {
                     anchors.centerIn: parent
                     name: root.videoMuted ? "volume_off" : "volume"
@@ -485,7 +478,7 @@ Rectangle {
         anchors.left: parent.left
         anchors.right: parent.right
         height: 56
-        color: Qt.rgba(0, 0, 0, 0.35)
+        color: "#59000000"
         MouseArea { anchors.fill: parent }
 
         RowLayout {
@@ -498,7 +491,7 @@ Rectangle {
                 spacing: 0
                 Layout.fillWidth: true
                 Text {
-                    text: root.current.isMine ? I18n.t("Bạn", "You") : (root.current.senderName || "")
+                    text: ImageViewerState.currentIsMine ? I18n.t("Bạn", "You") : ImageViewerState.currentSenderName
                     color: "#FFFFFF"
                     font.family: Theme.fontFamily
                     font.pixelSize: 14
@@ -507,7 +500,7 @@ Rectangle {
                     Layout.fillWidth: true
                 }
                 Text {
-                    text: root.timeText(root.current.ts || 0)
+                    text: root.timeText(ImageViewerState.currentTs)
                     color: "#AEB4BC"
                     font.family: Theme.fontFamily
                     font.pixelSize: 12
@@ -533,7 +526,7 @@ Rectangle {
                 Layout.preferredHeight: 36
                 Layout.preferredWidth: label.length > 0 ? labelText.implicitWidth + 20 : 36
                 radius: 18
-                color: active ? Theme.zaloBlue : (tbMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.18) : ThemeManager.hoverClearColor)
+                color: active ? Theme.zaloBlue : (tbMouse.containsMouse ? "#2EFFFFFF" : ThemeManager.hoverClearColor)
                 ZIcon { visible: tb.icon.length > 0; anchors.centerIn: parent; name: tb.icon; size: 20; color: "#FFFFFF" }
                 Text {
                     id: labelText
@@ -577,7 +570,7 @@ Rectangle {
                 visible: !root.isVideo
                 icon: "send"
                 tip: I18n.t("In ảnh (Ctrl+P)", "Print picture (Ctrl+P)")
-                onClicked: ZaloClient.printMedia(root.current.url)
+                onClicked: ZaloClient.printMedia(root.currentUrl)
             }
             ToolButtonIcon {
                 icon: "download"
@@ -586,11 +579,11 @@ Rectangle {
                 onClicked: saveDialog.open()
             }
             ToolButtonIcon {
-                visible: String(root.current.url || "").startsWith("http")
+                visible: root.currentUrl.startsWith("http")
                 icon: "open_external"
                 tip: root.isVideo ? I18n.t("Mở video trong trình duyệt", "Open video in browser")
                                   : I18n.t("Mở ảnh gốc trong trình duyệt", "Open original in browser")
-                onClicked: ZaloClient.openExternalUrl(String(root.current.url || ""))
+                onClicked: ZaloClient.openExternalUrl(root.currentUrl)
             }
             ToolButtonIcon { icon: "close"; tip: I18n.t("Đóng (Esc)", "Close (Esc)"); onClicked: { root.stopVideo(); ImageViewerState.close(); } }
         }
@@ -607,42 +600,43 @@ Rectangle {
         orientation: ListView.Horizontal
         spacing: 8
         clip: true
-        model: root.items
+        model: ImageViewerState.items
         currentIndex: ImageViewerState.index
         highlightMoveDuration: 150
         onCurrentIndexChanged: positionViewAtIndex(currentIndex, ListView.Contain)
         delegate: Rectangle {
+            id: thumbTile
             required property var modelData
             required property int index
             width: 56
             height: 56
             radius: 6
             color: "transparent"
-            border.width: index === ImageViewerState.index ? 2 : 0
+            border.width: thumbTile.index === ImageViewerState.index ? 2 : 0
             border.color: "#FFFFFF"
-            opacity: index === ImageViewerState.index ? 1.0 : 0.55
+            opacity: thumbTile.index === ImageViewerState.index ? 1.0 : 0.55
             Image {
                 anchors.fill: parent
                 anchors.margins: 2
-                source: modelData.thumb || modelData.url
+                source: thumbTile.modelData.thumb || thumbTile.modelData.url
                 fillMode: Image.PreserveAspectCrop
                 asynchronous: true
                 sourceSize.width: 112
                 sourceSize.height: 112
             }
             Rectangle {
-                visible: !!(modelData.isVideo)
+                visible: !!(thumbTile.modelData.isVideo)
                 anchors.centerIn: parent
                 width: 22
                 height: 22
                 radius: 11
-                color: Qt.rgba(0, 0, 0, 0.6)
+                color: "#99000000"
                 ZIcon { anchors.centerIn: parent; name: "play"; size: 12; color: "#FFFFFF" }
             }
             MouseArea {
                 anchors.fill: parent
                 cursorShape: Qt.PointingHandCursor
-                onClicked: { root.stopVideo(); ImageViewerState.index = index; root.resetView(); }
+                onClicked: { root.stopVideo(); ImageViewerState.index = thumbTile.index; root.resetView(); }
             }
         }
     }
@@ -651,31 +645,28 @@ Rectangle {
         id: saveDialog
         title: root.isVideo ? I18n.t("Lưu video", "Save video") : I18n.t("Lưu ảnh", "Save picture")
         fileMode: FileDialog.SaveFile
-        currentFile: "file:///" + ZaloClient.suggestedMediaFileName(root.current.url || "")
+        currentFile: "file:///" + ZaloClient.suggestedMediaFileName(root.currentUrl)
         nameFilters: root.isVideo
             ? [I18n.t("Video (*.mp4 *.mov *.webm *.mkv)", "Videos (*.mp4 *.mov *.webm *.mkv)"),
                I18n.t("Tất cả tệp (*)", "All files (*)")]
             : [I18n.t("Hình ảnh (*.jpg *.jpeg *.png *.webp *.gif)", "Images (*.jpg *.jpeg *.png *.webp *.gif)"),
                I18n.t("Tất cả tệp (*)", "All files (*)")]
-        onAccepted: ZaloClient.saveMediaTo(root.current.url, selectedFile.toString())
+        onAccepted: ZaloClient.saveMediaTo(root.currentUrl, selectedFile.toString())
     }
 
-    Loader {
-        id: annotationBarLoader
+    Rectangle {
+        id: annotationBar
         anchors.top: topBar.bottom
         anchors.topMargin: 12
         anchors.horizontalCenter: parent.horizontalCenter
         z: 10
-        active: root.annotating && !root.isVideo
-        visible: active
-        sourceComponent: Rectangle {
-            id: annotationBar
-            height: 44
-            implicitWidth: annotateRow.implicitWidth + 28
-            radius: 22
-            color: Qt.rgba(20 / 255, 20 / 255, 20 / 255, 0.88)
-            border.color: Qt.rgba(1, 1, 1, 0.15)
-            border.width: 1
+        visible: root.annotating && !root.isVideo
+        height: 44
+        implicitWidth: annotateRow.implicitWidth + 28
+        radius: 22
+        color: "#E0141414"
+        border.color: "#26FFFFFF"
+        border.width: 1
 
             RowLayout {
                 id: annotateRow
@@ -692,7 +683,7 @@ Rectangle {
                     width: 32
                     height: 32
                     radius: 16
-                    color: root.currentDrawTool === atb.tool ? Theme.zaloBlue : (atbMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.15) : ThemeManager.hoverClearColor)
+                    color: root.currentDrawTool === atb.tool ? Theme.zaloBlue : (atbMouse.containsMouse ? "#26FFFFFF" : ThemeManager.hoverClearColor)
                     ZIcon { anchors.centerIn: parent; name: atb.icon; size: 18; color: "#FFFFFF" }
                     MouseArea {
                         id: atbMouse
@@ -710,34 +701,35 @@ Rectangle {
                 AnnotateToolBtn { tool: "arrow"; icon: "forward"; tip: I18n.t("Vẽ mũi tên", "Arrow") }
                 AnnotateToolBtn { tool: "text"; icon: "format_text"; tip: I18n.t("Chèn chữ", "Text note") }
 
-                Rectangle { width: 1; height: 24; color: Qt.rgba(1, 1, 1, 0.2) }
+                Rectangle { width: 1; height: 24; color: "#33FFFFFF" }
 
                 Repeater {
                     model: ["#FF3B30", "#FFCC00", "#34C759", "#007AFF", "#FFFFFF"]
                     delegate: Rectangle {
+                        id: swatchBtn
                         required property string modelData
                         width: 22
                         height: 22
                         radius: 11
-                        color: modelData
-                        border.color: root.drawColor === modelData ? "#FFFFFF" : Qt.rgba(0, 0, 0, 0.3)
-                        border.width: root.drawColor === modelData ? 2 : 1
-                        scale: root.drawColor === modelData ? 1.15 : 1.0
+                        color: swatchBtn.modelData
+                        border.color: root.drawColor === swatchBtn.modelData ? "#FFFFFF" : "#4C000000"
+                        border.width: root.drawColor === swatchBtn.modelData ? 2 : 1
+                        scale: root.drawColor === swatchBtn.modelData ? 1.15 : 1.0
                         MouseArea {
                             anchors.fill: parent
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: root.drawColor = modelData
+                            onClicked: root.drawColor = swatchBtn.modelData
                         }
                     }
                 }
 
-                Rectangle { width: 1; height: 24; color: Qt.rgba(1, 1, 1, 0.2) }
+                Rectangle { width: 1; height: 24; color: "#33FFFFFF" }
 
                 Rectangle {
                     width: 32
                     height: 32
                     radius: 16
-                    color: undoMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.15) : ThemeManager.hoverClearColor
+                    color: undoMouse.containsMouse ? "#26FFFFFF" : ThemeManager.hoverClearColor
                     ZIcon { anchors.centerIn: parent; name: "undo"; size: 18; color: root.strokes.length > 0 ? "#FFFFFF" : "#777777" }
                     MouseArea {
                         id: undoMouse
@@ -758,7 +750,7 @@ Rectangle {
                     width: 32
                     height: 32
                     radius: 16
-                    color: clearMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.15) : ThemeManager.hoverClearColor
+                    color: clearMouse.containsMouse ? "#26FFFFFF" : ThemeManager.hoverClearColor
                     ZIcon { anchors.centerIn: parent; name: "trash"; size: 18; color: root.strokes.length > 0 ? "#FFFFFF" : "#777777" }
                     MouseArea {
                         id: clearMouse
@@ -776,37 +768,32 @@ Rectangle {
                 }
             }
         }
-    }
 
-    Loader {
-        id: textInputDialogLoader
-        active: false
-        sourceComponent: Dialog {
-            id: textInputDialog
-            property real targetX: 0
-            property real targetY: 0
-            title: I18n.t("Nhập ghi chú", "Enter note")
-            anchors.centerIn: parent
-            modal: true
-            standardButtons: Dialog.Ok | Dialog.Cancel
-            ZTextField {
-                id: annotationField
-                width: 260
-                placeholderText: I18n.t("Nội dung ghi chú...", "Note text...")
-                focus: true
-            }
-            onAccepted: {
-                if (annotationField.text.trim().length > 0) {
-                    root.strokes.push({
-                        type: "text",
-                        color: root.drawColor.toString(),
-                        text: annotationField.text.trim(),
-                        x: targetX,
-                        y: targetY
-                    })
-                    annotationField.text = ""
-                    root.requestCanvasRepaint()
-                }
+    Dialog {
+        id: textInputDialog
+        property real targetX: 0
+        property real targetY: 0
+        title: I18n.t("Nhập ghi chú", "Enter note")
+        anchors.centerIn: parent
+        modal: true
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        ZTextField {
+            id: annotationField
+            width: 260
+            placeholderText: I18n.t("Nội dung ghi chú...", "Note text...")
+            focus: true
+        }
+        onAccepted: {
+            if (annotationField.text.trim().length > 0) {
+                root.strokes.push({
+                    type: "text",
+                    color: root.drawColor.toString(),
+                    text: annotationField.text.trim(),
+                    x: targetX,
+                    y: targetY
+                })
+                annotationField.text = ""
+                root.requestCanvasRepaint()
             }
         }
     }

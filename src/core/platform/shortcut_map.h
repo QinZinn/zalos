@@ -15,6 +15,13 @@ public:
     explicit ShortcutMap(QObject* parent = nullptr);
 
     Q_INVOKABLE QStringList keys(const QString& command) const { return m_keys.value(command); }
+    Q_INVOKABLE QVariantList keySequences(const QString& command) const {
+        QVariantList out;
+        const QStringList list = m_keys.value(command);
+        out.reserve(list.size());
+        for (const QString& k : list) out << k;
+        return out;
+    }
     Q_INVOKABLE QVariantList all() const;
     QStringList commands() const { return m_order; }
 

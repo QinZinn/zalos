@@ -133,11 +133,15 @@ void ConversationModel::applyFilter() {
             if (item.isGroup && (!item.hasUnreadMention || item.unreadCount <= 0)) continue;
             if (!searching) {
                 if (m_labelFilter > 0 && item.labelId != m_labelFilter) continue;
+                if (m_typeFilter == QLatin1String("group") && !item.isGroup) continue;
+                if (m_typeFilter == QLatin1String("direct") && item.isGroup) continue;
                 if (m_strangerOnly && !strangerId(item.id, item.isGroup)) continue;
             }
         } else if (!searching) {
             if (isArchived) continue;
             if (m_labelFilter > 0 && item.labelId != m_labelFilter) continue;
+            if (m_typeFilter == QLatin1String("group") && !item.isGroup) continue;
+            if (m_typeFilter == QLatin1String("direct") && item.isGroup) continue;
             if (m_strangerOnly && !strangerId(item.id, item.isGroup)) continue;
             if (!(m_activeCategory.isEmpty() ||
                   (m_activeCategory == "unread" ? item.unreadCount > 0 : item.category == m_activeCategory)))
@@ -414,6 +418,15 @@ void ConversationModel::setTag(const QString& convId, const QString& tag, const 
 void ConversationModel::setLabelFilter(int labelId) {
     if (labelId == m_labelFilter) return;
     m_labelFilter = labelId;
+    refilter();
+    emit filterChanged();
+}
+
+void ConversationModel::setTypeFilter(const QString& filter) {
+    const QString next = (filter == QLatin1String("group") || filter == QLatin1String("direct"))
+                         ? filter : QStringLiteral("all");
+    if (next == m_typeFilter) return;
+    m_typeFilter = next;
     refilter();
     emit filterChanged();
 }

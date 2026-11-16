@@ -36,7 +36,7 @@ Rectangle {
             spacing: 16
 
             Repeater {
-                model: [I18n.t("Biểu tượng cảm xúc", "Emoji"), I18n.t("Nhãn dán", "Stickers")]
+                model: [I18n.t("Biểu tượng cảm xúc", "Emoji"), I18n.t("Sticker", "Sticker")]
                 Item {
                     id: tabItem
                     required property int index
@@ -102,23 +102,29 @@ Rectangle {
                 id: emojiSectionList
                 anchors.fill: parent
                 clip: true
-                spacing: 10
-                cacheBuffer: 400
-                model: ZaloClient.emojis.sections
+                spacing: 0
+                cacheBuffer: 80
+                reuseItems: true
+                model: ZaloClient.emojis.flatRows(emojiListContainer.columns)
                 ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                property string hoveredCode: ""
+                ToolTip.visible: hoveredCode.length > 0
+                ToolTip.text: hoveredCode
 
-                delegate: Column {
-                    id: sectionDelegate
+                delegate: Item {
+                    id: rowDelegate
                     required property var modelData
-                    readonly property string nameVi: sectionDelegate.modelData.nameVi || ""
-                    readonly property string nameEn: sectionDelegate.modelData.nameEn || ""
-                    readonly property var sectionItems: sectionDelegate.modelData.items || []
+                    readonly property bool isHeader: Boolean(rowDelegate.modelData.isHeader)
+                    readonly property string nameVi: rowDelegate.modelData.nameVi || ""
+                    readonly property string nameEn: rowDelegate.modelData.nameEn || ""
+                    readonly property var rowItems: rowDelegate.modelData.items || []
                     width: ListView.view ? ListView.view.width - 8 : emojiListContainer.width - 8
-                    spacing: 4
+                    height: isHeader ? 24 : 40
 
                     Text {
-                        width: parent.width
-                        text: I18n.t(sectionDelegate.nameVi, sectionDelegate.nameEn)
+                        visible: rowDelegate.isHeader
+                        anchors { left: parent.left; right: parent.right; bottom: parent.bottom; bottomMargin: 2 }
+                        text: I18n.t(rowDelegate.nameVi, rowDelegate.nameEn)
                         font.family: Theme.fontFamily
                         font.pixelSize: 11
                         font.bold: true
@@ -126,12 +132,12 @@ Rectangle {
                         elide: Text.ElideRight
                     }
 
-                    Grid {
-                        width: parent.width
-                        columns: emojiListContainer.columns
+                    Row {
+                        visible: !rowDelegate.isHeader
+                        anchors.fill: parent
 
                         Repeater {
-                            model: sectionDelegate.sectionItems
+                            model: rowDelegate.isHeader ? [] : rowDelegate.rowItems
                             delegate: Rectangle {
                                 id: emojiCell
                                 required property var modelData
@@ -152,13 +158,13 @@ Rectangle {
                                     anchors.fill: parent
                                     hoverEnabled: true
                                     cursorShape: Qt.PointingHandCursor
+                                    onEntered: emojiSectionList.hoveredCode = emojiCell.code
+                                    onExited: if (emojiSectionList.hoveredCode === emojiCell.code) emojiSectionList.hoveredCode = ""
                                     onClicked: {
                                         ZaloClient.emojis.recordRecent(emojiCell.glyph);
                                         root.emojiSelected(emojiCell.glyph);
                                     }
                                 }
-                                ToolTip.visible: emojiMouse.containsMouse && emojiCell.code.length > 0
-                                ToolTip.text: emojiCell.code
                             }
                         }
                     }
@@ -182,7 +188,7 @@ Rectangle {
             id: stickerSearch
             visible: root.tab === 1
             Layout.fillWidth: true
-            placeholderText: I18n.t("Tìm nhãn dán (ví dụ: chào, cảm ơn, haha)", "Search stickers (e.g. hello, thanks)")
+            placeholderText: I18n.t("Tìm sticker (ví dụ: chào, cảm ơn, haha)", "Search stickers (e.g. hello, thanks)")
             onAccepted: {
                 stickerSearchTimer.stop()
                 ZaloClient.stickers.search(text.trim())
@@ -269,10 +275,10 @@ Rectangle {
                 visible: !ZaloClient.stickers.loading && ZaloClient.stickers.stickers.length === 0
                 horizontalAlignment: Text.AlignHCenter
                 wrapMode: Text.Wrap
-                text: !ZaloClient.isLoggedIn ? I18n.t("Cần kết nối tới Zalo để dùng nhãn dán.", "Connect to Zalo to use stickers.")
-                      : ZaloClient.stickers.searchQuery.length > 0 ? I18n.t("Không tìm thấy nhãn dán phù hợp.", "No matching stickers.")
-                      : ZaloClient.stickers.categories.length === 0 ? I18n.t("Nhập từ khóa rồi nhấn Enter để tìm nhãn dán.", "Type a keyword and press Enter.")
-                      : I18n.t("Bộ nhãn dán này chưa có gì.", "This pack is empty.")
+                text: !ZaloClient.isLoggedIn ? I18n.t("Cần kết nối tới Zalo để dùng sticker.", "Connect to Zalo to use stickers.")
+                      : ZaloClient.stickers.searchQuery.length > 0 ? I18n.t("Không tìm thấy sticker phù hợp.", "No matching stickers.")
+                      : ZaloClient.stickers.categories.length === 0 ? I18n.t("Nhập từ khóa rồi nhấn Enter để tìm sticker.", "Type a keyword and press Enter.")
+                      : I18n.t("Bộ sticker này chưa có gì.", "This pack is empty.")
                 font.family: Theme.fontFamily
                 font.pixelSize: 12
                 color: ThemeManager.secondaryTextColor

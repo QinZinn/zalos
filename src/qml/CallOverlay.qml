@@ -1,3 +1,4 @@
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
@@ -6,9 +7,8 @@ import Zalos
 
 Rectangle {
     id: root
-    readonly property var call: ZaloClient.calls
-    readonly property string phase: call ? call.phase : ""
-    readonly property bool peerVideoShown: !!(call && call.isVideo && call.peerVideoActive && !call.peerCamOff)
+    readonly property string phase: ZaloClient.calls ? ZaloClient.calls.phase : ""
+    readonly property bool peerVideoShown: !!(ZaloClient.calls && ZaloClient.calls.isVideo && ZaloClient.calls.peerVideoActive && !ZaloClient.calls.peerCamOff)
     visible: phase.length > 0
     color: "#000000"
     z: 2000
@@ -22,8 +22,8 @@ Rectangle {
     }
 
     function durationText(): string {
-        if (!call || call.since <= 0) return "";
-        var s = Math.max(0, Math.floor((root.now - call.since) / 1000));
+        if (!ZaloClient.calls || ZaloClient.calls.since <= 0) return "";
+        var s = Math.max(0, Math.floor((root.now - ZaloClient.calls.since) / 1000));
         var m = Math.floor(s / 60);
         return ("0" + m).slice(-2) + ":" + ("0" + (s % 60)).slice(-2);
     }
@@ -86,10 +86,10 @@ Rectangle {
     }
 
     function phaseText(): string {
-        var isVid = !!(call && call.isVideo);
-        var isGrp = !!(call && call.isGroup);
+        var isVid = !!(ZaloClient.calls && ZaloClient.calls.isVideo);
+        var isGrp = !!(ZaloClient.calls && ZaloClient.calls.isGroup);
         if (root.phase === "connected" && !isGrp) return "";
-        var label = call && call.statusCode.length > 0 ? statusLabel(call.statusCode, call.statusParams) : "";
+        var label = ZaloClient.calls && ZaloClient.calls.statusCode.length > 0 ? statusLabel(ZaloClient.calls.statusCode, ZaloClient.calls.statusParams) : "";
         if (label.length > 0) return label;
         switch (root.phase) {
         case "outgoing":
@@ -112,7 +112,7 @@ Rectangle {
         interval: 2500
         running: root.phase === "ended"
         onTriggered: {
-            if (root.call) root.call.hangup();
+            if (ZaloClient.calls) ZaloClient.calls.hangup();
         }
     }
 
@@ -120,7 +120,7 @@ Rectangle {
         interval: 4500
         running: root.phase === "ended"
         onTriggered: {
-            if (root.call) root.call.hangup();
+            if (ZaloClient.calls) ZaloClient.calls.hangup();
         }
     }
 
@@ -137,8 +137,8 @@ Rectangle {
             anchors.fill: parent
             anchors.margins: -60
             fillMode: Image.PreserveAspectCrop
-            source: root.call && root.call.peerAvatar.length > 0
-                    ? "image://avatar/" + encodeURIComponent(root.call.peerAvatar) : ""
+            source: ZaloClient.calls && ZaloClient.calls.peerAvatar.length > 0
+                    ? "image://avatar/" + encodeURIComponent(ZaloClient.calls.peerAvatar) : ""
             sourceSize.width: 256
             sourceSize.height: 256
             visible: false
@@ -157,7 +157,7 @@ Rectangle {
             anchors.fill: parent
             fillMode: VideoOutput.PreserveAspectFit
             visible: root.peerVideoShown
-            Component.onCompleted: if (root.call) root.call.setPeerVideoSink(peerVideo.videoSink)
+            Component.onCompleted: if (ZaloClient.calls) ZaloClient.calls.setPeerVideoSink(peerVideo.videoSink)
         }
 
         Text {
@@ -188,15 +188,15 @@ Rectangle {
                 ZAvatar {
                     anchors.fill: parent
                     size: avatarBox.d
-                    avatarUrl: root.call ? root.call.peerAvatar : ""
-                    name: root.call ? root.call.peerName : ""
+                    avatarUrl: ZaloClient.calls ? ZaloClient.calls.peerAvatar : ""
+                    name: ZaloClient.calls ? ZaloClient.calls.peerName : ""
                 }
                 Rectangle {
                     anchors.fill: parent
                     radius: width / 2
                     color: "transparent"
                     border.width: 6
-                    border.color: Qt.rgba(150 / 255, 150 / 255, 150 / 255, 0.55)
+                    border.color: "#8C969696"
                     visible: root.phase !== "connected"
                 }
             }
@@ -204,7 +204,7 @@ Rectangle {
             Text {
                 Layout.fillWidth: true
                 horizontalAlignment: Text.AlignHCenter
-                text: root.call ? root.call.peerName : ""
+                text: ZaloClient.calls ? ZaloClient.calls.peerName : ""
                 elide: Text.ElideRight
                 color: "#FFFFFF"
                 font.family: Theme.fontFamily
@@ -223,15 +223,15 @@ Rectangle {
             }
             Rectangle {
                 id: noticeStrip
-                readonly property string label: root.call && root.call.noticeCode.length > 0 && root.phase !== "ended"
-                                                ? root.statusLabel(root.call.noticeCode, root.call.noticeParams) : ""
+                readonly property string label: ZaloClient.calls && ZaloClient.calls.noticeCode.length > 0 && root.phase !== "ended"
+                                                ? root.statusLabel(ZaloClient.calls.noticeCode, ZaloClient.calls.noticeParams) : ""
                 Layout.alignment: Qt.AlignHCenter
                 Layout.maximumWidth: Math.min(420, root.width - 32)
                 Layout.preferredWidth: noticeText.implicitWidth + 24
                 Layout.preferredHeight: noticeText.implicitHeight + 12
                 visible: label.length > 0
                 radius: 10
-                color: Qt.rgba(0.85, 0.2, 0.2, 0.85)
+                color: "#D9D93333"
                 Text {
                     id: noticeText
                     anchors.fill: parent
@@ -249,11 +249,11 @@ Rectangle {
             }
             Rectangle {
                 Layout.alignment: Qt.AlignHCenter
-                visible: !!(root.call && root.call.peerMuted && root.phase === "connected")
+                visible: !!(ZaloClient.calls && ZaloClient.calls.peerMuted && root.phase === "connected")
                 Layout.preferredHeight: 26
                 Layout.preferredWidth: noteText.implicitWidth + 20
                 radius: 13
-                color: Qt.rgba(0, 0, 0, 0.7)
+                color: "#B2000000"
                 Text {
                     id: noteText
                     anchors.centerIn: parent
@@ -266,11 +266,11 @@ Rectangle {
 
             Rectangle {
                 Layout.alignment: Qt.AlignHCenter
-                visible: !!(root.call && root.call.isVideo && root.call.peerCamOff && root.phase === "connected")
+                visible: !!(ZaloClient.calls && ZaloClient.calls.isVideo && ZaloClient.calls.peerCamOff && root.phase === "connected")
                 Layout.preferredHeight: 26
                 Layout.preferredWidth: camNoteText.implicitWidth + 20
                 radius: 13
-                color: Qt.rgba(0, 0, 0, 0.7)
+                color: "#B2000000"
                 Text {
                     id: camNoteText
                     anchors.centerIn: parent
@@ -284,11 +284,13 @@ Rectangle {
             Row {
                 Layout.alignment: Qt.AlignHCenter
                 spacing: 12
-                visible: !!(root.call && root.call.isGroup && root.call.groupMembers && root.call.groupMembers.length > 0)
+                visible: !!(ZaloClient.calls && ZaloClient.calls.isGroup && ZaloClient.calls.groupMembers && ZaloClient.calls.groupMembers.length > 0)
 
                 Repeater {
-                    model: root.call && root.call.groupMembers ? root.call.groupMembers.slice(0, 6) : []
+                    model: ZaloClient.calls && ZaloClient.calls.groupMembers ? ZaloClient.calls.groupMembers.slice(0, 6) : []
                     delegate: Column {
+                        id: partCol
+                        required property var modelData
                         spacing: 4
                         Item {
                             width: 48
@@ -297,8 +299,8 @@ Rectangle {
                             ZAvatar {
                                 anchors.fill: parent
                                 size: 48
-                                avatarUrl: modelData.avatar || ""
-                                name: modelData.name || ""
+                                avatarUrl: partCol.modelData.avatar || ""
+                                name: partCol.modelData.name || ""
                             }
                             Rectangle {
                                 width: 14
@@ -306,14 +308,14 @@ Rectangle {
                                 radius: 7
                                 anchors.bottom: parent.bottom
                                 anchors.right: parent.right
-                                color: modelData.state === "connected" ? "#34C759" : (modelData.state === "calling" ? "#FF9500" : "#8E8E93")
+                                color: partCol.modelData.state === "connected" ? "#34C759" : (partCol.modelData.state === "calling" ? "#FF9500" : "#8E8E93")
                                 border.width: 2
                                 border.color: "#000000"
                             }
                         }
                         Text {
                             anchors.horizontalCenter: parent.horizontalCenter
-                            text: (modelData.name || "").split(" ").slice(-1)[0]
+                            text: (partCol.modelData.name || "").split(" ").slice(-1)[0]
                             font.pixelSize: 11
                             color: "#FFFFFF"
                             elide: Text.ElideRight
@@ -335,15 +337,15 @@ Rectangle {
             height: 112
             radius: 8
             color: "#000000"
-            border.color: Qt.rgba(1, 1, 1, 0.25)
-            visible: !!(root.call && root.call.isVideo && root.call.cameraOn && root.phase !== "ended")
+            border.color: "#40FFFFFF"
+            visible: !!(ZaloClient.calls && ZaloClient.calls.isVideo && ZaloClient.calls.cameraOn && root.phase !== "ended")
             clip: true
             VideoOutput {
                 id: selfVideo
                 anchors.fill: parent
                 fillMode: VideoOutput.PreserveAspectCrop
                 transform: Scale { origin.x: selfVideo.width / 2; xScale: -1 }
-                Component.onCompleted: if (root.call) root.call.setLocalVideoSink(selfVideo.videoSink)
+                Component.onCompleted: if (ZaloClient.calls) ZaloClient.calls.setLocalVideoSink(selfVideo.videoSink)
             }
         }
 
@@ -354,8 +356,8 @@ Rectangle {
             width: 240
             height: videoNote.implicitHeight + 20
             radius: 8
-            color: Qt.rgba(0, 0, 0, 0.7)
-            visible: !!(root.call && root.call.isVideo && root.phase !== "ended" && videoNote.text.length > 0)
+            color: "#B2000000"
+            visible: !!(ZaloClient.calls && ZaloClient.calls.isVideo && root.phase !== "ended" && videoNote.text.length > 0)
 
             Text {
                 id: videoNote
@@ -364,7 +366,7 @@ Rectangle {
                 wrapMode: Text.Wrap
                 horizontalAlignment: Text.AlignHCenter
                 text: {
-                    const c = root.call;
+                    const c = ZaloClient.calls;
                     if (!c) return "";
                     if (!c.videoSupported)
                         return I18n.t("Máy chưa có OpenH264 nên không gửi và xem được hình. Cài gói openh264 (Fedora) hoặc libopenh264 (Ubuntu/Debian) rồi mở lại Zalos. Cuộc gọi này chỉ có âm thanh.",
@@ -402,8 +404,8 @@ Rectangle {
             width: 80
             height: 40
             radius: 20
-            color: pbMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.26) : Qt.rgba(1, 1, 1, 0.16)
-            border.color: Qt.rgba(1, 1, 1, 0.18)
+            color: pbMouse.containsMouse ? "#42FFFFFF" : "#29FFFFFF"
+            border.color: "#2EFFFFFF"
             border.width: 1
             ZIcon {
                 anchors.centerIn: parent
@@ -459,8 +461,8 @@ Rectangle {
         anchors.bottom: parent.bottom
         height: 120
         gradient: Gradient {
-            GradientStop { position: 0.0; color: Qt.rgba(0, 0, 0, 0) }
-            GradientStop { position: 1.0; color: Qt.rgba(0, 0, 0, 0.45) }
+            GradientStop { position: 0.0; color: "#00000000" }
+            GradientStop { position: 1.0; color: "#73000000" }
         }
 
         Row {
@@ -474,49 +476,49 @@ Rectangle {
                 visible: root.phase === "incoming"
                 icon: "call_end"
                 tip: I18n.t("Từ chối", "Decline")
-                onClicked: root.call.reject()
+                onClicked: ZaloClient.calls.reject()
             }
             CircleButton {
-                visible: root.phase === "incoming" && !!root.call && root.call.canAnswer && root.call.isVideo
+                visible: root.phase === "incoming" && !!ZaloClient.calls && ZaloClient.calls.canAnswer && ZaloClient.calls.isVideo
                 icon: "phone"
                 tint: "#0068FF"
                 tip: I18n.t("Trả lời không camera", "Answer without camera")
-                onClicked: root.call.accept(true)
+                onClicked: ZaloClient.calls.accept(true)
             }
             CircleButton {
-                visible: root.phase === "incoming" && !!root.call && root.call.canAnswer
-                icon: root.call && root.call.isVideo ? "camera" : "phone"
+                visible: root.phase === "incoming" && !!ZaloClient.calls && ZaloClient.calls.canAnswer
+                icon: ZaloClient.calls && ZaloClient.calls.isVideo ? "camera" : "phone"
                 tint: "#2BB673"
-                tip: root.call && root.call.isVideo ? I18n.t("Trả lời bằng video", "Answer with video") : I18n.t("Trả lời", "Answer")
-                onClicked: root.call.accept(false)
+                tip: ZaloClient.calls && ZaloClient.calls.isVideo ? I18n.t("Trả lời bằng video", "Answer with video") : I18n.t("Trả lời", "Answer")
+                onClicked: ZaloClient.calls.accept(false)
             }
             PillButton {
                 visible: root.phase === "connected" || root.phase === "connecting" || root.phase === "outgoing"
-                icon: root.call && root.call.muted ? "mic_off" : "mic"
-                on: !!(root.call && root.call.muted)
-                tip: root.call && root.call.muted ? I18n.t("Bật micro", "Unmute") : I18n.t("Tắt micro", "Mute")
-                onClicked: root.call.setMuted(!root.call.muted)
+                icon: ZaloClient.calls && ZaloClient.calls.muted ? "mic_off" : "mic"
+                on: !!(ZaloClient.calls && ZaloClient.calls.muted)
+                tip: ZaloClient.calls && ZaloClient.calls.muted ? I18n.t("Bật micro", "Unmute") : I18n.t("Tắt micro", "Mute")
+                onClicked: ZaloClient.calls.setMuted(!ZaloClient.calls.muted)
             }
             PillButton {
                 visible: root.phase === "connected" || root.phase === "connecting" || root.phase === "outgoing"
-                icon: root.call && root.call.speakerOff ? "volume_off" : "volume"
-                on: !!(root.call && root.call.speakerOff)
-                tip: root.call && root.call.speakerOff ? I18n.t("Bật loa", "Speaker on") : I18n.t("Tắt loa", "Speaker off")
-                onClicked: root.call.setSpeakerOff(!root.call.speakerOff)
+                icon: ZaloClient.calls && ZaloClient.calls.speakerOff ? "volume_off" : "volume"
+                on: !!(ZaloClient.calls && ZaloClient.calls.speakerOff)
+                tip: ZaloClient.calls && ZaloClient.calls.speakerOff ? I18n.t("Bật loa", "Speaker on") : I18n.t("Tắt loa", "Speaker off")
+                onClicked: ZaloClient.calls.setSpeakerOff(!ZaloClient.calls.speakerOff)
             }
             PillButton {
-                visible: !!(root.call && root.call.isVideo) && (root.phase === "connected" || root.phase === "connecting" || root.phase === "outgoing")
-                enabled: !!(root.call && (root.call.cameraAvailable || root.call.cameraOn))
-                icon: root.call && root.call.cameraOn ? "camera" : "camera_off"
-                on: !(root.call && root.call.cameraOn)
-                tip: root.call && root.call.cameraOn ? I18n.t("Tắt camera", "Turn off camera") : I18n.t("Bật camera", "Turn on camera")
-                onClicked: root.call.setCamera(!root.call.cameraOn)
+                visible: !!(ZaloClient.calls && ZaloClient.calls.isVideo) && (root.phase === "connected" || root.phase === "connecting" || root.phase === "outgoing")
+                enabled: !!(ZaloClient.calls && (ZaloClient.calls.cameraAvailable || ZaloClient.calls.cameraOn))
+                icon: ZaloClient.calls && ZaloClient.calls.cameraOn ? "camera" : "camera_off"
+                on: !(ZaloClient.calls && ZaloClient.calls.cameraOn)
+                tip: ZaloClient.calls && ZaloClient.calls.cameraOn ? I18n.t("Tắt camera", "Turn off camera") : I18n.t("Bật camera", "Turn on camera")
+                onClicked: ZaloClient.calls.setCamera(!ZaloClient.calls.cameraOn)
             }
             CircleButton {
                 visible: root.phase !== "incoming"
                 icon: root.phase === "ended" ? "close" : "call_end"
                 tip: root.phase === "ended" ? I18n.t("Đóng", "Close") : I18n.t("Kết thúc", "End call")
-                onClicked: root.call.hangup()
+                onClicked: ZaloClient.calls.hangup()
             }
         }
     }

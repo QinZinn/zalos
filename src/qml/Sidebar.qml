@@ -373,8 +373,8 @@ Rectangle {
 
             Rectangle {
                 id: labelFilterButton
-                anchors.right: parent.right
-                anchors.rightMargin: 12
+                anchors.right: typeFilterButton.left
+                anchors.rightMargin: 4
                 anchors.verticalCenter: parent.verticalCenter
                 readonly property bool hasCurrent: currentText.length > 0
                 readonly property string currentText: labelFilterButton.labelField(ZaloClient.conversationModel.labelFilter, "text")
@@ -467,6 +467,85 @@ Rectangle {
                             icon: "edit"
                             label: I18n.t("Quản lý thẻ phân loại", "Manage labels")
                             onTriggered: { labelFilterMenu.close(); ZaloClient.labels.manageOpen = true; }
+                        }
+                    }
+                }
+            }
+
+            Rectangle {
+                id: typeFilterButton
+                anchors.right: parent.right
+                anchors.rightMargin: 10
+                anchors.verticalCenter: parent.verticalCenter
+                width: typeFilterRow.implicitWidth + 14
+                height: 26
+                radius: 13
+                readonly property string currentType: ZaloClient.conversationModel.typeFilter
+                readonly property bool hasCurrent: currentType !== "all"
+                color: typeFilterMenu.opened ? ThemeManager.selectedColor
+                     : (hasCurrent ? Theme.zaloBlueLight
+                     : (typeFilterMouse.containsMouse ? ThemeManager.hoverColor : ThemeManager.hoverClearColor))
+
+                Row {
+                    id: typeFilterRow
+                    anchors.centerIn: parent
+                    spacing: 4
+
+                    ZIcon {
+                        anchors.verticalCenter: parent.verticalCenter
+                        name: "filter"
+                        size: 17
+                        color: typeFilterButton.hasCurrent || typeFilterMouse.containsMouse
+                               ? Theme.zaloBlue : ThemeManager.secondaryTextColor
+                    }
+
+                    ZIcon {
+                        anchors.verticalCenter: parent.verticalCenter
+                        name: "chevron_down"
+                        size: 10
+                        color: ThemeManager.secondaryTextColor
+                    }
+                }
+
+                MouseArea {
+                    id: typeFilterMouse
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    ToolTip.visible: typeFilterMouse.containsMouse && !typeFilterMenu.opened
+                    ToolTip.delay: 350
+                    ToolTip.text: typeFilterButton.currentType === "group"
+                                  ? I18n.t("Phân loại hội thoại: Chỉ hội thoại nhóm", "Conversation filter: Groups only")
+                                  : (typeFilterButton.currentType === "direct"
+                                     ? I18n.t("Phân loại hội thoại: Chỉ hội thoại cá nhân", "Conversation filter: Direct chats only")
+                                     : I18n.t("Phân loại hội thoại", "Filter conversations"))
+                    onClicked: typeFilterMenu.open()
+                }
+
+                Popup {
+                    id: typeFilterMenu
+                    y: parent.height + 4
+                    x: parent.width - width
+                    width: 210
+                    padding: 6
+                    closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+                    background: Rectangle { color: ThemeManager.surfaceColor; radius: 8; border.color: ThemeManager.borderColor }
+                    contentItem: ColumnLayout {
+                        spacing: 2
+                        LabelMenuRow {
+                            labelText: I18n.t("Tất cả hội thoại", "All conversations")
+                            checked: typeFilterButton.currentType === "all"
+                            onTriggered: { ZaloClient.conversationModel.setTypeFilter("all"); typeFilterMenu.close(); }
+                        }
+                        LabelMenuRow {
+                            labelText: I18n.t("Chỉ hội thoại nhóm", "Groups only")
+                            checked: typeFilterButton.currentType === "group"
+                            onTriggered: { ZaloClient.conversationModel.setTypeFilter("group"); typeFilterMenu.close(); }
+                        }
+                        LabelMenuRow {
+                            labelText: I18n.t("Chỉ hội thoại cá nhân", "Direct chats only")
+                            checked: typeFilterButton.currentType === "direct"
+                            onTriggered: { ZaloClient.conversationModel.setTypeFilter("direct"); typeFilterMenu.close(); }
                         }
                     }
                 }

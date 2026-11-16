@@ -1,3 +1,4 @@
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
@@ -27,7 +28,7 @@ Rectangle {
         radius: width / 2
         color: active
                ? (ThemeManager.isDarkMode ? Qt.rgba(Theme.zaloBlue.r, Theme.zaloBlue.g, Theme.zaloBlue.b, 0.26)
-                                          : Qt.rgba(1, 1, 1, 0.95))
+                                          : "#F2FFFFFF")
                : (btnMouse.containsMouse ? Qt.rgba(1, 1, 1, ThemeManager.isDarkMode ? 0.10 : 0.20)
                                          : ThemeManager.railHoverClearColor)
         Behavior on color { ColorAnimation { duration: 140 } }
@@ -336,6 +337,7 @@ Rectangle {
         Item { visible: !root.foldersShown; Layout.fillHeight: true }
 
         RailButton {
+            visible: ZaloClient.showKikiButton
             icon: "kiki"
             tip: I18n.t("Trợ lý Kiki", "Kiki Assistant")
             active: root.currentTab === "kiki"
@@ -347,6 +349,7 @@ Rectangle {
 
         RailButton {
             id: bizButton
+            visible: ZaloClient.showBusinessButton
             icon: "biz_tools"
             tip: I18n.t("Công cụ zBusiness", "zBusiness Tools")
             active: bizMenu.opened
@@ -371,10 +374,8 @@ Rectangle {
             border.color: ThemeManager.borderColor
         }
 
-        contentItem: Loader {
-            active: accountMenu.visible
-            sourceComponent: ColumnLayout {
-                spacing: 2
+        contentItem: ColumnLayout {
+            spacing: 2
 
                 Text {
                     Layout.fillWidth: true
@@ -405,7 +406,7 @@ Rectangle {
                 MenuRow {
                     icon: "help"
                     label: I18n.t("Hỗ trợ", "Help")
-                    onTriggered: { accountMenu.close(); Qt.openUrlExternally("https://help.zalo.me/"); }
+                    onTriggered: { accountMenu.close(); ZaloClient.openExternalUrl("https://help.zalo.me/"); }
                 }
 
                 MenuDivider {}
@@ -416,7 +417,6 @@ Rectangle {
                     danger: true
                     onTriggered: { accountMenu.close(); ZaloClient.logout(); }
                 }
-            }
         }
     }
 
@@ -434,10 +434,8 @@ Rectangle {
             border.color: ThemeManager.borderColor
         }
 
-        contentItem: Loader {
-            active: snipMenu.visible
-            sourceComponent: ColumnLayout {
-                spacing: 2
+        contentItem: ColumnLayout {
+            spacing: 2
 
                 Text {
                     Layout.fillWidth: true
@@ -471,7 +469,6 @@ Rectangle {
                         ZaloClient.requestScreenshot(true);
                     }
                 }
-            }
         }
     }
 
@@ -489,10 +486,8 @@ Rectangle {
             border.color: ThemeManager.borderColor
         }
 
-        contentItem: Loader {
-            active: bizMenu.visible
-            sourceComponent: ColumnLayout {
-                spacing: 2
+        contentItem: ColumnLayout {
+            spacing: 2
 
                 Text {
                     Layout.fillWidth: true
@@ -544,7 +539,6 @@ Rectangle {
                         ZaloClient.openBusinessPackage();
                     }
                 }
-            }
         }
     }
 }

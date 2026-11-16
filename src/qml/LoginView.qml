@@ -7,95 +7,134 @@ import Zalos
 Rectangle {
     id: root
     objectName: "loginViewRoot"
-    color: ThemeManager.isDarkMode ? "#121416" : "#E8F3FF"
+    color: ThemeManager.chatBackgroundColor
 
     property int activeTab: 0
     property bool showPassword: false
     property bool rememberLogin: true
+    property bool qrZoomOpen: false
+    property bool loginNoticeVisible: false
 
+    Component.onCompleted: ZaloClient.clearLoginError()
+
+    Timer {
+        id: loginNoticeTimer
+        interval: 3000
+        repeat: false
+        onTriggered: {
+            root.loginNoticeVisible = false;
+            ZaloClient.clearLoginError();
+        }
+    }
+
+    Connections {
+        target: ZaloClient
+        function onHasLoginErrorChanged() {
+            if (ZaloClient.hasLoginError) {
+                root.loginNoticeVisible = true;
+                loginNoticeTimer.restart();
+            } else if (!ZaloClient.isLoggingIn) {
+                root.loginNoticeVisible = false;
+                loginNoticeTimer.stop();
+            }
+        }
+        function onLoginStatusMessageChanged() {
+            if (ZaloClient.hasLoginError && ZaloClient.loginStatusMessage.length > 0) {
+                root.loginNoticeVisible = true;
+                loginNoticeTimer.restart();
+            }
+        }
+        function onIsLoggingInChanged() {
+            if (ZaloClient.isLoggingIn) {
+                root.loginNoticeVisible = true;
+                loginNoticeTimer.stop();
+            } else if (!ZaloClient.hasLoginError) {
+                root.loginNoticeVisible = false;
+            }
+        }
+    }
+
+    readonly property bool isWide: root.width >= 680
+    readonly property int requiredContentHeight: Math.ceil(mainContainer.implicitHeight + 48)
+    readonly property bool qrReady: ((ZaloClient.qrImageUrl.length > 0) || ZaloClient.qrSize > 0) && ZaloClient.qrSecondsRemaining > 0
     readonly property bool phoneFormValid: phoneInput.text.trim().length >= 8 && passInput.text.length >= 6
+
+    onQrReadyChanged: if (!qrReady) qrZoomOpen = false
+    onQrZoomOpenChanged: {
+        if (qrZoomOpen) qrZoomPopup.open();
+        else qrZoomPopup.close();
+    }
 
     function switchTab(tab: int): void {
         root.activeTab = tab;
         ZaloClient.clearLoginError();
     }
 
-    component PromoBanner: Rectangle {
-        Layout.fillWidth: true
-        Layout.preferredHeight: 64
-        radius: 12
-        color: (ThemeManager.cardBackgroundColor)
-        border.color: ThemeManager.borderColor
-        border.width: 1
+    function paintQrMatrix(ctx, w: real, h: real): void {
+        ctx.reset();
+        var size = ZaloClient.qrSize;
+        var matrix = ZaloClient.qrMatrix;
+        if (!matrix || size <= 0 || matrix.length < size * size) {
+            ctx.fillStyle = "#FFFFFF";
+            ctx.fillRect(0, 0, w, h);
+            return;
+        }
+        var quiet = 4;
+        var totalModules = size + 2 * quiet;
+        var cellSize = w / totalModules;
+        ctx.fillStyle = "#FFFFFF";
+        ctx.fillRect(0, 0, w, h);
 
-        RowLayout {
-            anchors.fill: parent
-            anchors.margins: 12
-            spacing: 10
-
-            Rectangle {
-                Layout.preferredWidth: 40
-                Layout.preferredHeight: 36
-                radius: 6
-                color: (ThemeManager.dividerColor)
-
-                Text {
-                    anchors.centerIn: parent
-                    text: "💻"
-                    font.pixelSize: 20
-                }
-            }
-
-            ColumnLayout {
-                Layout.fillWidth: true
-                Layout.minimumWidth: 0
-                spacing: 2
-
-                Text {
-                    Layout.fillWidth: true
-                    text: I18n.t("Nâng cao hiệu quả công việc với Zalo PC", "Work smarter with Zalo PC")
-                    font.family: Theme.fontFamily
-                    font.pixelSize: 12
-                    font.bold: true
-                    color: ThemeManager.textColor
-                    elide: Text.ElideRight
-                }
-
-                Text {
-                    Layout.fillWidth: true
-                    text: I18n.t("Gửi file lớn lên đến 1 GB, chụp màn hình, gọi video", "Send files up to 1 GB, take screenshots, make video calls")
-                    font.family: Theme.fontFamily
-                    font.pixelSize: 10
-                    color: ThemeManager.secondaryTextColor
-                    elide: Text.ElideRight
-                }
-            }
-
-            Rectangle {
-                Layout.preferredWidth: Math.max(68, downloadLabel.implicitWidth + 20)
-                Layout.preferredHeight: 30
-                radius: 6
-                color: downloadMouse.containsMouse ? Theme.zaloBlueHover : Theme.zaloBlue
-
-                Text {
-                    id: downloadLabel
-                    anchors.centerIn: parent
-                    text: I18n.t("Tải ngay", "Download")
-                    font.family: Theme.fontFamily
-                    font.pixelSize: 11
-                    font.bold: true
-                    color: "#FFFFFF"
-                }
-
-                MouseArea {
-                    id: downloadMouse
-                    anchors.fill: parent
-                    hoverEnabled: true
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: Qt.openUrlExternally("https://zalo.me/pc")
+        function isFinderEye(x, y) {
+            if (x < 7 && y < 7) return true;
+            if (x >= size - 7 && y < 7) return true;
+            if (x < 7 && y >= size - 7) return true;
+            return false;
+        }
+        function fillRoundedRect(x, y, rw, rh, r, color) {
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            ctx.moveTo(x + r, y);
+            ctx.lineTo(x + rw - r, y);
+            ctx.arcTo(x + rw, y, x + rw, y + r, r);
+            ctx.lineTo(x + rw, y + rh - r);
+            ctx.arcTo(x + rw, y + rh, x + rw - r, y + rh, r);
+            ctx.lineTo(x + r, y + rh);
+            ctx.arcTo(x, y + rh, x, y + rh - r, r);
+            ctx.lineTo(x, y + r);
+            ctx.arcTo(x, y, x + r, y, r);
+            ctx.closePath();
+            ctx.fill();
+        }
+        ctx.fillStyle = "#000000";
+        for (var y = 0; y < size; y++) {
+            for (var x = 0; x < size; x++) {
+                if (!isFinderEye(x, y) && matrix[y * size + x]) {
+                    ctx.fillRect(
+                        Math.floor((x + quiet) * cellSize),
+                        Math.floor((y + quiet) * cellSize),
+                        Math.ceil(cellSize),
+                        Math.ceil(cellSize)
+                    );
                 }
             }
         }
+        function drawZaloEye(mx, my) {
+            var ex = (mx + quiet) * cellSize;
+            var ey = (my + quiet) * cellSize;
+            var outerSize = 7 * cellSize;
+            var middleOffset = 1 * cellSize;
+            var middleSize = 5 * cellSize;
+            var innerOffset = 2 * cellSize;
+            var innerSize = 3 * cellSize;
+            var radius = cellSize * 2.2;
+            fillRoundedRect(ex, ey, outerSize, outerSize, radius, "#0068FF");
+            fillRoundedRect(ex + middleOffset, ey + middleOffset, middleSize, middleSize, radius * 0.7, "#FFFFFF");
+            fillRoundedRect(ex + innerOffset, ey + innerOffset, innerSize, innerSize, radius * 0.45, "#0068FF");
+        }
+        drawZaloEye(0, 0);
+        drawZaloEye(size - 7, 0);
+        drawZaloEye(0, size - 7);
     }
 
     component LinkText: Text {
@@ -129,55 +168,66 @@ Rectangle {
         Item {
             implicitWidth: root.width
             width: scroll.availableWidth
-            implicitHeight: Math.max(root.height, mainContainer.implicitHeight + 40)
+            implicitHeight: Math.max(root.height, mainContainer.implicitHeight + 48)
             height: implicitHeight
 
             ColumnLayout {
                 id: mainContainer
-                width: Math.max(0, Math.min(parent.width - 32, 420))
+                width: Math.max(0, Math.min(parent.width - 32, root.isWide ? 760 : 420))
                 x: Math.floor((parent.width - width) / 2)
-                y: Math.max(20, Math.floor((parent.height - implicitHeight) / 2))
-                spacing: 16
+                y: Math.max(24, Math.floor((parent.height - implicitHeight) / 2))
+                spacing: 12
 
-                ColumnLayout {
+                RowLayout {
                     Layout.fillWidth: true
-                    spacing: 4
+                    spacing: 12
 
                     Text {
-                        Layout.fillWidth: true
-                        horizontalAlignment: Text.AlignHCenter
-                        text: "Zalo"
+                        text: "Zalos"
                         color: Theme.zaloBlue
                         font.family: Theme.fontFamily
                         font.bold: true
-                        font.pixelSize: 38
+                        font.pixelSize: 28
                     }
 
-                    Text {
-                        Layout.fillWidth: true
-                        horizontalAlignment: Text.AlignHCenter
-                        wrapMode: Text.WordWrap
-                        text: I18n.t("Đăng nhập tài khoản Zalo", "Sign in to your Zalo account")
-                        color: ThemeManager.textColor
-                        font.family: Theme.fontFamily
-                        font.pixelSize: 15
-                        font.bold: true
-                    }
+                    Item { Layout.fillWidth: true }
 
-                    Text {
-                        Layout.fillWidth: true
-                        horizontalAlignment: Text.AlignHCenter
-                        wrapMode: Text.WordWrap
-                        text: I18n.t("để kết nối với ứng dụng Zalo Web", "to connect with Zalo Web")
-                        color: ThemeManager.secondaryTextColor
-                        font.family: Theme.fontFamily
-                        font.pixelSize: 14
+                    RowLayout {
+                        spacing: 12
+
+                        Text {
+                            text: "Tiếng Việt"
+                            font.family: Theme.fontFamily
+                            font.pixelSize: 12
+                            font.bold: I18n.currentLanguage === "vi"
+                            color: I18n.currentLanguage === "vi" ? Theme.zaloBlue : ThemeManager.secondaryTextColor
+
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: I18n.setLanguage("vi")
+                            }
+                        }
+
+                        Text {
+                            text: "English"
+                            font.family: Theme.fontFamily
+                            font.pixelSize: 12
+                            font.bold: I18n.currentLanguage === "en"
+                            color: I18n.currentLanguage === "en" ? Theme.zaloBlue : ThemeManager.secondaryTextColor
+
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: I18n.setLanguage("en")
+                            }
+                        }
                     }
                 }
 
                 Rectangle {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: cardContent.implicitHeight + 36
+                    Layout.preferredHeight: cardContent.implicitHeight + 40
                     radius: 16
                     color: ThemeManager.surfaceColor
                     border.color: ThemeManager.borderColor
@@ -188,108 +238,92 @@ Rectangle {
                         anchors.top: parent.top
                         anchors.left: parent.left
                         anchors.right: parent.right
-                        anchors.margins: 18
-                        spacing: 14
+                        anchors.margins: 20
+                        spacing: 16
 
                         RowLayout {
+                            visible: !root.isWide
                             Layout.fillWidth: true
-                            Layout.preferredHeight: 36
                             spacing: 8
 
-                            Item {
-                                Layout.preferredWidth: 32
-                                Layout.preferredHeight: 32
-                            }
-
-                            Text {
-                                Layout.fillWidth: true
-                                horizontalAlignment: Text.AlignHCenter
-                                elide: Text.ElideRight
-                                text: root.activeTab === 0
-                                      ? I18n.t("Đăng nhập qua mã QR", "Sign in with QR code")
-                                      : I18n.t("Đăng nhập với số điện thoại", "Sign in with phone number")
-                                font.family: Theme.fontFamily
-                                font.bold: true
-                                font.pixelSize: 15
-                                color: ThemeManager.textColor
-                            }
-
                             Rectangle {
-                                id: btnMenu
-                                Layout.preferredWidth: 32
-                                Layout.preferredHeight: 32
-                                radius: width / 2
-                                color: btnMenuMouse.containsMouse ? (ThemeManager.hoverColor) : ThemeManager.hoverClearColor
-                                border.color: ThemeManager.borderColor
-                                border.width: 1
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: 34
+                                radius: 8
+                                color: root.activeTab === 0 ? Theme.zaloBlue : ThemeManager.hoverColor
 
-                                Column {
+                                Text {
                                     anchors.centerIn: parent
-                                    spacing: 3
-
-                                    Rectangle { width: 14; height: 1.5; color: ThemeManager.textColor; radius: 1 }
-                                    Rectangle { width: 14; height: 1.5; color: ThemeManager.textColor; radius: 1 }
-                                    Rectangle { width: 14; height: 1.5; color: ThemeManager.textColor; radius: 1 }
+                                    text: I18n.t("Mã QR", "QR Code")
+                                    font.family: Theme.fontFamily
+                                    font.pixelSize: 12
+                                    font.bold: true
+                                    color: root.activeTab === 0 ? "#FFFFFF" : ThemeManager.textColor
                                 }
 
                                 MouseArea {
-                                    id: btnMenuMouse
                                     anchors.fill: parent
-                                    hoverEnabled: true
                                     cursorShape: Qt.PointingHandCursor
-                                    onClicked: menuPopup.open()
-                                    ToolTip.visible: containsMouse
-                                    ToolTip.text: I18n.t("Tùy chọn đăng nhập", "Sign-in options")
+                                    onClicked: root.switchTab(0)
+                                }
+                            }
+
+                            Rectangle {
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: 34
+                                radius: 8
+                                color: root.activeTab === 1 ? Theme.zaloBlue : ThemeManager.hoverColor
+
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: I18n.t("Số điện thoại", "Phone number")
+                                    font.family: Theme.fontFamily
+                                    font.pixelSize: 12
+                                    font.bold: true
+                                    color: root.activeTab === 1 ? "#FFFFFF" : ThemeManager.textColor
                                 }
 
-                                Menu {
-                                    id: menuPopup
-                                    x: btnMenu.width - width
-                                    y: btnMenu.height + 4
-
-                                    MenuItem {
-                                        text: I18n.t("Đăng nhập qua mã QR", "Sign in with QR code")
-                                        onTriggered: root.switchTab(0)
-                                    }
-                                    MenuItem {
-                                        text: I18n.t("Đăng nhập với số điện thoại", "Sign in with phone number")
-                                        onTriggered: root.switchTab(1)
-                                    }
-                                    MenuSeparator {}
-                                    MenuItem {
-                                        text: I18n.t("Đăng nhập bằng phiên trình duyệt", "Sign in with browser session")
-                                        onTriggered: ZaloClient.syncFromBrowserSession()
-                                    }
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: root.switchTab(1)
                                 }
                             }
                         }
 
-                        Rectangle {
+                        GridLayout {
                             Layout.fillWidth: true
-                            Layout.preferredHeight: 1
-                            color: ThemeManager.borderColor
-                        }
+                            columns: root.isWide ? 3 : 1
+                            columnSpacing: 24
+                            rowSpacing: 16
 
-                        StackLayout {
-                            id: tabStack
-                            currentIndex: root.activeTab
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: root.activeTab === 0 ? tab0Layout.implicitHeight : tab1Layout.implicitHeight
-
+                            // Layer 1: QR sign-in
                             ColumnLayout {
-                                id: tab0Layout
+                                id: qrColumn
+                                visible: root.isWide || root.activeTab === 0
                                 Layout.fillWidth: true
+                                Layout.preferredWidth: root.isWide ? 280 : -1
+                                Layout.alignment: Qt.AlignTop
                                 spacing: 12
+
+                                Text {
+                                    Layout.fillWidth: true
+                                    horizontalAlignment: Text.AlignHCenter
+                                    text: I18n.t("Đăng nhập qua mã QR", "Sign in with QR code")
+                                    font.family: Theme.fontFamily
+                                    font.bold: true
+                                    font.pixelSize: 15
+                                    color: ThemeManager.textColor
+                                }
 
                                 ColumnLayout {
                                     visible: ZaloClient.qrLoginStep === 0
                                     Layout.fillWidth: true
-                                    Layout.preferredHeight: visible ? implicitHeight : 0
-                                    spacing: 12
+                                    spacing: 10
 
                                     Rectangle {
                                         Layout.alignment: Qt.AlignHCenter
-                                        Layout.preferredWidth: 236
+                                        Layout.preferredWidth: 224
                                         Layout.preferredHeight: qrCardColumn.implicitHeight + 20
                                         radius: 12
                                         color: "#FFFFFF"
@@ -306,8 +340,8 @@ Rectangle {
 
                                             Item {
                                                 Layout.alignment: Qt.AlignHCenter
-                                                Layout.preferredWidth: 216
-                                                Layout.preferredHeight: 216
+                                                Layout.preferredWidth: 204
+                                                Layout.preferredHeight: 204
 
                                                 Image {
                                                     id: qrServerImage
@@ -332,83 +366,7 @@ Rectangle {
                                                     }
 
                                                     Component.onCompleted: requestPaint()
-
-                                                    onPaint: {
-                                                        var ctx = getContext("2d");
-                                                        ctx.reset();
-
-                                                        var size = ZaloClient.qrSize;
-                                                        var matrix = ZaloClient.qrMatrix;
-
-                                                        if (!matrix || size <= 0 || matrix.length < size * size) {
-                                                            ctx.fillStyle = "#FFFFFF";
-                                                            ctx.fillRect(0, 0, width, height);
-                                                            return;
-                                                        }
-
-                                                        var quiet = 4;
-                                                        var totalModules = size + 2 * quiet;
-                                                        var cellSize = width / totalModules;
-
-                                                        ctx.fillStyle = "#FFFFFF";
-                                                        ctx.fillRect(0, 0, width, height);
-
-                                                        function isFinderEye(x, y) {
-                                                            if (x < 7 && y < 7) return true;
-                                                            if (x >= size - 7 && y < 7) return true;
-                                                            if (x < 7 && y >= size - 7) return true;
-                                                            return false;
-                                                        }
-
-                                                        function fillRoundedRect(x, y, w, h, r, color) {
-                                                            ctx.fillStyle = color;
-                                                            ctx.beginPath();
-                                                            ctx.moveTo(x + r, y);
-                                                            ctx.lineTo(x + w - r, y);
-                                                            ctx.arcTo(x + w, y, x + w, y + r, r);
-                                                            ctx.lineTo(x + w, y + h - r);
-                                                            ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
-                                                            ctx.lineTo(x + r, y + h);
-                                                            ctx.arcTo(x, y + h, x, y + h - r, r);
-                                                            ctx.lineTo(x, y + r);
-                                                            ctx.arcTo(x, y, x + r, y, r);
-                                                            ctx.closePath();
-                                                            ctx.fill();
-                                                        }
-
-                                                        ctx.fillStyle = "#000000";
-                                                        for (var y = 0; y < size; y++) {
-                                                            for (var x = 0; x < size; x++) {
-                                                                if (!isFinderEye(x, y) && matrix[y * size + x]) {
-                                                                    ctx.fillRect(
-                                                                        Math.floor((x + quiet) * cellSize),
-                                                                        Math.floor((y + quiet) * cellSize),
-                                                                        Math.ceil(cellSize),
-                                                                        Math.ceil(cellSize)
-                                                                    );
-                                                                }
-                                                            }
-                                                        }
-
-                                                        function drawZaloEye(mx, my) {
-                                                            var ex = (mx + quiet) * cellSize;
-                                                            var ey = (my + quiet) * cellSize;
-                                                            var outerSize = 7 * cellSize;
-                                                            var middleOffset = 1 * cellSize;
-                                                            var middleSize = 5 * cellSize;
-                                                            var innerOffset = 2 * cellSize;
-                                                            var innerSize = 3 * cellSize;
-                                                            var radius = cellSize * 2.2;
-
-                                                            fillRoundedRect(ex, ey, outerSize, outerSize, radius, "#0068FF");
-                                                            fillRoundedRect(ex + middleOffset, ey + middleOffset, middleSize, middleSize, radius * 0.7, "#FFFFFF");
-                                                            fillRoundedRect(ex + innerOffset, ey + innerOffset, innerSize, innerSize, radius * 0.45, "#0068FF");
-                                                        }
-
-                                                        drawZaloEye(0, 0);
-                                                        drawZaloEye(size - 7, 0);
-                                                        drawZaloEye(0, size - 7);
-                                                    }
+                                                    onPaint: root.paintQrMatrix(getContext("2d"), width, height)
                                                 }
 
                                                 Text {
@@ -427,9 +385,13 @@ Rectangle {
                                                     id: qrHoverArea
                                                     anchors.fill: parent
                                                     hoverEnabled: true
-                                                    acceptedButtons: Qt.NoButton
+                                                    acceptedButtons: root.qrReady ? Qt.LeftButton : Qt.NoButton
+                                                    cursorShape: root.qrReady ? Qt.PointingHandCursor : Qt.ArrowCursor
                                                     ToolTip.visible: containsMouse && ZaloClient.qrSecondsRemaining > 0
-                                                    ToolTip.text: I18n.t("Mở Zalo trên điện thoại và quét mã này", "Open Zalo on your phone and scan this code")
+                                                    ToolTip.text: root.qrReady
+                                                                  ? I18n.t("Bấm để phóng to mã QR", "Click to zoom QR code")
+                                                                  : I18n.t("Mở Zalo trên điện thoại và quét mã này", "Open Zalo on your phone and scan this code")
+                                                    onClicked: if (root.qrReady) root.qrZoomOpen = true
                                                 }
 
                                                 Rectangle {
@@ -493,21 +455,17 @@ Rectangle {
                                                 Layout.fillWidth: true
                                                 horizontalAlignment: Text.AlignHCenter
                                                 wrapMode: Text.WordWrap
-                                                text: I18n.t("Chỉ dùng để đăng nhập", "For sign-in only")
-                                                font.family: Theme.fontFamily
-                                                font.pixelSize: 13
-                                                font.bold: true
-                                                color: "#0068FF"
-                                            }
-
-                                            Text {
-                                                Layout.fillWidth: true
-                                                horizontalAlignment: Text.AlignHCenter
-                                                wrapMode: Text.WordWrap
-                                                text: I18n.t("Zalo trên máy tính", "Zalo on desktop")
+                                                text: I18n.t("Bấm để phóng to mã QR", "Click to zoom QR code")
                                                 font.family: Theme.fontFamily
                                                 font.pixelSize: 12
-                                                color: "#334155"
+                                                font.bold: true
+                                                color: "#0068FF"
+
+                                                MouseArea {
+                                                    anchors.fill: parent
+                                                    cursorShape: root.qrReady ? Qt.PointingHandCursor : Qt.ArrowCursor
+                                                    onClicked: if (root.qrReady) root.qrZoomOpen = true
+                                                }
                                             }
                                         }
                                     }
@@ -524,60 +482,17 @@ Rectangle {
                                         font.bold: ZaloClient.qrSecondsRemaining <= 0
                                         color: ZaloClient.qrSecondsRemaining > 0 ? ThemeManager.secondaryTextColor : Theme.badgeRed
                                     }
-
-                                    Rectangle {
-                                        visible: ZaloClient.isLoggingIn || (root.activeTab === 0 && ZaloClient.hasLoginError)
-                                        Layout.fillWidth: true
-                                        Layout.preferredHeight: visible ? statusRow.implicitHeight + 16 : 0
-                                        radius: 8
-                                        color: ZaloClient.hasLoginError ? (ThemeManager.errorBackgroundColor) : (ThemeManager.isDarkMode ? "#1E3A5F" : Theme.zaloBlueLight)
-                                        border.color: ZaloClient.hasLoginError ? Theme.badgeRed : Theme.zaloBlue
-                                        border.width: 1
-
-                                        RowLayout {
-                                            id: statusRow
-                                            anchors.left: parent.left
-                                            anchors.right: parent.right
-                                            anchors.verticalCenter: parent.verticalCenter
-                                            anchors.leftMargin: 12
-                                            anchors.rightMargin: 12
-                                            spacing: 8
-
-                                            Text {
-                                                Layout.alignment: Qt.AlignTop
-                                                text: ZaloClient.hasLoginError ? "⚠️" : "🔄"
-                                                font.pixelSize: 13
-                                            }
-                                            Text {
-                                                Layout.fillWidth: true
-                                                wrapMode: Text.WordWrap
-                                                text: ZaloClient.loginStatusMessage.length > 0
-                                                      ? ZaloClient.loginStatusMessage
-                                                      : I18n.t("Đang xác thực tài khoản...", "Verifying your account...")
-                                                font.family: Theme.fontFamily
-                                                font.pixelSize: 11
-                                                font.bold: true
-                                                color: ZaloClient.hasLoginError ? Theme.badgeRed : Theme.zaloBlue
-                                            }
-                                        }
-                                    }
-
-                                    LinkText {
-                                        text: I18n.t("Đăng nhập bằng phiên trình duyệt", "Sign in with browser session")
-                                        onActivated: ZaloClient.syncFromBrowserSession()
-                                    }
                                 }
 
                                 ColumnLayout {
                                     visible: ZaloClient.qrLoginStep === 1
                                     Layout.fillWidth: true
-                                    Layout.preferredHeight: visible ? implicitHeight : 0
-                                    spacing: 14
+                                    spacing: 12
 
                                     Rectangle {
                                         Layout.alignment: Qt.AlignHCenter
-                                        Layout.preferredWidth: 236
-                                        Layout.preferredHeight: scannedColumn.implicitHeight + 40
+                                        Layout.preferredWidth: 224
+                                        Layout.preferredHeight: scannedColumn.implicitHeight + 36
                                         radius: 12
                                         color: ThemeManager.surfaceColor
                                         border.color: Theme.zaloBlue
@@ -586,8 +501,8 @@ Rectangle {
                                         ColumnLayout {
                                             id: scannedColumn
                                             anchors.centerIn: parent
-                                            width: parent.width - 32
-                                            spacing: 12
+                                            width: parent.width - 28
+                                            spacing: 10
 
                                             ZAvatar {
                                                 Layout.alignment: Qt.AlignHCenter
@@ -627,299 +542,358 @@ Rectangle {
                                         onActivated: ZaloClient.cancelQrScan()
                                     }
                                 }
-
-                                PromoBanner {}
                             }
 
+                            Rectangle {
+                                visible: root.isWide
+                                Layout.preferredWidth: 1
+                                Layout.fillHeight: true
+                                color: ThemeManager.borderColor
+                            }
+
+                            // Layer 2: Browser session + Phone login directly visible
                             ColumnLayout {
-                                id: tab1Layout
+                                id: directAuthColumn
+                                visible: root.isWide || root.activeTab === 1
                                 Layout.fillWidth: true
-                                spacing: 12
+                                Layout.alignment: Qt.AlignTop
+                                spacing: 14
 
-                                Rectangle {
+                                Text {
                                     Layout.fillWidth: true
-                                    Layout.preferredHeight: 42
-                                    radius: 8
-                                    color: (ThemeManager.hoverColor)
-                                    border.color: phoneInput.activeFocus ? Theme.zaloBlue : ThemeManager.borderColor
-                                    border.width: 1
-
-                                    RowLayout {
-                                        anchors.fill: parent
-                                        anchors.leftMargin: 12
-                                        anchors.rightMargin: 12
-                                        spacing: 8
-
-                                        Text {
-                                            text: "+84"
-                                            font.family: Theme.fontFamily
-                                            font.pixelSize: 13
-                                            color: ThemeManager.textColor
-                                            font.bold: true
-                                        }
-
-                                        Rectangle {
-                                            Layout.preferredWidth: 1
-                                            Layout.preferredHeight: 18
-                                            color: ThemeManager.borderColor
-                                        }
-
-                                        TextInput {
-                                            id: phoneInput
-                                            Layout.fillWidth: true
-                                            text: ""
-                                            color: ThemeManager.textColor
-                                            font.family: Theme.fontFamily
-                                            font.pixelSize: 13
-                                            inputMethodHints: Qt.ImhDialableCharactersOnly
-                                            clip: true
-                                            Keys.onReturnPressed: passInput.forceActiveFocus()
-
-                                            Text {
-                                                text: I18n.t("Số điện thoại", "Phone number")
-                                                color: ThemeManager.secondaryTextColor
-                                                font.family: Theme.fontFamily
-                                                font.pixelSize: 13
-                                                visible: !phoneInput.text && !phoneInput.activeFocus
-                                            }
-                                        }
-                                    }
+                                    text: I18n.t("Phương thức khác", "Other sign-in methods")
+                                    font.family: Theme.fontFamily
+                                    font.bold: true
+                                    font.pixelSize: 15
+                                    color: ThemeManager.textColor
                                 }
 
-                                Rectangle {
+                                ZButton {
                                     Layout.fillWidth: true
-                                    Layout.preferredHeight: 42
-                                    radius: 8
-                                    color: (ThemeManager.hoverColor)
-                                    border.color: passInput.activeFocus ? Theme.zaloBlue : ThemeManager.borderColor
-                                    border.width: 1
-
-                                    RowLayout {
-                                        anchors.fill: parent
-                                        anchors.leftMargin: 12
-                                        anchors.rightMargin: 12
-                                        spacing: 8
-
-                                        TextInput {
-                                            id: passInput
-                                            Layout.fillWidth: true
-                                            text: ""
-                                            echoMode: root.showPassword ? TextInput.Normal : TextInput.Password
-                                            color: ThemeManager.textColor
-                                            font.family: Theme.fontFamily
-                                            font.pixelSize: 13
-                                            clip: true
-
-                                            Text {
-                                                text: I18n.t("Mật khẩu", "Password")
-                                                color: ThemeManager.secondaryTextColor
-                                                font.family: Theme.fontFamily
-                                                font.pixelSize: 13
-                                                visible: !passInput.text && !passInput.activeFocus
-                                            }
-
-                                            Keys.onReturnPressed: btnSubmitPhone.clicked()
-                                        }
-
-                                        Item {
-                                            Layout.preferredWidth: 24
-                                            Layout.preferredHeight: 24
-
-                                            ZIcon {
-                                                anchors.centerIn: parent
-                                                name: root.showPassword ? "eye" : "eye_off"
-                                                size: 16
-                                                color: ThemeManager.secondaryTextColor
-                                            }
-
-                                            MouseArea {
-                                                id: eyeMouse
-                                                anchors.fill: parent
-                                                hoverEnabled: true
-                                                cursorShape: Qt.PointingHandCursor
-                                                onClicked: root.showPassword = !root.showPassword
-                                                ToolTip.visible: containsMouse
-                                                ToolTip.text: root.showPassword ? I18n.t("Ẩn mật khẩu", "Hide password") : I18n.t("Hiện mật khẩu", "Show password")
-                                            }
-                                        }
+                                    Layout.preferredHeight: 40
+                                    variant: "tonal"
+                                    text: I18n.t("Đăng nhập bằng phiên trình duyệt", "Sign in with browser session")
+                                    onClicked: {
+                                        ZaloClient.clearLoginError();
+                                        ZaloClient.syncFromBrowserSession();
                                     }
                                 }
 
                                 RowLayout {
                                     Layout.fillWidth: true
-                                    spacing: 8
+                                    spacing: 10
 
                                     Rectangle {
-                                        Layout.preferredWidth: 18
-                                        Layout.preferredHeight: 18
-                                        Layout.alignment: Qt.AlignTop
-                                        radius: 4
-                                        color: root.rememberLogin ? Theme.zaloBlue : "transparent"
-                                        border.color: root.rememberLogin ? Theme.zaloBlue : ThemeManager.borderColor
-                                        border.width: 1.5
-
-                                        Text {
-                                            anchors.centerIn: parent
-                                            text: "✓"
-                                            color: "#FFFFFF"
-                                            font.pixelSize: 11
-                                            font.bold: true
-                                            visible: root.rememberLogin
-                                        }
-
-                                        MouseArea {
-                                            anchors.fill: parent
-                                            cursorShape: Qt.PointingHandCursor
-                                            onClicked: root.rememberLogin = !root.rememberLogin
-                                        }
-                                    }
-
-                                    Text {
                                         Layout.fillWidth: true
-                                        wrapMode: Text.WordWrap
-                                        text: I18n.t("Ghi nhớ đăng nhập trên thiết bị này", "Remember me on this device")
-                                        font.family: Theme.fontFamily
-                                        font.pixelSize: 12
-                                        color: ThemeManager.textColor
-
-                                        MouseArea {
-                                            anchors.fill: parent
-                                            cursorShape: Qt.PointingHandCursor
-                                            onClicked: root.rememberLogin = !root.rememberLogin
-                                        }
-                                    }
-                                }
-
-                                Rectangle {
-                                    visible: root.activeTab === 1 && ZaloClient.hasLoginError
-                                    Layout.fillWidth: true
-                                    Layout.preferredHeight: visible ? errorRow.implicitHeight + 16 : 0
-                                    radius: 8
-                                    color: (ThemeManager.errorBackgroundColor)
-                                    border.color: Theme.badgeRed
-                                    border.width: 1
-
-                                    RowLayout {
-                                        id: errorRow
-                                        anchors.left: parent.left
-                                        anchors.right: parent.right
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        anchors.leftMargin: 12
-                                        anchors.rightMargin: 12
-                                        spacing: 8
-
-                                        Text {
-                                            Layout.alignment: Qt.AlignTop
-                                            text: "⚠️"
-                                            font.pixelSize: 14
-                                        }
-
-                                        Text {
-                                            Layout.fillWidth: true
-                                            text: ZaloClient.loginStatusMessage.length > 0
-                                                  ? ZaloClient.loginStatusMessage
-                                                  : I18n.t("Đăng nhập thất bại. Vui lòng kiểm tra lại thông tin.", "Sign-in failed. Please check your details and try again.")
-                                            font.family: Theme.fontFamily
-                                            font.pixelSize: 11
-                                            font.bold: true
-                                            color: Theme.badgeRed
-                                            wrapMode: Text.WordWrap
-                                        }
-                                    }
-                                }
-
-                                Rectangle {
-                                    id: btnSubmitPhone
-                                    Layout.fillWidth: true
-                                    Layout.preferredHeight: 42
-                                    radius: 8
-                                    color: root.phoneFormValid && !ZaloClient.isLoggingIn
-                                           ? (btnSubmitMouse.containsMouse ? Theme.zaloBlueHover : Theme.zaloBlue)
-                                           : (ThemeManager.accentTonalColor)
-
-                                    signal clicked()
-                                    onClicked: {
-                                        if (!root.phoneFormValid || ZaloClient.isLoggingIn) {
-                                            return;
-                                        }
-                                        ZaloClient.loginWithPhone(phoneInput.text.trim(), passInput.text, root.rememberLogin);
+                                        Layout.preferredHeight: 1
+                                        color: ThemeManager.borderColor
                                     }
 
                                     Text {
-                                        anchors.centerIn: parent
-                                        width: parent.width - 24
-                                        horizontalAlignment: Text.AlignHCenter
-                                        elide: Text.ElideRight
+                                        text: I18n.t("hoặc số điện thoại", "or phone number")
+                                        font.family: Theme.fontFamily
+                                        font.pixelSize: 11
+                                        color: ThemeManager.secondaryTextColor
+                                    }
+
+                                    Rectangle {
+                                        Layout.fillWidth: true
+                                        Layout.preferredHeight: 1
+                                        color: ThemeManager.borderColor
+                                    }
+                                }
+
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 10
+
+                                    Rectangle {
+                                        Layout.fillWidth: true
+                                        Layout.preferredHeight: 42
+                                        radius: 8
+                                        color: ThemeManager.hoverColor
+                                        border.color: phoneInput.activeFocus ? Theme.zaloBlue : ThemeManager.borderColor
+                                        border.width: 1
+
+                                        RowLayout {
+                                            anchors.fill: parent
+                                            anchors.leftMargin: 12
+                                            anchors.rightMargin: 12
+                                            spacing: 8
+
+                                            Text {
+                                                text: "+84"
+                                                font.family: Theme.fontFamily
+                                                font.pixelSize: 13
+                                                color: ThemeManager.textColor
+                                                font.bold: true
+                                            }
+
+                                            Rectangle {
+                                                Layout.preferredWidth: 1
+                                                Layout.preferredHeight: 18
+                                                color: ThemeManager.borderColor
+                                            }
+
+                                            TextInput {
+                                                id: phoneInput
+                                                Layout.fillWidth: true
+                                                text: ""
+                                                color: ThemeManager.textColor
+                                                font.family: Theme.fontFamily
+                                                font.pixelSize: 13
+                                                inputMethodHints: Qt.ImhDialableCharactersOnly
+                                                clip: true
+                                                Keys.onReturnPressed: passInput.forceActiveFocus()
+
+                                                Text {
+                                                    text: I18n.t("Số điện thoại", "Phone number")
+                                                    color: ThemeManager.secondaryTextColor
+                                                    font.family: Theme.fontFamily
+                                                    font.pixelSize: 13
+                                                    visible: !phoneInput.text && !phoneInput.activeFocus
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    Rectangle {
+                                        Layout.fillWidth: true
+                                        Layout.preferredHeight: 42
+                                        radius: 8
+                                        color: ThemeManager.hoverColor
+                                        border.color: passInput.activeFocus ? Theme.zaloBlue : ThemeManager.borderColor
+                                        border.width: 1
+
+                                        RowLayout {
+                                            anchors.fill: parent
+                                            anchors.leftMargin: 12
+                                            anchors.rightMargin: 12
+                                            spacing: 8
+
+                                            TextInput {
+                                                id: passInput
+                                                Layout.fillWidth: true
+                                                text: ""
+                                                echoMode: root.showPassword ? TextInput.Normal : TextInput.Password
+                                                color: ThemeManager.textColor
+                                                font.family: Theme.fontFamily
+                                                font.pixelSize: 13
+                                                clip: true
+
+                                                Text {
+                                                    text: I18n.t("Mật khẩu", "Password")
+                                                    color: ThemeManager.secondaryTextColor
+                                                    font.family: Theme.fontFamily
+                                                    font.pixelSize: 13
+                                                    visible: !passInput.text && !passInput.activeFocus
+                                                }
+
+                                                Keys.onReturnPressed: btnSubmitPhone.clicked()
+                                            }
+
+                                            Item {
+                                                Layout.preferredWidth: 24
+                                                Layout.preferredHeight: 24
+
+                                                ZIcon {
+                                                    anchors.centerIn: parent
+                                                    name: root.showPassword ? "eye" : "eye_off"
+                                                    size: 16
+                                                    color: ThemeManager.secondaryTextColor
+                                                }
+
+                                                MouseArea {
+                                                    id: eyeMouse
+                                                    anchors.fill: parent
+                                                    hoverEnabled: true
+                                                    cursorShape: Qt.PointingHandCursor
+                                                    onClicked: root.showPassword = !root.showPassword
+                                                    ToolTip.visible: containsMouse
+                                                    ToolTip.text: root.showPassword ? I18n.t("Ẩn mật khẩu", "Hide password") : I18n.t("Hiện mật khẩu", "Show password")
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    ZCheckBox {
+                                        Layout.fillWidth: true
+                                        checked: root.rememberLogin
+                                        text: I18n.t("Ghi nhớ đăng nhập trên thiết bị này", "Remember me on this device")
+                                        onToggled: (val) => root.rememberLogin = val
+                                    }
+
+                                    ZButton {
+                                        id: btnSubmitPhone
+                                        Layout.fillWidth: true
+                                        Layout.preferredHeight: 40
+                                        variant: "primary"
+                                        enabled: root.phoneFormValid && !ZaloClient.isLoggingIn
                                         text: ZaloClient.isLoggingIn
                                               ? I18n.t("Đang xác thực thông tin...", "Verifying...")
                                               : I18n.t("Đăng nhập với mật khẩu", "Sign in with password")
-                                        font.family: Theme.fontFamily
-                                        font.pixelSize: 13
-                                        font.bold: true
-                                        color: "#FFFFFF"
+                                        onClicked: {
+                                            if (!root.phoneFormValid || ZaloClient.isLoggingIn) {
+                                                return;
+                                            }
+                                            ZaloClient.loginWithPhone(phoneInput.text.trim(), passInput.text, root.rememberLogin);
+                                        }
                                     }
-
-                                    MouseArea {
-                                        id: btnSubmitMouse
-                                        anchors.fill: parent
-                                        hoverEnabled: true
-                                        cursorShape: root.phoneFormValid ? Qt.PointingHandCursor : Qt.ArrowCursor
-                                        onClicked: btnSubmitPhone.clicked()
-                                    }
-                                }
-
-                                Text {
-                                    Layout.fillWidth: true
-                                    horizontalAlignment: Text.AlignHCenter
-                                    wrapMode: Text.WordWrap
-                                    text: I18n.t("Zalo Web hiện chỉ hỗ trợ đăng nhập bằng mã QR hoặc phiên trình duyệt.", "Zalo Web currently supports QR code or browser-session sign-in only.")
-                                    font.family: Theme.fontFamily
-                                    font.pixelSize: 11
-                                    color: ThemeManager.secondaryTextColor
-                                }
-
-                                PromoBanner {}
-
-                                LinkText {
-                                    text: I18n.t("Đăng nhập không dùng mật khẩu (quét mã QR)", "Sign in without a password (scan QR code)")
-                                    onActivated: root.switchTab(0)
                                 }
                             }
                         }
                     }
                 }
+            }
+        }
+    }
+
+    Rectangle {
+        visible: root.loginNoticeVisible && (ZaloClient.isLoggingIn || ZaloClient.hasLoginError)
+        anchors.bottom: parent.bottom
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottomMargin: 20
+        width: Math.min(parent.width - 32, Math.max(260, statusRow.implicitWidth + 28))
+        height: statusRow.implicitHeight + 16
+        radius: 10
+        z: 50
+        color: ZaloClient.hasLoginError ? ThemeManager.errorBackgroundColor : Theme.zaloBlueLight
+        border.color: ZaloClient.hasLoginError ? Theme.badgeRed : Theme.zaloBlue
+        border.width: 1
+
+        RowLayout {
+            id: statusRow
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            anchors.leftMargin: 14
+            anchors.rightMargin: 14
+            spacing: 8
+
+            Text {
+                Layout.alignment: Qt.AlignTop
+                text: ZaloClient.hasLoginError ? "⚠️" : "🔄"
+                font.pixelSize: 13
+            }
+
+            Text {
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                text: ZaloClient.loginStatusMessage.length > 0
+                      ? ZaloClient.loginStatusMessage
+                      : I18n.t("Đang xác thực tài khoản...", "Verifying your account...")
+                font.family: Theme.fontFamily
+                font.pixelSize: 12
+                font.bold: true
+                color: ZaloClient.hasLoginError ? Theme.badgeRed : Theme.zaloBlueTonalText
+            }
+        }
+    }
+
+    Popup {
+        id: qrZoomPopup
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        modal: true
+        padding: 20
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        onClosed: root.qrZoomOpen = false
+        background: Rectangle {
+            radius: 16
+            color: ThemeManager.surfaceColor
+            border.color: ThemeManager.borderColor
+            border.width: 1
+        }
+        contentItem: Loader {
+            active: root.qrZoomOpen
+            sourceComponent: ColumnLayout {
+                spacing: 12
 
                 RowLayout {
+                    Layout.fillWidth: true
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: I18n.t("Quét mã QR để đăng nhập", "Scan QR code to sign in")
+                        font.family: Theme.fontFamily
+                        font.pixelSize: 15
+                        font.bold: true
+                        color: ThemeManager.textColor
+                    }
+
+                    Rectangle {
+                        width: 28
+                        height: 28
+                        radius: 14
+                        color: qrCloseMouse.containsMouse ? ThemeManager.hoverColor : ThemeManager.hoverClearColor
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: "✕"
+                            font.pixelSize: 14
+                            color: ThemeManager.secondaryTextColor
+                        }
+
+                        MouseArea {
+                            id: qrCloseMouse
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: root.qrZoomOpen = false
+                        }
+                    }
+                }
+
+                Rectangle {
+                    readonly property int qrBoxSize: Math.max(240, Math.min(root.width - 80, root.height - 180, 380))
                     Layout.alignment: Qt.AlignHCenter
-                    spacing: 16
+                    Layout.preferredWidth: qrBoxSize + 24
+                    Layout.preferredHeight: qrBoxSize + 24
+                    radius: 14
+                    color: "#FFFFFF"
+                    border.color: "#E2E8F0"
+                    border.width: 1
 
-                    Text {
-                        text: "Tiếng Việt"
-                        font.family: Theme.fontFamily
-                        font.pixelSize: 12
-                        font.bold: I18n.currentLanguage === "vi"
-                        color: I18n.currentLanguage === "vi" ? Theme.zaloBlue : ThemeManager.secondaryTextColor
-
-                        MouseArea {
-                            anchors.fill: parent
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: I18n.setLanguage("vi")
-                        }
+                    Image {
+                        id: qrZoomServerImage
+                        anchors.centerIn: parent
+                        width: parent.width - 24
+                        height: parent.height - 24
+                        visible: ZaloClient.qrImageUrl.length > 0 && status === Image.Ready
+                        source: ZaloClient.qrImageUrl
+                        fillMode: Image.PreserveAspectFit
+                        smooth: true
+                        antialiasing: true
                     }
 
-                    Text {
-                        text: "English"
-                        font.family: Theme.fontFamily
-                        font.pixelSize: 12
-                        font.bold: I18n.currentLanguage === "en"
-                        color: I18n.currentLanguage === "en" ? Theme.zaloBlue : ThemeManager.secondaryTextColor
+                    Canvas {
+                        id: qrZoomCanvas
+                        anchors.centerIn: parent
+                        width: parent.width - 24
+                        height: parent.height - 24
+                        visible: !qrZoomServerImage.visible
+                        antialiasing: true
 
-                        MouseArea {
-                            anchors.fill: parent
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: I18n.setLanguage("en")
+                        Connections {
+                            target: ZaloClient
+                            function onQrMatrixChanged() { qrZoomCanvas.requestPaint(); }
+                            function onQrCodeChanged() { qrZoomCanvas.requestPaint(); }
                         }
+
+                        Component.onCompleted: requestPaint()
+                        onPaint: root.paintQrMatrix(getContext("2d"), width, height)
                     }
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    horizontalAlignment: Text.AlignHCenter
+                    text: ZaloClient.qrSecondsRemaining > 0
+                          ? I18n.t("Mã có hiệu lực trong ", "Code valid for ") + ZaloClient.qrSecondsRemaining + I18n.t(" giây", " s")
+                          : I18n.t("Mã đã hết hạn", "Code expired")
+                    font.family: Theme.fontFamily
+                    font.pixelSize: 12
+                    color: ZaloClient.qrSecondsRemaining > 0 ? ThemeManager.secondaryTextColor : Theme.badgeRed
                 }
             }
         }

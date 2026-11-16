@@ -348,6 +348,7 @@ int main(int argc, char* argv[]) {
     app.setOrganizationName("Zalos");
     app.setApplicationVersion(QStringLiteral(ZALOS_APP_VERSION));
     app.setWindowIcon(QIcon(":/Zalos/assets/icons/zalos.svg"));
+    QPixmapCache::setCacheLimit(4096);
 
     QCommandLineParser parser;
     parser.setApplicationDescription("Zalos - Zalo desktop client ported to Qt6 (C++/QML) for Linux");
@@ -517,6 +518,13 @@ int main(int argc, char* argv[]) {
             singleInstance.release();
             QProcess::startDetached(exe, QCoreApplication::arguments().mid(1));
             QCoreApplication::exit(0);
+        });
+        QObject::connect(zaloClient, &Zalos::Core::Network::ZaloClient::restartRequested, &app,
+                         [&singleInstance]() {
+            const QString exe = qEnvironmentVariable("APPIMAGE", QCoreApplication::applicationFilePath());
+            singleInstance.release();
+            QProcess::startDetached(exe, QCoreApplication::arguments().mid(1));
+            QCoreApplication::quit();
         });
     }
 

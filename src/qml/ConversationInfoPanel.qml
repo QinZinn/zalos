@@ -224,7 +224,7 @@ Rectangle {
             Layout.preferredHeight: 36
             radius: 18
             opacity: qa.actionEnabled ? 1.0 : 0.5
-            color: qa.active ? (ThemeManager.isDarkMode ? Qt.rgba(0.18, 0.45, 0.75, 0.35) : Theme.zaloBlueLight)
+            color: qa.active ? (ThemeManager.isDarkMode ? "#592E73BF" : Theme.zaloBlueLight)
                              : (qaMouse.containsMouse ? ThemeManager.inputFillHoverColor : ThemeManager.inputFillColor)
 
             ZIcon {
@@ -719,10 +719,10 @@ Rectangle {
                                 implicitWidth: ttlChipText.implicitWidth + 20
                                 implicitHeight: 28
                                 radius: 14
-                                color: ttlChip.active ? (ThemeManager.isDarkMode ? Qt.rgba(0.15, 0.45, 0.75, 0.35) : Theme.zaloBlueLight)
+                                color: ttlChip.active ? (ThemeManager.isDarkMode ? "#592673BF" : Theme.zaloBlueLight)
                                                       : (ttlMouse.containsMouse ? ThemeManager.inputFillHoverColor : ThemeManager.inputFillColor)
                                 border.color: ttlChip.active ? (ThemeManager.isDarkMode ? "#1F6D99" : Theme.zaloBlue)
-                                                             : (ThemeManager.isDarkMode ? Qt.rgba(1, 1, 1, 0.08) : ThemeManager.borderColor)
+                                                             : (ThemeManager.isDarkMode ? "#14FFFFFF" : ThemeManager.borderColor)
                                 border.width: 1
                                 Text {
                                     id: ttlChipText

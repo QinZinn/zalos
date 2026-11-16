@@ -1029,6 +1029,29 @@ QVariantList EmojiCatalog::sections() const {
     return out;
 }
 
+QVariantList EmojiCatalog::flatRows(int columns) const {
+    const int cols = qMax(1, columns);
+    QVariantList out;
+    const QVariantList secs = sections();
+    for (const QVariant& sv : secs) {
+        const QVariantMap sec = sv.toMap();
+        const QVariantList items = sec.value(QStringLiteral("items")).toList();
+        if (items.isEmpty()) continue;
+        out.append(QVariantMap{
+            {QStringLiteral("isHeader"), true},
+            {QStringLiteral("nameVi"), sec.value(QStringLiteral("nameVi"))},
+            {QStringLiteral("nameEn"), sec.value(QStringLiteral("nameEn"))},
+        });
+        for (int i = 0; i < items.size(); i += cols) {
+            out.append(QVariantMap{
+                {QStringLiteral("isHeader"), false},
+                {QStringLiteral("items"), items.mid(i, cols)},
+            });
+        }
+    }
+    return out;
+}
+
 void EmojiCatalog::selectCategory(const QString& categoryId) {
     const QString next = QString::fromLatin1(kCategories[findCategoryPos(categoryId)].id);
     if (m_currentCategory == next && m_searchQuery.isEmpty()) return;

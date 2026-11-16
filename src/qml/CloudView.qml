@@ -78,7 +78,7 @@ Rectangle {
                     width: 36
                     height: 36
                     radius: 18
-                    color: ThemeManager.isDarkMode ? Qt.rgba(0.2, 0.4, 0.9, 0.25) : Theme.zaloBlueLight
+                    color: ThemeManager.isDarkMode ? "#403366E6" : Theme.zaloBlueLight
 
                     ZIcon {
                         anchors.centerIn: parent
@@ -167,7 +167,7 @@ Rectangle {
                         width: tabChipText.implicitWidth + 18
                         radius: 14
                         color: root.activeTab === index
-                               ? (ThemeManager.isDarkMode ? Qt.rgba(0.2, 0.4, 0.9, 0.3) : Theme.zaloBlueLight)
+                               ? (ThemeManager.isDarkMode ? "#4C3366E6" : Theme.zaloBlueLight)
                                : (tabMouse.containsMouse ? (ThemeManager.hoverColor) : ThemeManager.hoverClearColor)
 
                         Text {
@@ -215,7 +215,7 @@ Rectangle {
                     width: 38
                     height: 38
                     radius: 19
-                    color: ThemeManager.isDarkMode ? Qt.rgba(0.2, 0.5, 1, 0.2) : Theme.zaloBlueLight
+                    color: ThemeManager.isDarkMode ? "#333380FF" : Theme.zaloBlueLight
 
                     ZIcon {
                         anchors.centerIn: parent
@@ -265,7 +265,7 @@ Rectangle {
                     height: 28
                     width: countBadgeText.implicitWidth + 18
                     radius: 14
-                    color: ThemeManager.isDarkMode ? Qt.rgba(1, 1, 1, 0.08) : ThemeManager.hoverColor
+                    color: ThemeManager.isDarkMode ? "#14FFFFFF" : ThemeManager.hoverColor
 
                     Text {
                         id: countBadgeText
@@ -319,7 +319,7 @@ Rectangle {
                             width: 42
                             height: 42
                             radius: 8
-                            color: ThemeManager.isDarkMode ? Qt.rgba(1, 1, 1, 0.08) : ThemeManager.hoverColor
+                            color: ThemeManager.isDarkMode ? "#14FFFFFF" : ThemeManager.hoverColor
                             clip: true
 
                             Image {
@@ -343,7 +343,7 @@ Rectangle {
                                 width: 22
                                 height: 22
                                 radius: 11
-                                color: Qt.rgba(0, 0, 0, 0.6)
+                                color: "#99000000"
                                 visible: itemCard.modelData.itemType === "media" && !!itemCard.modelData.isVideo
 
                                 ZIcon {
@@ -447,7 +447,7 @@ Rectangle {
                         width: 56
                         height: 56
                         radius: 28
-                        color: ThemeManager.isDarkMode ? Qt.rgba(1, 1, 1, 0.06) : ThemeManager.hoverColor
+                        color: ThemeManager.isDarkMode ? "#0FFFFFFF" : ThemeManager.hoverColor
 
                         ZIcon {
                             anchors.centerIn: parent

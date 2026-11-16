@@ -31,7 +31,7 @@ QtObject {
     readonly property string fontFamily: ThemeManager.systemFontFamily.length > 0 ? ThemeManager.systemFontFamily : Qt.application.font.family
 
     readonly property int railWidth: 64
-    readonly property int sidebarWidth: 344
+    readonly property int sidebarWidth: 368
     readonly property int titleBarHeight: 36
 
     readonly property int spacingTiny: 4

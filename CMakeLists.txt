@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(zalos VERSION 1.2.4 LANGUAGES CXX)
+project(zalos VERSION 1.2.5 LANGUAGES CXX)
 option(BUILD_TESTING "Build unit tests" ON)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -137,6 +137,7 @@ set(ZALOS_SOURCES
     src/core/platform/icon_image_provider.h
     src/core/platform/icon_image_provider.cpp
     src/core/platform/render_profile.cpp
+    src/core/platform/app_updater.cpp
     src/core/platform/browser_session_reader.h
     src/core/platform/browser_session_reader.cpp
     src/core/platform/qml_singletons.h
@@ -162,6 +163,7 @@ qt_add_qml_module(zalos
         src/qml/Sidebar.qml
         src/qml/WelcomeArea.qml
         src/qml/ChatArea.qml
+        src/qml/ChatMessageRow.qml
         src/qml/Theme.qml
         src/qml/LoginView.qml
         src/qml/SettingsModal.qml
@@ -397,8 +399,11 @@ if(BUILD_TESTING)
         src/core/platform/browser_session_reader.cpp
         src/core/platform/system_tray.cpp
         src/core/platform/sound_engine.cpp
+        src/core/platform/render_profile.cpp
+    src/core/platform/app_updater.cpp
     )
     target_compile_definitions(zalos_test_core PUBLIC ZALOS_TESTING ZALOS_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+        ZALOS_APP_VERSION="${PROJECT_VERSION}"
         ZALOS_CALL_BUILD_PATH="$<TARGET_FILE:zalos-call>")
     target_precompile_headers(zalos_test_core PRIVATE src/core/pch.h)
     target_include_directories(zalos_test_core PUBLIC . src src/core src/core/models src/core/call src/core/offline src/core/network src/core/platform src/core/media ${LZMA_INCLUDE_DIRS})
@@ -441,7 +446,6 @@ if(BUILD_TESTING)
         $<TARGET_OBJECTS:zalos_test_core>
         src/core/platform/avatar_image_provider.cpp
         src/core/platform/icon_image_provider.cpp
-        src/core/platform/render_profile.cpp
         src/core/platform/qml_singletons.h
         ${ZALOS_QT_RCC_DIR}/qrc_zalos_raw_qml_0.cpp
         ${ZALOS_QT_RCC_DIR}/qrc_qmake_Zalos.cpp
@@ -461,7 +465,7 @@ if(BUILD_TESTING)
     target_compile_definitions(test_qml_gates PRIVATE
         ZALOS_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
         ZALOS_BUILD_DIR="${CMAKE_CURRENT_BINARY_DIR}"
-        ZALOS_AOT_MIN=85)
+        ZALOS_AOT_MIN=90)
     if(Qt6_VERSION VERSION_GREATER_EQUAL 6.5)
         target_compile_definitions(test_qml_gates PRIVATE ZALOS_AOT_GATE=1)
     endif()

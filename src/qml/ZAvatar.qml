@@ -1,3 +1,4 @@
+pragma ComponentBehavior: Bound
 import QtQuick
 import Zalos
 
@@ -19,6 +20,7 @@ Item {
 
     readonly property bool hasImage: avatarImage.status === Image.Ready
     readonly property bool imagePending: root.avatarUrl.length > 0 && avatarImage.status === Image.Loading
+    readonly property bool isMyDocs: !root.isGroup && root.name === "My Documents"
     readonly property color placeholderColor: ThemeManager.isDarkMode ? "#3B4048" : "#E4E7EC"
     readonly property bool composite: root.isGroup && root.avatarUrl.length === 0 && root.memberAvatars.length > 0
     readonly property int shownMembers: root.memberCount > 4 ? 3 : Math.min(4, root.memberAvatars.length)
@@ -44,11 +46,11 @@ Item {
         anchors.fill: parent
         radius: width / 2
         visible: !root.hasImage && !root.composite
-        color: root.imagePending ? root.placeholderColor : root.paletteColor(root.name || "")
+        color: root.imagePending ? root.placeholderColor : (root.isMyDocs ? Theme.zaloBlue : root.paletteColor(root.name || ""))
 
         Text {
             anchors.centerIn: parent
-            visible: !root.imagePending && !root.isGroup && text.length > 0
+            visible: !root.imagePending && !root.isGroup && !root.isMyDocs && text.length > 0
             text: root.initials(root.name)
             font.family: Theme.fontFamily
             font.bold: true
@@ -58,8 +60,8 @@ Item {
 
         ZIcon {
             anchors.centerIn: parent
-            visible: !root.imagePending && (root.isGroup || root.initials(root.name).length === 0)
-            name: root.isGroup ? "contacts" : "user"
+            visible: !root.imagePending && (root.isGroup || root.isMyDocs || root.initials(root.name).length === 0)
+            name: root.isMyDocs ? "my_docs" : (root.isGroup ? "contacts" : "user")
             size: Math.max(12, Math.floor(root.size * 0.5))
             color: "#FFFFFF"
         }

@@ -188,9 +188,13 @@ jobs:
               tar -xzf "${ARCHIVE}" -C "${APPDIR}"
               OUT="${ARCHIVE%-AppDir.tar.gz}.AppImage"
               echo "==> ${TARGET_ARCH}: ${ARCHIVE} -> ${OUT}"
+              UPDATE_INFO="gh-releases-zsync|cpfriend1721994|zalos|latest|Zalos-*-${TARGET_ARCH}.AppImage.zsync"
               ARCH="${TARGET_ARCH}" "${TOOL}" --appimage-extract-and-run -n \
+                -u "${UPDATE_INFO}" \
                 --comp zstd --mksquashfs-opt -Xcompression-level --mksquashfs-opt 22 --mksquashfs-opt -b --mksquashfs-opt 1M \
                 "${APPDIR}" "${OUT}"
+              ZSYNC_LOCAL="$(basename "${OUT}").zsync"
+              [ -f "${ZSYNC_LOCAL}" ] && mv -f "${ZSYNC_LOCAL}" "$(dirname "${OUT}")/"
               rm -rf "${APPDIR}" "${ARCHIVE}"
             done
           fi
