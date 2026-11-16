@@ -12,7 +12,7 @@ OUT="${2:-release-notes.md}"
 CHANGELOG="${CHANGELOG:-CHANGELOG.md}"
 # Repo owner/repo used for links: CI provides GITHUB_REPOSITORY; default to the public project.
 REPO="${GITHUB_REPOSITORY:-cpfriend1721994/zalos}"
-WEBSITE="https://cpfriend1721994.github.io/zalos/"
+WEBSITE="https://zalos.pages.dev/"
 
 VERSION="${TAG#v}"
 

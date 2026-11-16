@@ -5,13 +5,15 @@
 **Ứng dụng Zalo native cho Linux — hiệu năng cao & siêu nhẹ**
 
 [![CI/CD Pipeline](https://github.com/cpfriend1721994/zalos/actions/workflows/ci.yml/badge.svg)](https://github.com/cpfriend1721994/zalos/actions/workflows/ci.yml)
+[![Latest Release](https://img.shields.io/github/v/release/cpfriend1721994/zalos?color=blue)](https://github.com/cpfriend1721994/zalos/releases/latest)
+[![Total Downloads](https://img.shields.io/github/downloads/cpfriend1721994/zalos/total?color=success)](https://github.com/cpfriend1721994/zalos/releases)
+[![GitHub Stars](https://img.shields.io/github/stars/cpfriend1721994/zalos?style=flat&color=yellow)](https://github.com/cpfriend1721994/zalos/stargazers)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Dung lượng](https://img.shields.io/badge/Dung%20l%C6%B0%E1%BB%A3ng-~6%20MB%20deb%2Frpm%20%7C%20~22%20MB%20AppImage-success.svg)](#-giới-thiệu)
-[![Bộ nhớ RAM](https://img.shields.io/badge/RAM-~40--65%20MB-brightgreen.svg)](#-giới-thiệu)
 [![Platform](https://img.shields.io/badge/Platform-Wayland%20%7C%20X11-purple.svg)](#-tính-năng)
+[![Architecture](https://img.shields.io/badge/Arch-x86__64%20%7C%20aarch64-teal.svg)](#-cài-đặt)
 [![Packaging](https://img.shields.io/badge/Packaging-deb%20%7C%20RPM%20%7C%20AppImage%20%7C%20Nix-orange.svg)](#-cài-đặt)
 
-[English](README.md) | [Tiếng Việt](README.vi.md) | [Trang chủ](https://cpfriend1721994.github.io/zalos/)
+[English](README.md) | [Tiếng Việt](README.vi.md) | [Trang chủ](https://zalos.pages.dev/)
 
 </div>
 
