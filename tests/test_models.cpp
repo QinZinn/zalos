@@ -532,25 +532,43 @@ private slots:
         direct.id = QStringLiteral("u-1");
         direct.name = QStringLiteral("Fixture Direct");
         direct.isGroup = false;
+        ConversationItem stranger;
+        stranger.id = QStringLiteral("u-2");
+        stranger.name = QStringLiteral("Fixture Stranger");
+        stranger.isGroup = false;
+        ConversationItem myDocs;
+        myDocs.id = QStringLiteral("u-docs");
+        myDocs.name = QStringLiteral("My Documents");
+        myDocs.isGroup = false;
         ConversationItem group;
         group.id = QStringLiteral("g-1");
         group.name = QStringLiteral("Fixture Group");
         group.isGroup = true;
-        model.setConversations({direct, group});
+        model.setFriendContext({QStringLiteral("u-1")}, {}, QStringLiteral("u-me"), true);
+        model.setConversations({direct, stranger, myDocs, group});
 
         QCOMPARE(model.typeFilter(), QStringLiteral("all"));
-        QCOMPARE(model.rowCount(), 2);
+        QCOMPARE(model.rowCount(), 4);
 
         model.setTypeFilter(QStringLiteral("group"));
         QCOMPARE(model.rowCount(), 1);
         QCOMPARE(model.data(model.index(0, 0), ConversationModel::IdRole).toString(), QStringLiteral("g-1"));
 
         model.setTypeFilter(QStringLiteral("direct"));
+        QCOMPARE(model.rowCount(), 3);
+
+        model.setTypeFilter(QStringLiteral("friend"));
+        QCOMPARE(model.typeFilter(), QStringLiteral("friend"));
         QCOMPARE(model.rowCount(), 1);
         QCOMPARE(model.data(model.index(0, 0), ConversationModel::IdRole).toString(), QStringLiteral("u-1"));
 
+        model.setTypeFilter(QStringLiteral("stranger"));
+        QCOMPARE(model.typeFilter(), QStringLiteral("stranger"));
+        QCOMPARE(model.rowCount(), 1);
+        QCOMPARE(model.data(model.index(0, 0), ConversationModel::IdRole).toString(), QStringLiteral("u-2"));
+
         model.setTypeFilter(QStringLiteral("all"));
-        QCOMPARE(model.rowCount(), 2);
+        QCOMPARE(model.rowCount(), 4);
     }
 };
 

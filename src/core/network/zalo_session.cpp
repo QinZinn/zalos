@@ -1206,11 +1206,11 @@ void ZaloSession::deleteAvatarPhotos(const QStringList& photoIds, Callback cb) {
 }
 
 void ZaloSession::pullMobileMessages(const QString& pcName, const QString& publicKey, qint64 fromSeqId,
-                                     qint64 minSeqId, bool isRetry, Callback cb) {
+                                     qint64 minSeqId, bool isRetry, Callback cb, const QString& tempKey) {
     const qint64 seqId = fromSeqId > 0 ? (fromSeqId + 1) : 0;
     apiGet("file", "/api/message/pull_mobile_msg",
            {{"pc_name", pcName}, {"public_key", publicKey}, {"from_seq_id", seqId}, {"is_retry", isRetry ? 1 : 0},
-            {"min_seq_id", minSeqId}, {"temp_key", ""}, {"imei", m_imei}},
+            {"min_seq_id", minSeqId}, {"temp_key", tempKey}, {"imei", m_imei}},
            cb);
 }
 
@@ -1904,6 +1904,121 @@ void ZaloSession::disconnectRealtime() {
         ws->close();
         ws->deleteLater();
     }
+}
+
+void ZaloSession::fetchGroupInviteBoxList(int page, int invPerPage, Callback cb) {
+    QJsonObject params{
+        {"mpage", 1},
+        {"page", page},
+        {"invPerPage", invPerPage},
+        {"mcount", 10},
+        {"lastGroupId", QJsonValue()},
+        {"avatar_size", 120},
+        {"member_avatar_size", 120},
+    };
+    apiGet("group", "/api/group/inv-box/list", params, cb);
+}
+
+void ZaloSession::joinGroupInviteBox(const QString& groupId, Callback cb) {
+    apiGet("group", "/api/group/inv-box/join", QJsonObject{
+        {"grid", groupId},
+        {"lang", "vi"},
+    }, cb);
+}
+
+void ZaloSession::deleteGroupInviteBox(const QStringList& groupIds, bool blockFuture, Callback cb) {
+    QJsonArray inv;
+    for (const QString& gid : groupIds) {
+        inv.append(QJsonObject{{"grid", gid}});
+    }
+    apiGet("group", "/api/group/inv-box/mdel-inv", QJsonObject{
+        {"invitations", QString::fromUtf8(QJsonDocument(inv).toJson(QJsonDocument::Compact))},
+        {"block", blockFuture ? 1 : 0},
+    }, cb);
+}
+
+void ZaloSession::fetchRelatedFriendGroups(const QStringList& friendIds, Callback cb) {
+    QJsonArray ids;
+    for (const QString& fid : friendIds) ids.append(fid);
+    apiPost("friend", "/api/friend/group/related", QJsonObject{
+        {"friend_ids", QString::fromUtf8(QJsonDocument(ids).toJson(QJsonDocument::Compact))},
+        {"imei", m_imei},
+    }, cb);
+}
+
+void ZaloSession::fetchLinkedDevices(Callback cb) {
+    apiGet("aext", "/api/devices/linked", QJsonObject{{"imei", m_imei}}, cb);
+}
+
+void ZaloSession::scanUrl(const QString& url, Callback cb) {
+    apiPost("file", "/api/message/scanurl", QJsonObject{{"url", url}}, cb);
+}
+
+void ZaloSession::sendReport(const QString& threadId, bool isGroup, int reason, const QString& content, Callback cb) {
+    if (isGroup) {
+        QJsonObject params{
+            {"uidTo", threadId},
+            {"type", 14},
+            {"reason", reason},
+            {"content", reason == 0 ? content : QString()},
+            {"imei", m_imei},
+        };
+        apiPost("profile", "/api/social/profile/reportabuse", params, cb);
+    } else {
+        QJsonObject params{
+            {"idTo", threadId},
+            {"objId", QStringLiteral("person.profile")},
+            {"reason", QString::number(reason)},
+            {"imei", m_imei},
+        };
+        if (reason == 0 && !content.isEmpty()) params["content"] = content;
+        apiPost("profile", "/api/report/abuse-v2", params, cb);
+    }
+}
+
+void ZaloSession::fetchCloseFriends(Callback cb) {
+    apiGet("profile", "/api/social/friend/getclosedfriends", QJsonObject{}, cb);
+}
+
+void ZaloSession::upgradeGroupToCommunity(const QString& groupId, Callback cb) {
+    apiGet("group", "/api/group/upgrade/community", QJsonObject{
+        {"grId", groupId},
+        {"language", "vi"},
+    }, cb);
+}
+
+void ZaloSession::fetchBankList(Callback cb) {
+    apiGet("zimsg", "/api/transfer/conf", QJsonObject{}, cb);
+}
+
+void ZaloSession::fetchBankAccounts(int page, int limit, Callback cb) {
+    apiGet("zimsg", "/api/transfer/list", QJsonObject{
+        {"page", page},
+        {"limit", limit},
+    }, cb);
+}
+
+void ZaloSession::createBankAccount(int binBank, const QString& numAccBank, const QString& nameAccBank, Callback cb) {
+    apiPost("zimsg", "/api/transfer/create", QJsonObject{
+        {"bin", binBank},
+        {"bank_number", numAccBank},
+        {"holder_name", nameAccBank.trimmed().toUpper()},
+        {"language", "vi"},
+    }, cb);
+}
+
+void ZaloSession::sendBankCard(const QString& threadId, bool isGroup, int binBank, const QString& numAccBank,
+                               const QString& nameAccBank, Callback cb) {
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    apiPost("zimsg", "/api/transfer/card", QJsonObject{
+        {"binBank", binBank},
+        {"numAccBank", numAccBank},
+        {"nameAccBank", nameAccBank.trimmed().isEmpty() ? QStringLiteral("---") : nameAccBank.trimmed().toUpper()},
+        {"cliMsgId", QString::number(now)},
+        {"tsMsg", now},
+        {"destUid", threadId},
+        {"destType", isGroup ? 1 : 0},
+    }, cb);
 }
 
 namespace {

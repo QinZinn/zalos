@@ -48,7 +48,7 @@ Rectangle {
                 elide: Text.ElideRight
                 font.family: Theme.fontFamily
                 font.pixelSize: 14
-                font.bold: cat.selected
+                font.weight: cat.selected ? Font.DemiBold : Font.Normal
                 color: cat.selected ? Theme.zaloBlue : ThemeManager.textColor
             }
             Text {
@@ -231,7 +231,7 @@ Rectangle {
                             elide: Text.ElideRight
                             font.family: Theme.fontFamily
                             font.pixelSize: 16
-                            font.bold: true
+                            font.weight: Font.DemiBold
                             color: ThemeManager.textColor
                         }
 
@@ -285,7 +285,7 @@ Rectangle {
                               + " (" + (root.showingSentRequests ? ZaloClient.sentFriendRequests.length : ZaloClient.contactModel.count) + ")"
                         font.family: Theme.fontFamily
                         font.pixelSize: 13
-                        font.bold: true
+                        font.weight: Font.DemiBold
                         color: ThemeManager.textColor
                     }
 
@@ -293,14 +293,18 @@ Rectangle {
                         visible: root.activeCategory === "invites"
                         spacing: 6
                         Repeater {
-                            model: [
-                                { k: "received", vi: "Đã nhận", en: "Received" },
-                                { k: "sent", vi: "Đã gửi", en: "Sent" }
-                            ]
+                            model: ListModel {
+                                ListElement { k: "received"; vi: "Đã nhận"; en: "Received" }
+                                ListElement { k: "sent"; vi: "Đã gửi"; en: "Sent" }
+                                ListElement { k: "group_invites"; vi: "Lời mời nhóm"; en: "Group invites" }
+                                ListElement { k: "recommended"; vi: "Gợi ý kết bạn"; en: "Recommended" }
+                            }
                             Rectangle {
                                 id: subTabChip
-                                required property var modelData
-                                readonly property bool on: root.invitesTab === subTabChip.modelData.k
+                                required property string k
+                                required property string vi
+                                required property string en
+                                readonly property bool on: root.invitesTab === subTabChip.k
                                 Layout.preferredHeight: 28
                                 Layout.preferredWidth: subTabText.implicitWidth + 20
                                 radius: 14
@@ -308,18 +312,20 @@ Rectangle {
                                 Text {
                                     id: subTabText
                                     anchors.centerIn: parent
-                                    text: I18n.t(subTabChip.modelData.vi, subTabChip.modelData.en)
+                                    text: I18n.t(subTabChip.vi, subTabChip.en)
                                     font.family: Theme.fontFamily
                                     font.pixelSize: 12
-                                    font.bold: subTabChip.on
+                                    font.weight: subTabChip.on ? Font.DemiBold : Font.Normal
                                     color: subTabChip.on ? Theme.zaloBlueTonalText : ThemeManager.textColor
                                 }
                                 MouseArea {
                                     anchors.fill: parent
                                     cursorShape: Qt.PointingHandCursor
                                     onClicked: {
-                                        root.invitesTab = subTabChip.modelData.k;
-                                        if (subTabChip.modelData.k === "sent") ZaloClient.refreshSentFriendRequests();
+                                        root.invitesTab = subTabChip.k;
+                                        if (subTabChip.k === "sent") ZaloClient.refreshSentFriendRequests();
+                                        else if (subTabChip.k === "group_invites") ZaloClient.refreshGroupInvites();
+                                        else if (subTabChip.k === "recommended") ZaloClient.refreshFriendRecommendations();
                                     }
                                 }
                             }
@@ -403,7 +409,7 @@ Rectangle {
                                         elide: Text.ElideRight
                                         font.family: Theme.fontFamily
                                         font.pixelSize: 13
-                                        font.bold: true
+                                        font.weight: Font.DemiBold
                                         color: ThemeManager.textColor
                                     }
                                     Text {
@@ -451,7 +457,7 @@ Rectangle {
 
                     ListView {
                         id: contactsList
-                        visible: !root.showingSentRequests
+                        visible: !root.showingSentRequests && !(root.activeCategory === "invites" && (root.invitesTab === "group_invites" || root.invitesTab === "recommended"))
                         anchors.fill: parent
                         anchors.leftMargin: 12
                         anchors.rightMargin: 12
@@ -460,7 +466,7 @@ Rectangle {
                         boundsBehavior: Flickable.StopAtBounds
                         ScrollBar.vertical: ScrollBar {}
                         reuseItems: true
-                        cacheBuffer: 300
+                        cacheBuffer: 160
 
                         section.property: root.activeCategory === "invites" ? "" : "name"
                         section.criteria: ViewSection.FirstCharacter
@@ -473,7 +479,7 @@ Rectangle {
                             text: section.toUpperCase()
                             font.family: Theme.fontFamily
                             font.pixelSize: 13
-                            font.bold: true
+                            font.weight: Font.DemiBold
                             color: ThemeManager.textColor
                         }
 
@@ -592,7 +598,7 @@ Rectangle {
                                                 text: I18n.t(modelData.vi, modelData.en)
                                                 font.family: Theme.fontFamily
                                                 font.pixelSize: 12
-                                                font.bold: true
+                                                font.weight: Font.DemiBold
                                                 color: modelData.accept ? "#FFFFFF" : ThemeManager.textColor
                                             }
                                             MouseArea {
@@ -713,10 +719,131 @@ Rectangle {
                         }
                     }
 
+                    ListView {
+                        id: groupInviteList
+                        anchors.fill: parent
+                        clip: true
+                        visible: root.activeCategory === "invites" && root.invitesTab === "group_invites"
+                        model: ZaloClient.groupInvites
+                        delegate: Item {
+                            id: grpInvRow
+                            required property var modelData
+                            readonly property string grpId: grpInvRow.modelData.groupId || ""
+                            readonly property string grpName: grpInvRow.modelData.name || grpInvRow.grpId
+                            readonly property string grpAvatar: grpInvRow.modelData.avatar || ""
+                            readonly property string inviterName: grpInvRow.modelData.inviterName || ""
+                            readonly property int memberCount: grpInvRow.modelData.memberCount || 0
+                            width: groupInviteList.width
+                            height: 68
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.leftMargin: 16
+                                anchors.rightMargin: 16
+                                spacing: 12
+                                ZAvatar {
+                                    size: 40
+                                    avatarUrl: grpInvRow.grpAvatar
+                                    name: grpInvRow.grpName
+                                    isGroup: true
+                                }
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 2
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: grpInvRow.grpName
+                                        elide: Text.ElideRight
+                                        font.family: Theme.fontFamily
+                                        font.weight: Font.DemiBold
+                                        font.pixelSize: 13
+                                        color: ThemeManager.textColor
+                                    }
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: (grpInvRow.inviterName.length > 0 ? I18n.t("Người mời: ", "Invited by: ") + grpInvRow.inviterName + " · " : "")
+                                              + grpInvRow.memberCount + " " + I18n.t("thành viên", "members")
+                                        elide: Text.ElideRight
+                                        font.family: Theme.fontFamily
+                                        font.pixelSize: 11
+                                        color: ThemeManager.secondaryTextColor
+                                    }
+                                }
+                                ZButton {
+                                    variant: "primary"
+                                    text: I18n.t("Tham gia", "Join")
+                                    onClicked: ZaloClient.joinGroupInvite(grpInvRow.grpId)
+                                }
+                                ZButton {
+                                    variant: "secondary"
+                                    text: I18n.t("Xóa", "Delete")
+                                    onClicked: ZaloClient.deleteGroupInvite(grpInvRow.grpId, false)
+                                }
+                            }
+                        }
+                    }
+
+                    ListView {
+                        id: recommList
+                        anchors.fill: parent
+                        clip: true
+                        visible: root.activeCategory === "invites" && root.invitesTab === "recommended"
+                        model: ZaloClient.friendRecommendations
+                        delegate: Item {
+                            id: recRow
+                            required property var modelData
+                            readonly property string uid: recRow.modelData.id || ""
+                            readonly property string userName: recRow.modelData.name || recRow.uid
+                            readonly property string userAvatar: recRow.modelData.avatar || ""
+                            readonly property string recMsg: recRow.modelData.message || ""
+                            readonly property bool reqSent: !!recRow.modelData.isSent
+                            width: recommList.width
+                            height: 68
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.leftMargin: 16
+                                anchors.rightMargin: 16
+                                spacing: 12
+                                ZAvatar {
+                                    size: 40
+                                    avatarUrl: recRow.userAvatar
+                                    name: recRow.userName
+                                }
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 2
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: recRow.userName
+                                        elide: Text.ElideRight
+                                        font.family: Theme.fontFamily
+                                        font.weight: Font.DemiBold
+                                        font.pixelSize: 13
+                                        color: ThemeManager.textColor
+                                    }
+                                    Text {
+                                        Layout.fillWidth: true
+                                        visible: recRow.recMsg.length > 0
+                                        text: recRow.recMsg
+                                        elide: Text.ElideRight
+                                        font.family: Theme.fontFamily
+                                        font.pixelSize: 11
+                                        color: ThemeManager.secondaryTextColor
+                                    }
+                                }
+                                ZButton {
+                                    variant: "primary"
+                                    enabled: !recRow.reqSent
+                                    text: recRow.reqSent ? I18n.t("Đã gửi", "Sent") : I18n.t("Kết bạn", "Add friend")
+                                    onClicked: ZaloClient.sendFriendRequest(recRow.uid, I18n.t("Xin chào, kết bạn với mình nhé!", "Hi, let's connect on Zalo!"))
+                                }
+                            }
+                        }
+                    }
+
                     ColumnLayout {
                         anchors.centerIn: parent
                         width: Math.min(parent.width - 48, 360)
-                        visible: contactsList.count === 0
+                        visible: contactsList.count === 0 && !(root.activeCategory === "invites" && (root.invitesTab === "group_invites" || root.invitesTab === "recommended"))
                         spacing: 10
 
                         BusyIndicator {
@@ -753,7 +880,7 @@ Rectangle {
                                 color: "#FFFFFF"
                                 font.family: Theme.fontFamily
                                 font.pixelSize: 13
-                                font.bold: true
+                                font.weight: Font.DemiBold
                                 horizontalAlignment: Text.AlignHCenter
                                 verticalAlignment: Text.AlignVCenter
                             }

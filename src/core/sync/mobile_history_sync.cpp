@@ -411,7 +411,7 @@ void MobileHistorySync::start(const QString& myNoisedUid, const QString& pcName)
             }
             fail(L("Máy chủ từ chối yêu cầu đồng bộ: ", "The server refused the sync request: ")
                  + Network::ErrorCatalog::render(code, error, m_lang == QLatin1String("en")));
-        });
+        }, m_mobileTempKey);
 }
 
 void MobileHistorySync::failV2Unsupported(const QString& why) {
@@ -452,6 +452,10 @@ void MobileHistorySync::handleControl(const QJsonObject& content) {
             .arg(data.value("status").toInt(-1)).arg(data.value("error_code").toInt(0))
             .arg(data.contains("syncId")).arg(data.value("batchType").toInt(-1)));
     if (actType != QLatin1String("syncmsgmb")) {
+        if (actType == QLatin1String("transfer_after_login")) {
+            const QString key = data.value("tempKey").toString(data.value("temp_key").toString()).trimmed();
+            if (!key.isEmpty()) m_mobileTempKey = key;
+        }
         if (active && actType == QLatin1String("transfer_sync2")) m_sawSyncV2 = true;
         if (active) {
             Network::ErrorCatalog::trace("phone-sync", QStringLiteral("unhandled event act_type=%1 act=%2 status=%3 while waiting")

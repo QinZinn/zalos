@@ -495,7 +495,7 @@ Rectangle {
                     color: "#FFFFFF"
                     font.family: Theme.fontFamily
                     font.pixelSize: 14
-                    font.bold: true
+                    font.weight: Font.DemiBold
                     elide: Text.ElideRight
                     Layout.fillWidth: true
                 }

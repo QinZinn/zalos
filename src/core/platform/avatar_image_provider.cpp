@@ -348,9 +348,14 @@ void AvatarImageProvider::clearMemCache() {
 
 QImage AvatarImageProvider::decodeScaled(QIODevice* device, int targetWidth, bool circular) {
     if (!device) return {};
+    QImageReader::setAllocationLimit(64);
     QImageReader reader(device);
     reader.setAutoTransform(true);
     const QSize orig = reader.size();
+    if (orig.isValid() && (orig.width() > 16384 || orig.height() > 16384
+                           || qint64(orig.width()) * qint64(orig.height()) > 64LL * 1024 * 1024)) {
+        return {};
+    }
     if (orig.isValid() && orig.width() > 0 && orig.height() > 0) {
         if (circular) {
             const int d = qMax(8, targetWidth);

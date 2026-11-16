@@ -72,7 +72,7 @@ Item {
                             text: I18n.t("Công cụ zBusiness", "zBusiness Tools")
                             font.family: Theme.fontFamily
                             font.pixelSize: 15
-                            font.bold: true
+                            font.weight: Font.DemiBold
                             color: ThemeManager.textColor
                         }
                         Text {
@@ -185,7 +185,7 @@ Item {
                                         text: I18n.t(tabBtn.modelData.vi, tabBtn.modelData.en)
                                         font.family: Theme.fontFamily
                                         font.pixelSize: 12
-                                        font.bold: tabBtn.selected
+                                        font.weight: tabBtn.selected ? Font.DemiBold : Font.Normal
                                         color: tabBtn.selected ? (ThemeManager.isDarkMode ? "#FFFFFF" : Theme.zaloBlueTonalText)
                                                                : ThemeManager.secondaryTextColor
                                     }
@@ -229,7 +229,7 @@ Item {
                             text: I18n.t("Thông tin cửa hàng / doanh nghiệp", "Store / Business Information")
                             font.family: Theme.fontFamily
                             font.pixelSize: 13
-                            font.bold: true
+                            font.weight: Font.DemiBold
                             color: ThemeManager.textColor
                         }
 
@@ -347,7 +347,7 @@ Item {
                                 text: I18n.t("Sản phẩm & Dịch vụ của bạn", "Your Products & Services")
                                 font.family: Theme.fontFamily
                                 font.pixelSize: 13
-                                font.bold: true
+                                font.weight: Font.DemiBold
                                 color: ThemeManager.textColor
                                 elide: Text.ElideRight
                             }
@@ -460,7 +460,7 @@ Item {
                                         text: I18n.t("Chưa có sản phẩm nào trong danh mục", "No products in catalog")
                                         font.family: Theme.fontFamily
                                         font.pixelSize: 13
-                                        font.bold: true
+                                        font.weight: Font.DemiBold
                                         color: ThemeManager.textColor
                                     }
 
@@ -510,7 +510,7 @@ Item {
                                             text: prodRow.model.name
                                             font.family: Theme.fontFamily
                                             font.pixelSize: 13
-                                            font.bold: true
+                                            font.weight: Font.DemiBold
                                             color: ThemeManager.textColor
                                             elide: Text.ElideRight
                                         }
@@ -525,7 +525,7 @@ Item {
                                             text: prodRow.model.price
                                             font.family: Theme.fontFamily
                                             font.pixelSize: 12
-                                            font.bold: true
+                                            font.weight: Font.DemiBold
                                             color: Theme.zaloBlue
                                         }
                                     }
@@ -573,7 +573,7 @@ Item {
                                         text: I18n.t("Kích hoạt tin nhắn trả lời tự động", "Enable Auto Reply Message")
                                         font.family: Theme.fontFamily
                                         font.pixelSize: 13
-                                        font.bold: true
+                                        font.weight: Font.DemiBold
                                         color: ThemeManager.textColor
                                     }
                                     Text {
@@ -597,7 +597,7 @@ Item {
                                 text: I18n.t("Nội dung tin nhắn tự động:", "Auto Reply Content:")
                                 font.family: Theme.fontFamily
                                 font.pixelSize: 12
-                                font.bold: true
+                                font.weight: Font.DemiBold
                                 color: ThemeManager.textColor
                             }
                             ZTextField {
@@ -616,7 +616,7 @@ Item {
                                 text: I18n.t("Thời gian áp dụng:", "Active Schedule:")
                                 font.family: Theme.fontFamily
                                 font.pixelSize: 12
-                                font.bold: true
+                                font.weight: Font.DemiBold
                                 color: ThemeManager.textColor
                             }
                             ZComboBox {
@@ -688,7 +688,7 @@ Item {
                                               : I18n.t("Tài khoản Zalo Cá nhân (Tiêu chuẩn)", "Standard Zalo Account")
                                         font.family: Theme.fontFamily
                                         font.pixelSize: 16
-                                        font.bold: true
+                                        font.weight: Font.DemiBold
                                         color: "#FFFFFF"
                                     }
                                     Text {
@@ -707,7 +707,7 @@ Item {
                             text: I18n.t("Quyền lợi gói zBusiness:", "zBusiness Benefits:")
                             font.family: Theme.fontFamily
                             font.pixelSize: 13
-                            font.bold: true
+                            font.weight: Font.DemiBold
                             color: ThemeManager.textColor
                         }
 

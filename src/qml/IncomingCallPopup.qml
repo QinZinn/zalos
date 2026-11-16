@@ -56,14 +56,14 @@ Rectangle {
                     font.family: Theme.fontFamily
                     font.pixelSize: 11
                     color: Theme.zaloBlue
-                    font.bold: true
+                    font.weight: Font.DemiBold
                 }
 
                 Text {
                     Layout.fillWidth: true
                     text: ZaloClient.incomingCallerName
                     font.family: Theme.fontFamily
-                    font.bold: true
+                    font.weight: Font.DemiBold
                     font.pixelSize: 15
                     color: ThemeManager.textColor
                     elide: Text.ElideRight
@@ -98,8 +98,8 @@ Rectangle {
                         id: declineRow
                         anchors.centerIn: parent
                         spacing: 6
-                        Text { text: "✕"; color: "white"; font.bold: true }
-                        Text { text: I18n.t("Từ chối", "Decline"); color: "white"; font.family: Theme.fontFamily; font.bold: true; font.pixelSize: 12 }
+                        Text { text: "✕"; color: "white"; font.weight: Font.DemiBold }
+                        Text { text: I18n.t("Từ chối", "Decline"); color: "white"; font.family: Theme.fontFamily; font.weight: Font.DemiBold; font.pixelSize: 12 }
                     }
                 }
                 onClicked: ZaloClient.declineCall()
@@ -120,8 +120,8 @@ Rectangle {
                         id: answerRow
                         anchors.centerIn: parent
                         spacing: 6
-                        Text { text: "✓"; color: "white"; font.bold: true }
-                        Text { text: I18n.t("Trả lời", "Answer"); color: "white"; font.family: Theme.fontFamily; font.bold: true; font.pixelSize: 12 }
+                        Text { text: "✓"; color: "white"; font.weight: Font.DemiBold }
+                        Text { text: I18n.t("Trả lời", "Answer"); color: "white"; font.family: Theme.fontFamily; font.weight: Font.DemiBold; font.pixelSize: 12 }
                     }
                 }
                 onClicked: ZaloClient.answerCall()

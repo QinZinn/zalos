@@ -403,7 +403,7 @@ Rectangle {
     }
 
     Shortcut {
-        sequences: ZaloClient.shortcuts.keys("chat.find")
+        sequences: ZaloClient.shortcuts.keySequences("chat.find")
         enabled: root.visible
         onActivated: root.openSearch()
     }
@@ -414,8 +414,8 @@ Rectangle {
     }
     Connections {
         target: ZaloClient
-        function onRevealRequested(msgId: string) { Qt.callLater(() => root.jumpToMessage(msgId, "")); }
-        function onCurrentConversationChanged() {
+        function onRevealRequested(msgId: string): void { Qt.callLater(() => root.jumpToMessage(msgId, "")); }
+        function onCurrentConversationChanged(): void {
             if (ZaloClient.currentConversationId.length > 0 && ZaloClient.currentConversationId === root.draftConvId) return;
             root.closeSearch();
             root.mentionPicks = [];
@@ -510,9 +510,10 @@ Rectangle {
                         name: ZaloClient.currentConversationName
                         isOnline: ZaloClient.currentConversationIsOnline
                         isGroup: ZaloClient.currentConversationIsGroup
+                        isVerified: ZaloClient.currentConversationIsOfficial || ZaloClient.currentConversationIsCloud
                         memberCount: ZaloClient.currentConversationMemberCount
                         memberAvatars: ZaloClient.currentConversationIsGroup ? ZaloClient.groupComposite(ZaloClient.currentConversationId, ZaloClient.currentConversationMemberCount) : []
-                        showStatusDot: !ZaloClient.currentConversationIsGroup
+                        showStatusDot: !ZaloClient.currentConversationIsGroup && !ZaloClient.currentConversationIsOfficial && !ZaloClient.currentConversationIsCloud
 
                         MouseArea {
                             anchors.fill: parent
@@ -535,7 +536,7 @@ Rectangle {
                                   ? ZaloClient.currentConversationName
                                   : I18n.t("Người dùng Zalo", "Zalo user")
                             font.family: Theme.fontFamily
-                            font.bold: true
+                            font.weight: Font.DemiBold
                             font.pixelSize: 15
                             color: ThemeManager.textColor
                             font.underline: headerNameMouse.containsMouse
@@ -881,7 +882,7 @@ Rectangle {
                     text: I18n.t("Tắt", "Turn off")
                     font.family: Theme.fontFamily
                     font.pixelSize: 12
-                    font.bold: true
+                    font.weight: Font.DemiBold
                     font.underline: offMouse.containsMouse
                     color: Theme.zaloBlueTonalText
                     MouseArea {
@@ -928,7 +929,7 @@ Rectangle {
                         Layout.alignment: Qt.AlignHCenter
                         text: ZaloClient.currentConversationName
                         font.family: Theme.fontFamily
-                        font.bold: true
+                        font.weight: Font.DemiBold
                         font.pixelSize: 17
                         color: ThemeManager.textColor
                     }
@@ -956,7 +957,7 @@ Rectangle {
                                 text: "Gửi lời chào"
                                 font.family: Theme.fontFamily
                                 font.pixelSize: 12
-                                font.bold: true
+                                font.weight: Font.DemiBold
                                 color: "#FFFFFF"
                             }
                         }
@@ -1008,7 +1009,7 @@ Rectangle {
                         text: I18n.t("Thả tệp hoặc ảnh vào đây để gửi nhanh", "Drop files or photos here to send")
                         font.family: Theme.fontFamily
                         font.pixelSize: 18
-                        font.weight: Font.Medium
+                        font.weight: Font.DemiBold
                         color: Theme.zaloBlue
                     }
                 }
@@ -1095,7 +1096,7 @@ Rectangle {
                             text: I18n.t("+%1 ghim", "+%1 pins").arg(ZaloClient.pins.pins.length - 1)
                             font.family: Theme.fontFamily
                             font.pixelSize: 12
-                            font.weight: Font.Medium
+                            font.weight: Font.Normal
                             color: ThemeManager.textColor
                         }
                         ZIcon {
@@ -1174,7 +1175,7 @@ Rectangle {
                                     text: I18n.t("Thu gọn", "Collapse")
                                     font.family: Theme.fontFamily
                                     font.pixelSize: 13
-                                    font.weight: Font.Medium
+                                    font.weight: Font.Normal
                                     color: ThemeManager.textColor
                                 }
                                 ZIcon {
@@ -1226,6 +1227,7 @@ Rectangle {
                 clip: true
                 model: ZaloClient.messageModel
                 reuseItems: true
+                cacheBuffer: 280
                 spacing: 14
                 topMargin: pinBar.visible ? 16 + 56 : 16
                 bottomMargin: 19
@@ -1419,6 +1421,7 @@ Rectangle {
                             elide: Text.ElideRight
                             font.family: Theme.fontFamily
                             font.pixelSize: 12
+                            font.weight: Font.Normal
                             color: ThemeManager.textColor
                             text: (modelData.state === "failed" ? I18n.t("Gửi lỗi · ", "Failed · ")
                                    : modelData.state === "sending" ? I18n.t("Đang gửi · ", "Sending · ") : "")
@@ -1468,7 +1471,7 @@ Rectangle {
                             elide: Text.ElideRight
                             font.family: Theme.fontFamily
                             font.pixelSize: 12
-                            font.bold: true
+                            font.weight: Font.DemiBold
                             color: ThemeManager.textColor
                             text: I18n.t("Trả lời ", "Replying to ") + (ZaloClient.replyTarget.senderName || "")
                         }
@@ -1526,7 +1529,7 @@ Rectangle {
                     text: I18n.t("Đính kèm:", "Attachments:") + " (" + draftAttachmentsModel.count + ")"
                     font.family: Theme.fontFamily
                     font.pixelSize: 12
-                    font.bold: true
+                    font.weight: Font.DemiBold
                     color: ThemeManager.secondaryTextColor
                 }
 
@@ -2389,7 +2392,7 @@ Rectangle {
                                             text: root.suggestMode === "mention" ? "@" + sugRow.modelData.name : "/" + sugRow.modelData.keyword
                                             font.family: Theme.fontFamily
                                             font.pixelSize: 13
-                                            font.bold: root.suggestMode === "quick"
+                                            font.weight: (root.suggestMode === "quick") ? Font.DemiBold : Font.Normal
                                             color: root.suggestMode === "quick" ? Theme.zaloBlue : ThemeManager.textColor
                                             elide: Text.ElideRight
                                         }
@@ -2566,7 +2569,6 @@ Rectangle {
         function onEmojiSelected(emoji: string): void {
             msgInput.insert(msgInput.cursorPosition, emoji);
             msgInput.forceActiveFocus();
-            root.emojiPickerOpen = false;
         }
         function onStickerSelected(sticker: var): void {
             ZaloClient.stickers.send(sticker);
@@ -2581,6 +2583,7 @@ Rectangle {
             Popup {
                 id: pinDetailPopup
                 objectName: "pinDetailPopup"
+                parent: Overlay.overlay
                 onAboutToShow: {
                     pinDetailText.deselect();
                     pinDetailFlick.contentY = 0;
@@ -2877,7 +2880,7 @@ Rectangle {
                             text: I18n.t("Cảm xúc", "Reactions")
                             font.family: Theme.fontFamily
                             font.pixelSize: 15
-                            font.bold: true
+                            font.weight: Font.DemiBold
                             color: ThemeManager.textColor
                         }
                         Rectangle {
@@ -2908,7 +2911,7 @@ Rectangle {
                                     text: (parent.modelData.emoji.length > 0 ? parent.modelData.emoji : I18n.t("Tất cả", "All")) + " " + parent.modelData.count
                                     font.family: Theme.fontFamily
                                     font.pixelSize: 12
-                                    font.bold: parent.active
+                                    font.weight: parent.active ? Font.DemiBold : Font.Normal
                                     color: ThemeManager.textColor
                                 }
                                 MouseArea { id: tabMouse; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.reactionTab = parent.modelData.emoji }
@@ -2952,6 +2955,7 @@ Rectangle {
                                     elide: Text.ElideRight
                                     font.family: Theme.fontFamily
                                     font.pixelSize: 13
+                                    font.weight: Font.Normal
                                     color: ThemeManager.textColor
                                     MouseArea {
                                         anchors.fill: parent
@@ -2998,7 +3002,7 @@ Rectangle {
                             text: I18n.t("Người đã xem (%1)", "Seen by (%1)").arg(root.seenDetailsUids.length)
                             font.family: Theme.fontFamily
                             font.pixelSize: 15
-                            font.bold: true
+                            font.weight: Font.DemiBold
                             color: ThemeManager.textColor
                         }
                         Rectangle {
@@ -3044,6 +3048,7 @@ Rectangle {
                                     elide: Text.ElideRight
                                     font.family: Theme.fontFamily
                                     font.pixelSize: 13
+                                    font.weight: Font.Normal
                                     color: ThemeManager.textColor
                                 }
                             }
@@ -3309,7 +3314,7 @@ Rectangle {
                             text: I18n.t("Tin nhắn nhanh", "Quick messages")
                             font.family: Theme.fontFamily
                             font.pixelSize: 13
-                            font.bold: true
+                            font.weight: Font.DemiBold
                             color: ThemeManager.textColor
                         }
                         Rectangle {
@@ -3430,7 +3435,7 @@ Rectangle {
                                         text: "/" + qmRow.modelData.keyword
                                         font.family: Theme.fontFamily
                                         font.pixelSize: 12
-                                        font.bold: true
+                                        font.weight: Font.DemiBold
                                         color: Theme.zaloBlue
                                         elide: Text.ElideRight
                                     }
@@ -3521,7 +3526,7 @@ Rectangle {
                         text: I18n.t("Hẹn giờ gửi tin nhắn", "Schedule message")
                         font.family: Theme.fontFamily
                         font.pixelSize: 13
-                        font.bold: true
+                        font.weight: Font.DemiBold
                         color: ThemeManager.textColor
                     }
 
@@ -3764,6 +3769,16 @@ Rectangle {
                         danger: true
                         label: I18n.t("Thu hồi", "Recall")
                         onTriggered: { ZaloClient.recallMessage(messageMenu.msgId); messageMenu.close(); }
+                    }
+                    ZMenuRow {
+                        visible: messageMenu.isServerMessage && root.menuMessage.isMine !== true
+                        icon: "shield"
+                        danger: true
+                        label: I18n.t("Báo cáo vi phạm", "Report abuse")
+                        onTriggered: {
+                            ZaloClient.reportAbuse(ZaloClient.currentConversationId, ZaloClient.currentConversationIsGroup, 0, root.menuMessage.text || "");
+                            messageMenu.close();
+                        }
                     }
                     ZMenuRow {
                         visible: messageMenu.isServerMessage

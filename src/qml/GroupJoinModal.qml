@@ -61,7 +61,7 @@ Item {
                     text: I18n.t("Tham gia nhóm bằng link", "Join a group by link")
                     font.family: Theme.fontFamily
                     font.pixelSize: 16
-                    font.bold: true
+                    font.weight: Font.DemiBold
                     color: ThemeManager.textColor
                 }
                 Rectangle {
@@ -134,7 +134,7 @@ Item {
                     text: root.previewName
                     font.family: Theme.fontFamily
                     font.pixelSize: 16
-                    font.bold: true
+                    font.weight: Font.DemiBold
                     color: ThemeManager.textColor
                 }
                 Text {

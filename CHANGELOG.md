@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.6] - 2026-11-16
+
+### Added & Improved
+- **Contacts, Groups & Safety Features:** added group invite box (list, join, delete), friend recommendations, mutual groups in user profiles (compact top placement, expandable above 3), E2EE linked devices viewer in Settings, safe link scanning (`scanURL`) before opening external URLs, abuse reporting, Community group upgrade for owners, bank card REST support, `transfer_after_login` `temp_key` forwarding for mobile sync, real My Documents avatar lookup via `getUserInfo` (with updated folder+cloud fallback), accurate gold verified badges on My Documents and Official/System accounts, and **Friends only** and **Strangers only** conversation filters.
+- **UI & Text Rendering Polish:** enabled multi-insert in the emoji picker without auto-closing, replaced disappearing-message chips with a compact dropdown selector, centered the conversation info title and pin-detail modal, balanced `ConversationInfoPanel` scroll padding, renamed the group management entry to **Quản lý nhóm / Manage group**, and enabled `QtRendering` for chat message text.
+- **Memory & Image Decoder Hardening:** added 64-entry `richTextCache` LRU (`MessageModel`), omitted duplicate per-message sender name/avatar copies, tightened resident thread windowing (`400` msgs budget / `100` msgs per inactive thread), disabled texture caching on large chat images (`ZRoundedImage cache: false`, `cacheBuffer: 280`), tightened `cacheBuffer` on Sticker and Contacts views (`120` / `160` px), standardized QML font weights to `Normal`/`DemiBold`, enabled lazy/as-needed ELF linking (`-Wl,--as-needed -Wl,-z,lazy`), and capped image decoder allocation (`64 MB`, `16384×16384` / `64 MP`).
+
 ## [1.2.5] - 2026-11-16
 
 ### Added & Improved

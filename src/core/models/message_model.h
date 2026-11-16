@@ -3,6 +3,7 @@
 #include <QtQml/qqmlregistration.h>
 
 #include <QAbstractListModel>
+#include <QCache>
 #include <QPair>
 #include <functional>
 #include <QString>
@@ -45,8 +46,6 @@ struct MessageItem {
     QVariantMap extra;
     QStringList seenUids;
     mutable qint64 dayCache{-1};
-    mutable QString richTextCache;
-    mutable bool richTextCached{false};
 };
 
 class MessageModel : public QAbstractListModel {
@@ -131,6 +130,7 @@ public:
     const QVector<MessageItem>& threadOf(const QString& convId) const;
     int countIncomingAfter(const QString& convId, const QString& readPoint) const;
     void clearThread(const QString& convId);
+    void trimThreadWindow(const QString& convId, int maxItems);
     void removeMessagesUpTo(const QString& convId, const QString& lastMsgId);
     bool hasLocalEcho(const QString& convId) const;
     void loadConversation(const QString& conversationId);
@@ -169,6 +169,7 @@ private:
     QString m_currentConvId;
     QString m_unreadMarkerId;
     int m_pendingUnread{0};
+    mutable QCache<QString, QString> m_richTextLru{64};
 };
 
 }

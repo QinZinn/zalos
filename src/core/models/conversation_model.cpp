@@ -43,6 +43,16 @@ QVariant ConversationModel::data(const QModelIndex& index, int role) const {
         case MemberAvatarsRole: return m_memberAvatars.value(item.id);
         case HasUnreadMentionRole: return item.hasUnreadMention;
         case IsHiddenRole: return m_hiddenIds.contains(item.id);
+        case IsOfficialRole: {
+            if (item.isGroup || item.id.isEmpty()) return false;
+            if (m_officialIds.contains(item.id)) return true;
+            const QString key = foldForSearch(item.name).simplified();
+            if (key.isEmpty()) return false;
+            if (!m_friendIds.contains(item.id) && (key == QLatin1String("zalo") || key.startsWith(QLatin1String("zalo "))))
+                return true;
+            return key == QLatin1String("zbusiness") || key == QLatin1String("zcloud") || key == QLatin1String("zalopay")
+                || key == QLatin1String("thoi tiet") || key.contains(QLatin1String("medlatec"));
+        }
         default: return {};
     }
 }
@@ -70,7 +80,8 @@ QHash<int, QByteArray> ConversationModel::roleNames() const {
         {DraftRole, "draft"},
         {MemberAvatarsRole, "memberAvatars"},
         {HasUnreadMentionRole, "hasUnreadMention"},
-        {IsHiddenRole, "isHidden"}
+        {IsHiddenRole, "isHidden"},
+        {IsOfficialRole, "isOfficial"}
     };
 }
 
@@ -135,14 +146,18 @@ void ConversationModel::applyFilter() {
                 if (m_labelFilter > 0 && item.labelId != m_labelFilter) continue;
                 if (m_typeFilter == QLatin1String("group") && !item.isGroup) continue;
                 if (m_typeFilter == QLatin1String("direct") && item.isGroup) continue;
-                if (m_strangerOnly && !strangerId(item.id, item.isGroup)) continue;
+                if (m_typeFilter == QLatin1String("friend") && (item.isGroup || !m_friendIds.contains(item.id))) continue;
+                if ((m_typeFilter == QLatin1String("stranger") || m_strangerOnly)
+                    && (!strangerId(item.id, item.isGroup) || isSystemOrOfficial(item))) continue;
             }
         } else if (!searching) {
             if (isArchived) continue;
             if (m_labelFilter > 0 && item.labelId != m_labelFilter) continue;
             if (m_typeFilter == QLatin1String("group") && !item.isGroup) continue;
             if (m_typeFilter == QLatin1String("direct") && item.isGroup) continue;
-            if (m_strangerOnly && !strangerId(item.id, item.isGroup)) continue;
+            if (m_typeFilter == QLatin1String("friend") && (item.isGroup || !m_friendIds.contains(item.id))) continue;
+            if ((m_typeFilter == QLatin1String("stranger") || m_strangerOnly)
+                && (!strangerId(item.id, item.isGroup) || isSystemOrOfficial(item))) continue;
             if (!(m_activeCategory.isEmpty() ||
                   (m_activeCategory == "unread" ? item.unreadCount > 0 : item.category == m_activeCategory)))
                 continue;
@@ -423,7 +438,10 @@ void ConversationModel::setLabelFilter(int labelId) {
 }
 
 void ConversationModel::setTypeFilter(const QString& filter) {
-    const QString next = (filter == QLatin1String("group") || filter == QLatin1String("direct"))
+    const QString next = (filter == QLatin1String("group")
+                          || filter == QLatin1String("direct")
+                          || filter == QLatin1String("friend")
+                          || filter == QLatin1String("stranger"))
                          ? filter : QStringLiteral("all");
     if (next == m_typeFilter) return;
     m_typeFilter = next;
@@ -474,8 +492,21 @@ void ConversationModel::setFriendContext(const QSet<QString>& friends, const QSe
     m_officialIds = officials;
     m_myUid = myUid;
     m_friendsKnown = known;
-    if (m_strangerOnly) refilter();
+    if (m_strangerOnly || m_typeFilter == QLatin1String("stranger") || m_typeFilter == QLatin1String("friend")) refilter();
     emit filterChanged();
+}
+
+bool ConversationModel::isSystemOrOfficial(const ConversationItem& item) const {
+    if (item.isGroup || item.id.isEmpty()) return false;
+    if (m_officialIds.contains(item.id)) return true;
+    const QString key = foldForSearch(item.name).simplified();
+    if (key.isEmpty()) return false;
+    if (key == QLatin1String("my documents") || key == QLatin1String("cloud cua toi") || key == QLatin1String("truyen file"))
+        return true;
+    if (!m_friendIds.contains(item.id) && (key == QLatin1String("zalo") || key.startsWith(QLatin1String("zalo "))))
+        return true;
+    return key == QLatin1String("zbusiness") || key == QLatin1String("zcloud") || key == QLatin1String("zalopay")
+        || key == QLatin1String("thoi tiet") || key.contains(QLatin1String("medlatec"));
 }
 
 bool ConversationModel::strangerId(const QString& convId, bool isGroup) const {

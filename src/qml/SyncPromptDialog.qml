@@ -40,7 +40,7 @@ Rectangle {
                 color: ThemeManager.textColor
                 font.family: Theme.fontFamily
                 font.pixelSize: 17
-                font.bold: true
+                font.weight: Font.DemiBold
             }
             Text {
                 Layout.fillWidth: true

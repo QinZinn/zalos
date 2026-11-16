@@ -15,6 +15,7 @@ Item {
     property url animatedSource: ""
     property real radius: 8
     property bool topOnly: false
+    property bool cache: true
     readonly property bool gpu: GraphicsInfo.api !== GraphicsInfo.Software
     readonly property bool masked: gpu && maskLoader.status === Loader.Ready
 
@@ -34,7 +35,7 @@ Item {
             anchors.fill: parent
             source: MediaSource.toSource(root.source)
             asynchronous: true
-            cache: true
+            cache: root.cache
             smooth: true
             fillMode: Image.PreserveAspectCrop
         }

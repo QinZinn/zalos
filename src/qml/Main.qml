@@ -72,7 +72,7 @@ ApplicationWindow {
 
     Connections {
         target: ZaloClient
-        function onAppLanguageChanged() {
+        function onAppLanguageChanged(): void {
             if (I18n.currentLanguage !== ZaloClient.appLanguage) I18n.setLanguage(ZaloClient.appLanguage);
         }
         function onRequestHideForScreenshot() {
@@ -164,7 +164,7 @@ ApplicationWindow {
                 text: "Zalo"
                 font.family: Theme.fontFamily
                 font.pixelSize: 26
-                font.bold: true
+                font.weight: Font.DemiBold
                 color: Theme.zaloBlue
             }
 

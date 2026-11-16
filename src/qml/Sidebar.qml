@@ -82,7 +82,7 @@ Rectangle {
             anchors.centerIn: parent
             text: ctab.title
             font.family: Theme.fontFamily
-            font.bold: ctab.selected
+            font.weight: ctab.selected ? Font.DemiBold : Font.Normal
             font.pixelSize: 13
             color: ctab.selected ? Theme.zaloBlue : ThemeManager.secondaryTextColor
         }
@@ -125,7 +125,7 @@ Rectangle {
             anchors.centerIn: parent
             text: vtab.title
             font.family: Theme.fontFamily
-            font.bold: vtab.selected
+            font.weight: vtab.selected ? Font.DemiBold : Font.Normal
             font.pixelSize: 13
             color: vtab.selected ? Theme.zaloBlue : ThemeManager.secondaryTextColor
         }
@@ -474,6 +474,7 @@ Rectangle {
 
             Rectangle {
                 id: typeFilterButton
+                objectName: "typeFilterButton"
                 anchors.right: parent.right
                 anchors.rightMargin: 10
                 anchors.verticalCenter: parent.verticalCenter
@@ -518,12 +519,17 @@ Rectangle {
                                   ? I18n.t("Phân loại hội thoại: Chỉ hội thoại nhóm", "Conversation filter: Groups only")
                                   : (typeFilterButton.currentType === "direct"
                                      ? I18n.t("Phân loại hội thoại: Chỉ hội thoại cá nhân", "Conversation filter: Direct chats only")
-                                     : I18n.t("Phân loại hội thoại", "Filter conversations"))
+                                     : (typeFilterButton.currentType === "friend"
+                                        ? I18n.t("Phân loại hội thoại: Chỉ hội thoại bạn bè", "Conversation filter: Friends only")
+                                        : (typeFilterButton.currentType === "stranger"
+                                           ? I18n.t("Phân loại hội thoại: Chỉ hội thoại người lạ", "Conversation filter: Strangers only")
+                                           : I18n.t("Phân loại hội thoại", "Filter conversations"))))
                     onClicked: typeFilterMenu.open()
                 }
 
                 Popup {
                     id: typeFilterMenu
+                    objectName: "typeFilterMenu"
                     y: parent.height + 4
                     x: parent.width - width
                     width: 210
@@ -538,6 +544,7 @@ Rectangle {
                             onTriggered: { ZaloClient.conversationModel.setTypeFilter("all"); typeFilterMenu.close(); }
                         }
                         LabelMenuRow {
+                            objectName: "typeFilterGroup"
                             labelText: I18n.t("Chỉ hội thoại nhóm", "Groups only")
                             checked: typeFilterButton.currentType === "group"
                             onTriggered: { ZaloClient.conversationModel.setTypeFilter("group"); typeFilterMenu.close(); }
@@ -546,6 +553,18 @@ Rectangle {
                             labelText: I18n.t("Chỉ hội thoại cá nhân", "Direct chats only")
                             checked: typeFilterButton.currentType === "direct"
                             onTriggered: { ZaloClient.conversationModel.setTypeFilter("direct"); typeFilterMenu.close(); }
+                        }
+                        LabelMenuRow {
+                            objectName: "typeFilterFriend"
+                            labelText: I18n.t("Chỉ hội thoại bạn bè", "Friends only")
+                            checked: typeFilterButton.currentType === "friend"
+                            onTriggered: { ZaloClient.conversationModel.setTypeFilter("friend"); typeFilterMenu.close(); }
+                        }
+                        LabelMenuRow {
+                            objectName: "typeFilterStranger"
+                            labelText: I18n.t("Chỉ hội thoại người lạ", "Strangers only")
+                            checked: typeFilterButton.currentType === "stranger"
+                            onTriggered: { ZaloClient.conversationModel.setTypeFilter("stranger"); typeFilterMenu.close(); }
                         }
                     }
                 }
@@ -735,6 +754,7 @@ Rectangle {
                 required property bool isPinned
                 required property bool isMuted
                 required property bool isHidden
+                required property bool isOfficial
                 required property bool isTyping
                 required property string draft
                 required property string lastMessage
@@ -793,9 +813,10 @@ Rectangle {
                         name: itemDelegate.name
                         isOnline: itemDelegate.isOnline
                         isGroup: itemDelegate.isGroup
+                        isVerified: itemDelegate.isOfficial
                         memberCount: itemDelegate.memberCount
                         memberAvatars: itemDelegate.memberAvatars || []
-                        showStatusDot: !itemDelegate.isGroup
+                        showStatusDot: !itemDelegate.isGroup && !itemDelegate.isOfficial
                     }
 
                     ColumnLayout {
@@ -812,7 +833,7 @@ Rectangle {
                                       ? itemDelegate.name
                                       : (itemDelegate.isGroup ? I18n.t("Nhóm chưa đặt tên", "Unnamed group") : I18n.t("Người dùng Zalo", "Zalo user"))
                                 font.family: Theme.fontFamily
-                                font.weight: itemDelegate.unreadCount > 0 ? Font.DemiBold : (itemDelegate.isPinned ? Font.Medium : Font.Normal)
+                                font.weight: (itemDelegate.unreadCount > 0) ? Font.DemiBold : Font.Normal
                                 font.pixelSize: 14
                                 color: ThemeManager.textColor
                                 elide: Text.ElideRight
@@ -861,7 +882,7 @@ Rectangle {
                                      : (itemDelegate.draft.length > 0 && itemDelegate.id !== ZaloClient.currentConversationId) ? Theme.badgeRed
                                      : (!itemDelegate.lastMessage && itemDelegate.isOnline) ? Theme.onlineGreen
                                      : (itemDelegate.unreadCount > 0 ? ThemeManager.textColor : ThemeManager.secondaryTextColor)
-                                font.weight: itemDelegate.unreadCount > 0 ? Font.Medium : Font.Normal
+                                font.weight: Font.Normal
                                 elide: Text.ElideRight
                                 Layout.fillWidth: true
                             }
@@ -879,7 +900,7 @@ Rectangle {
                                     text: itemDelegate.tag ? itemDelegate.tag : ""
                                     font.family: Theme.fontFamily
                                     font.pixelSize: 9
-                                    font.bold: true
+                                    font.weight: Font.DemiBold
                                     color: "#FFFFFF"
                                 }
                             }
@@ -913,7 +934,7 @@ Rectangle {
                                     text: itemDelegate.unreadCount > 99 ? "99+" : itemDelegate.unreadCount
                                     font.family: Theme.fontFamily
                                     font.pixelSize: 11
-                                    font.bold: true
+                                    font.weight: Font.DemiBold
                                     color: "#FFFFFF"
                                 }
                             }
@@ -1106,7 +1127,7 @@ Rectangle {
                           : I18n.tr("no_conversations")
                     font.family: Theme.fontFamily
                     font.pixelSize: 13
-                    font.bold: true
+                    font.weight: Font.DemiBold
                     color: ThemeManager.textColor
                 }
 

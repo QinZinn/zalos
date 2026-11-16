@@ -114,7 +114,7 @@ Item {
                     text: I18n.t("Quản lý thẻ phân loại", "Manage labels")
                     font.family: Theme.fontFamily
                     font.pixelSize: 16
-                    font.bold: true
+                    font.weight: Font.DemiBold
                     color: ThemeManager.textColor
                 }
                 IconAction { icon: "close"; onTriggered: root.close() }
@@ -260,7 +260,7 @@ Item {
                       + " (" + root.labelList.length + "/" + ZaloClient.labels.maxLabels + ")"
                 font.family: Theme.fontFamily
                 font.pixelSize: 13
-                font.bold: true
+                font.weight: Font.DemiBold
                 color: ThemeManager.textColor
             }
             RowLayout {

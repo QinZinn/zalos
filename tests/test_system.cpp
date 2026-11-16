@@ -722,7 +722,8 @@ private slots:
     void testOfficialAccountDetectionPersists() {
         QVERIFY(ZaloClient::isOfficialAccountForTesting(QJsonObject{{"userId", "u-oa-1"}, {"type", 1}}));
         QVERIFY(ZaloClient::isOfficialAccountForTesting(QJsonObject{{"userId", "u-oa-2"}, {"oaInfo", QJsonObject{{"id", 1}}}}));
-        QVERIFY(ZaloClient::isOfficialAccountForTesting(QJsonObject{{"userId", "u-oa-3"}, {"bizPkg", QJsonObject{{"pkgId", 2}}}}));
+        QVERIFY(!ZaloClient::isOfficialAccountForTesting(QJsonObject{{"userId", "u-oa-3"}, {"bizPkg", QJsonObject{{"pkgId", 2}}}}));
+        QVERIFY(!ZaloClient::isOfficialAccountForTesting(QJsonObject{{"userId", "u-oa-3b"}, {"oa_status", QJsonObject{{"blocked", 0}}}}));
         QVERIFY(!ZaloClient::isOfficialAccountForTesting(QJsonObject{{"userId", "u-oa-4"}, {"type", 0}}));
         QVERIFY(!ZaloClient::isOfficialAccountForTesting(QJsonObject{{"userId", "g-oa-5"}, {"type", 1}}));
         {
@@ -5507,6 +5508,72 @@ private slots:
             reader.openExternalUrl(QStringLiteral("file:///etc/passwd"));
             QCOMPARE(noticeSpy.count(), 2);
         }
+    }
+
+    void testSidebarTypeFilterStranger() {
+        ZaloClient client;
+        ThemeManager themeMgr;
+        SystemTrayController trayCtrl;
+        client.setLoggedInForTesting(true);
+        client.setMyUidForTesting("u-me");
+
+        QQmlApplicationEngine engine;
+        engine.addImageProvider("avatar", new AvatarImageProvider);
+        engine.addImageProvider("media", new AvatarImageProvider(false));
+        engine.addImageProvider("icon", new Zalos::Core::Platform::IconImageProvider);
+        engine.addImportPath("qrc:/");
+        engine.addImportPath("qrc:/qt/qml");
+        loadMainWindow(engine);
+        auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().value(0));
+        QVERIFY(window != nullptr);
+        window->resize(1280, 800);
+        QTest::qWait(300);
+
+        ConversationItem friendConv;
+        friendConv.id = QStringLiteral("u-friend");
+        friendConv.name = QStringLiteral("Friend A");
+        friendConv.isGroup = false;
+        ConversationItem strangerConv;
+        strangerConv.id = QStringLiteral("u-stranger");
+        strangerConv.name = QStringLiteral("Stranger B");
+        strangerConv.isGroup = false;
+        ConversationItem myDocs;
+        myDocs.id = QStringLiteral("u-docs");
+        myDocs.name = QStringLiteral("My Documents");
+        myDocs.isGroup = false;
+        client.conversationModel()->setFriendContext({QStringLiteral("u-friend")}, {}, QStringLiteral("u-me"), true);
+        client.conversationModel()->setConversations({friendConv, strangerConv, myDocs});
+        QCOMPARE(client.conversationModel()->rowCount(), 3);
+
+        auto* btn = window->findChild<QQuickItem*>(QStringLiteral("typeFilterButton"));
+        QVERIFY(btn != nullptr);
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
+                          btn->mapToScene(QPointF(btn->width() / 2, btn->height() / 2)).toPoint());
+        QTest::qWait(100);
+
+        auto* menu = window->findChild<QObject*>(QStringLiteral("typeFilterMenu"));
+        QVERIFY(menu != nullptr);
+        QVERIFY(menu->property("opened").toBool());
+
+        auto* groupRow = window->findChild<QQuickItem*>(QStringLiteral("typeFilterGroup"));
+        QVERIFY(groupRow != nullptr);
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
+                          groupRow->mapToScene(QPointF(groupRow->width() / 2, groupRow->height() / 2)).toPoint());
+        QTest::qWait(100);
+        QCOMPARE(client.conversationModel()->typeFilter(), QStringLiteral("group"));
+
+        QMetaObject::invokeMethod(menu, "open");
+        QTest::qWait(100);
+        auto* strangerRow = window->findChild<QQuickItem*>(QStringLiteral("typeFilterStranger"));
+        QVERIFY(strangerRow != nullptr);
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
+                          strangerRow->mapToScene(QPointF(strangerRow->width() / 2, strangerRow->height() / 2)).toPoint());
+        QTest::qWait(100);
+
+        QCOMPARE(client.conversationModel()->typeFilter(), QStringLiteral("stranger"));
+        QCOMPARE(client.conversationModel()->rowCount(), 1);
+        QCOMPARE(client.conversationModel()->data(client.conversationModel()->index(0, 0), ConversationModel::IdRole).toString(),
+                 QStringLiteral("u-stranger"));
     }
 };
 

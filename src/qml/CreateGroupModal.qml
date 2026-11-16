@@ -145,7 +145,7 @@ Item {
                     text: I18n.t("Tạo nhóm", "Create group")
                     font.family: Theme.fontFamily
                     font.pixelSize: 16
-                    font.bold: true
+                    font.weight: Font.DemiBold
                     color: ThemeManager.textColor
                     elide: Text.ElideRight
                 }
@@ -367,7 +367,7 @@ Item {
                               : I18n.t("Không tìm thấy bạn bè phù hợp", "No matching friends")
                         font.family: Theme.fontFamily
                         font.pixelSize: 13
-                        font.bold: true
+                        font.weight: Font.DemiBold
                         color: ThemeManager.textColor
                         wrapMode: Text.WordWrap
                     }
@@ -455,7 +455,7 @@ Item {
                         text: root.creating ? I18n.t("Đang tạo...", "Creating...") : I18n.t("Tạo nhóm", "Create group")
                         font.family: Theme.fontFamily
                         font.pixelSize: 13
-                        font.bold: true
+                        font.weight: Font.DemiBold
                         color: root.canCreate ? "#FFFFFF" : "#94A3B8"
                     }
 

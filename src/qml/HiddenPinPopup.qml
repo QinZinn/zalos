@@ -183,7 +183,7 @@ Popup {
             horizontalAlignment: Text.AlignHCenter
             font.family: Theme.fontFamily
             font.pixelSize: 16
-            font.bold: true
+            font.weight: Font.DemiBold
             color: ThemeManager.textColor
         }
 

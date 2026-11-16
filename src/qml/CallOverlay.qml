@@ -170,7 +170,7 @@ Rectangle {
             color: "#42D58C"
             font.family: Theme.fontFamily
             font.pixelSize: 13
-            font.bold: true
+            font.weight: Font.DemiBold
         }
 
         ColumnLayout {
@@ -209,7 +209,7 @@ Rectangle {
                 color: "#FFFFFF"
                 font.family: Theme.fontFamily
                 font.pixelSize: 20
-                font.bold: true
+                font.weight: Font.DemiBold
             }
             Text {
                 Layout.fillWidth: true

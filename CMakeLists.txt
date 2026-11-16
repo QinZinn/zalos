@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(zalos VERSION 1.2.5 LANGUAGES CXX)
+project(zalos VERSION 1.2.6 LANGUAGES CXX)
 option(BUILD_TESTING "Build unit tests" ON)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -256,6 +256,10 @@ target_link_libraries(zalos PRIVATE
     ${LZMA_LIBRARIES}
     ${CMAKE_DL_LIBS}
 )
+
+if(UNIX AND NOT APPLE)
+    target_link_options(zalos PRIVATE -Wl,--as-needed -Wl,-z,lazy)
+endif()
 
 # Installation targets for packaging (RPM, Flatpak, AppImage)
 install(TARGETS zalos

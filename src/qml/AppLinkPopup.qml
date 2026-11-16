@@ -45,7 +45,7 @@ Popup {
             wrapMode: Text.Wrap
             font.family: Theme.fontFamily
             font.pixelSize: 15
-            font.bold: true
+            font.weight: Font.DemiBold
             color: ThemeManager.textColor
         }
 

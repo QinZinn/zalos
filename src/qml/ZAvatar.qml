@@ -15,12 +15,14 @@ Item {
     property bool isOnline: false
     property int memberCount: 0
     property bool isGroup: memberCount > 0
+    property bool isVerified: false
     property bool showStatusDot: false
     property var memberAvatars: []
 
     readonly property bool hasImage: avatarImage.status === Image.Ready
     readonly property bool imagePending: root.avatarUrl.length > 0 && avatarImage.status === Image.Loading
     readonly property bool isMyDocs: !root.isGroup && root.name === "My Documents"
+    readonly property bool showVerifiedBadge: (root.isVerified || root.isMyDocs) && !root.isGroup
     readonly property color placeholderColor: ThemeManager.isDarkMode ? "#3B4048" : "#E4E7EC"
     readonly property bool composite: root.isGroup && root.avatarUrl.length === 0 && root.memberAvatars.length > 0
     readonly property int shownMembers: root.memberCount > 4 ? 3 : Math.min(4, root.memberAvatars.length)
@@ -53,7 +55,7 @@ Item {
             visible: !root.imagePending && !root.isGroup && !root.isMyDocs && text.length > 0
             text: root.initials(root.name)
             font.family: Theme.fontFamily
-            font.bold: true
+            font.weight: Font.DemiBold
             font.pixelSize: Math.max(9, Math.floor(root.size * (text.length > 1 ? 0.36 : 0.42)))
             color: "#FFFFFF"
         }
@@ -83,7 +85,7 @@ Item {
     }
 
     Rectangle {
-        visible: root.showStatusDot && root.isOnline && !root.isGroup
+        visible: root.showStatusDot && root.isOnline && !root.isGroup && !root.showVerifiedBadge
         width: Math.max(11, Math.round(root.size * 0.35))
         height: width
         radius: width / 2
@@ -94,6 +96,32 @@ Item {
         anchors.right: parent.right
         anchors.bottomMargin: -Math.round(width * 0.15)
         anchors.rightMargin: -Math.round(width * 0.15)
+    }
+
+    Rectangle {
+        visible: root.showVerifiedBadge
+        width: Math.max(14, Math.round(root.size * 0.36))
+        height: width
+        radius: width / 2
+        color: ThemeManager.surfaceColor
+        anchors.bottom: parent.bottom
+        anchors.right: parent.right
+        anchors.bottomMargin: -Math.round(width * 0.12)
+        anchors.rightMargin: -Math.round(width * 0.12)
+
+        ZIcon {
+            anchors.centerIn: parent
+            name: "verified_badge"
+            size: Math.max(12, parent.width - 2)
+            color: "#F59300"
+        }
+
+        ZIcon {
+            anchors.centerIn: parent
+            name: "verified_check"
+            size: Math.max(10, Math.round((parent.width - 2) * 0.78))
+            color: "#FFFFFF"
+        }
     }
 
     Item {
@@ -143,7 +171,7 @@ Item {
                     visible: !memberCell.unnamed && memberImage.status !== Image.Ready && !memberCell.pending
                     text: root.initials(memberCell.modelData.name).charAt(0)
                     font.family: Theme.fontFamily
-                    font.bold: true
+                    font.weight: Font.DemiBold
                     font.pixelSize: Math.max(7, Math.floor(compositeBox.cell * 0.45))
                     color: "#FFFFFF"
                 }

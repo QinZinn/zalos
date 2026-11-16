@@ -4,7 +4,7 @@
 %global _find_debuginfo_dwz_opts %{nil}
 
 Name:           zalos
-Version:        1.2.5
+Version:        1.2.6
 Release:        1%{?dist}
 Summary:        Zalo desktop client ported to Qt6 (C++/QML) for Linux
 License:        MIT AND BSD-3-Clause
@@ -79,6 +79,9 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/%{name}.desktop
 %{_datadir}/metainfo/io.github.cpfriend1721994.zalos.metainfo.xml
 
 %changelog
+* Mon Nov 16 2026 Zalos Team <dev@zalos.local> - 1.2.6-1
+- Add group invite box, friend recommendations, mutual groups, E2EE linked devices, safe link scanning, abuse reporting, Community upgrade, bank card REST APIs, and memory/image decoder hardening.
+
 * Mon Nov 16 2026 Zalos Team <dev@zalos.local> - 1.2.5-1
 - Add in-app update support (AppImage SHA-256 self-update + gh-releases-zsync, .deb/.rpm pkexec install), conversation type filter, smart mobile sync prompt, Settings About & GPU toggle restart, and 90% QML AOT coverage.
 

@@ -261,7 +261,7 @@ Item {
                         text: msgRow.text
                         font.family: Theme.fontFamily
                         font.pixelSize: 14
-                        font.bold: true
+                        font.weight: Font.DemiBold
                         color: ThemeManager.textColor
                     }
 
@@ -395,6 +395,7 @@ Item {
                         ZRoundedImage {
                             id: mediaImg
                             anchors.fill: parent
+                            cache: false
                             source: msgRow.mediaUrl
                             animatedSource: msgRow.extra.animatedUrl ? msgRow.extra.animatedUrl : ""
                             sourceSize.width: Math.ceil(360 * (Screen.devicePixelRatio || 1))
@@ -539,6 +540,7 @@ Item {
                                     id: tileImage
                                     visible: !tile.sticker
                                     anchors.fill: parent
+                                    cache: false
                                     source: tile.sticker ? "" : tile.modelData.mediaUrl
                                     animatedSource: !tile.sticker && tile.modelData.animatedUrl ? tile.modelData.animatedUrl : ""
                                     sourceSize.width: 320
@@ -659,7 +661,7 @@ Item {
                                         elide: Text.ElideRight
                                         font.family: Theme.fontFamily
                                         font.pixelSize: 12
-                                        font.bold: true
+                                        font.weight: Font.DemiBold
                                         color: ThemeManager.textColor
                                     }
                                     Text {
@@ -712,7 +714,7 @@ Item {
                                         color: "#FFFFFF"
                                         font.family: Theme.fontFamily
                                         font.pixelSize: 10
-                                        font.bold: true
+                                        font.weight: Font.DemiBold
                                         elide: Text.ElideRight
                                     }
                                 }
@@ -1111,7 +1113,7 @@ Item {
                                     text: I18n.t("BÌNH CHỌN", "POLL")
                                     font.family: Theme.fontFamily
                                     font.pixelSize: 11
-                                    font.bold: true
+                                    font.weight: Font.DemiBold
                                     color: ThemeManager.secondaryTextColor
                                 }
                                 Text {
@@ -1195,6 +1197,7 @@ Item {
                             text: "<style>a{color:" + Theme.linkColor + ";text-decoration:none}</style>" + msgRow.richText
                             font.family: Theme.fontFamily
                             font.pixelSize: 14
+                            renderType: TextEdit.QtRendering
                             color: ThemeManager.textColor
                             selectionColor: Theme.zaloBlueLight
                             selectedTextColor: ThemeManager.textColor
@@ -1203,7 +1206,7 @@ Item {
                                     const uid = link.substring(14);
                                     if (uid !== "-1") ZaloClient.viewProfile(uid);
                                 } else {
-                                    ZaloClient.openLink(link);
+                                    ZaloClient.scanAndOpenUrl(link);
                                 }
                             }
                             HoverHandler { cursorShape: msgText.hoveredLink.length > 0 ? Qt.PointingHandCursor : Qt.IBeamCursor }
@@ -1214,6 +1217,7 @@ Item {
                             font.family: Theme.fontFamily
                             font.pixelSize: 14
                             font.italic: true
+                            renderType: Text.QtRendering
                             color: ThemeManager.secondaryTextColor
                         }
                     }
@@ -1381,7 +1385,7 @@ Item {
                                     anchors.centerIn: parent
                                     text: "+" + Math.max(0, groupSeenRow.uids.length - 4)
                                     font.pixelSize: 8
-                                    font.bold: true
+                                    font.weight: Font.DemiBold
                                     color: ThemeManager.textColor
                                 }
                             }

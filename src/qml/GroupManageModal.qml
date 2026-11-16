@@ -38,7 +38,7 @@ Item {
         Layout.topMargin: 6
         font.family: Theme.fontFamily
         font.pixelSize: 14
-        font.bold: true
+        font.weight: Font.DemiBold
         color: ThemeManager.textColor
     }
 
@@ -134,7 +134,7 @@ Item {
                     elide: Text.ElideRight
                     font.family: Theme.fontFamily
                     font.pixelSize: 16
-                    font.bold: true
+                    font.weight: Font.DemiBold
                     color: ThemeManager.textColor
                 }
                 Rectangle {
@@ -317,6 +317,15 @@ Item {
                         }
                     }
                     Item { Layout.preferredHeight: 4 }
+
+                    ZButton {
+                        visible: ZaloClient.groupAdmin.isOwner
+                        Layout.fillWidth: true
+                        variant: "secondary"
+                        iconName: "group_add"
+                        text: I18n.t("Nâng cấp thành Cộng đồng", "Upgrade to Community")
+                        onClicked: ZaloClient.upgradeGroupToCommunity(ZaloClient.groupAdmin.groupId)
+                    }
                 }
             }
         }

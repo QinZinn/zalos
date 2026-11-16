@@ -49,10 +49,10 @@ Rectangle {
 
     Connections {
         target: ZaloClient
-        function onNavigationTabChanged() {
+        function onNavigationTabChanged(): void {
             if (ZaloClient.currentNavigationTab === "cloud") root.refresh();
         }
-        function onCurrentConversationChanged() {
+        function onCurrentConversationChanged(): void {
             if (ZaloClient.currentNavigationTab === "cloud") root.refresh();
         }
     }
@@ -94,7 +94,7 @@ Rectangle {
                         text: I18n.t("My Documents", "My Documents")
                         font.family: Theme.fontFamily
                         font.pixelSize: 15
-                        font.bold: true
+                        font.weight: Font.DemiBold
                         color: ThemeManager.textColor
                     }
                     Text {
@@ -129,7 +129,7 @@ Rectangle {
                             text: I18n.t("Mở cuộc hội thoại Cloud", "Open Cloud Chat")
                             font.family: Theme.fontFamily
                             font.pixelSize: 12
-                            font.bold: true
+                            font.weight: Font.DemiBold
                             color: "#FFFFFF"
                         }
                     }
@@ -176,7 +176,7 @@ Rectangle {
                             text: tabChip.modelData
                             font.family: Theme.fontFamily
                             font.pixelSize: 11
-                            font.bold: root.activeTab === tabChip.index
+                            font.weight: (root.activeTab === tabChip.index) ? Font.DemiBold : Font.Normal
                             color: root.activeTab === tabChip.index
                                    ? (ThemeManager.isDarkMode ? "#FFFFFF" : Theme.zaloBlueTonalText)
                                    : ThemeManager.secondaryTextColor
@@ -235,7 +235,7 @@ Rectangle {
                             text: I18n.t("Kho lưu trữ My Documents", "My Documents Storage")
                             font.family: Theme.fontFamily
                             font.pixelSize: 13
-                            font.bold: true
+                            font.weight: Font.DemiBold
                             color: ThemeManager.textColor
                         }
                         Rectangle {
@@ -273,7 +273,7 @@ Rectangle {
                         text: root.cloudItems.length + " " + I18n.t("mục", "items")
                         font.family: Theme.fontFamily
                         font.pixelSize: 11
-                        font.bold: true
+                        font.weight: Font.DemiBold
                         color: ThemeManager.textColor
                     }
                 }
@@ -364,7 +364,7 @@ Rectangle {
                                 text: itemCard.modelData.title || itemCard.modelData.url || ""
                                 font.family: Theme.fontFamily
                                 font.pixelSize: 13
-                                font.bold: true
+                                font.weight: Font.DemiBold
                                 elide: Text.ElideMiddle
                                 color: ThemeManager.textColor
                             }
@@ -462,7 +462,7 @@ Rectangle {
                         text: I18n.t("Chưa có dữ liệu trong My Documents", "My Documents is empty")
                         font.family: Theme.fontFamily
                         font.pixelSize: 15
-                        font.bold: true
+                        font.weight: Font.DemiBold
                         color: ThemeManager.textColor
                     }
 
@@ -489,7 +489,7 @@ Rectangle {
                             text: I18n.t("Mở cuộc hội thoại My Documents", "Open My Documents Chat")
                             font.family: Theme.fontFamily
                             font.pixelSize: 12
-                            font.bold: true
+                            font.weight: Font.DemiBold
                             color: "#FFFFFF"
                         }
 

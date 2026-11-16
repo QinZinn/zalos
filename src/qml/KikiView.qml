@@ -103,7 +103,7 @@ Rectangle {
                             text: I18n.t("Trợ lý Kiki", "Kiki Assistant")
                             font.family: Theme.fontFamily
                             font.pixelSize: 15
-                            font.bold: true
+                            font.weight: Font.DemiBold
                             color: ThemeManager.textColor
                         }
 
@@ -190,7 +190,7 @@ Rectangle {
                             text: I18n.t("Xin chào, tôi là Trợ lý Kiki!", "Hello, I am Kiki Assistant!")
                             font.family: Theme.fontFamily
                             font.pixelSize: 18
-                            font.bold: true
+                            font.weight: Font.DemiBold
                             color: ThemeManager.textColor
                         }
 
@@ -254,7 +254,7 @@ Rectangle {
                                         text: cap.title
                                         font.family: Theme.fontFamily
                                         font.pixelSize: 13
-                                        font.bold: true
+                                        font.weight: Font.DemiBold
                                         color: ThemeManager.textColor
                                     }
                                     Text {
@@ -434,7 +434,7 @@ Rectangle {
                                     font.family: Theme.fontFamily
                                     font.pixelSize: 11
                                     color: Theme.zaloBlue
-                                    font.bold: true
+                                    font.weight: Font.DemiBold
                                 }
                             }
                             MouseArea {

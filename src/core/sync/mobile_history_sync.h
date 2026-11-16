@@ -107,6 +107,7 @@ private:
     qint64 m_expectedSize{0};
     bool m_writeFailed{false};
     bool m_sawSyncV2{false};
+    QString m_mobileTempKey;
     int m_downloadAttempt{0};
     int m_format{0};
     int m_expectedMessages{0};

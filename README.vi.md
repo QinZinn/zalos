@@ -50,7 +50,8 @@ hoàn toàn bộ khung Electron/Chromium cồng kềnh:
 - **Gọi thoại và gọi video** — gọi thoại và gọi video 1-1 với mã hóa OpenH264; gọi nhóm đang ở giai đoạn thử nghiệm.
 - **My Documents** — luồng lưu trữ cá nhân với bộ lọc nhanh ảnh, video, tệp và liên kết.
 - **Tiện ích máy tính** — chụp màn hình (`Ctrl+Alt+S`), trợ lý Kiki (có thể ẩn/hiện) và công cụ zBusiness (hồ sơ, danh mục sản phẩm, tin nhắn tự động).
-- **Thao tác nhanh Danh bạ** — 1 cú nhấp gọi thoại, gọi video, hoặc nhắn tin ngay trên mỗi dòng liên hệ.
+- **Danh bạ & nhóm** — 1 cú nhấp gọi thoại, gọi video, nhắn tin trên mỗi liên hệ; quản lý lời mời nhóm, gợi ý kết bạn, xem nhóm chung trong hồ sơ và nâng cấp nhóm lên Cộng đồng.
+- **An toàn & thiết bị** — kiểm tra liên kết an toàn (`scanURL`) trước khi mở link ngoài, báo cáo vi phạm từ tin nhắn/hồ sơ và xem thiết bị liên kết E2EE trong Cài đặt.
 - **Khay hệ thống** — hiển thị số tin chưa đọc và thao tác nhanh.
 - **Lịch sử ngoại tuyến** — xem lại hội thoại cả khi không có kết nối.
 - **Cập nhật tiện lợi theo bản cài** — kiểm tra phát hành từ GitHub kèm đối chiếu SHA-256 (tự cập nhật AppImage + `gh-releases-zsync`, cài qua `pkexec`/trình cài hệ thống cho `.deb`/`.rpm`).
@@ -76,21 +77,21 @@ và được kiểm tra cài đặt trên cả bản cũ nhất lẫn mới nh�
 ### Ubuntu 24.04+ (`.deb`)
 ```bash
 # x86_64 (amd64)
-wget https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.2.5-1~ubuntu24.04_amd64.deb
-sudo apt install ./zalos_1.2.5-1~ubuntu24.04_amd64.deb
+wget https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.2.6-1~ubuntu24.04_amd64.deb
+sudo apt install ./zalos_1.2.6-1~ubuntu24.04_amd64.deb
 
 # ARM64 (aarch64)
-wget https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.2.5-1~ubuntu24.04_arm64.deb
-sudo apt install ./zalos_1.2.5-1~ubuntu24.04_arm64.deb
+wget https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.2.6-1~ubuntu24.04_arm64.deb
+sudo apt install ./zalos_1.2.6-1~ubuntu24.04_arm64.deb
 ```
 
 ### Fedora 43+ (`.rpm`)
 ```bash
 # x86_64
-sudo dnf install https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.2.5-1.fc43.x86_64.rpm
+sudo dnf install https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.2.6-1.fc43.x86_64.rpm
 
 # ARM64 (aarch64)
-sudo dnf install https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.2.5-1.fc43.aarch64.rpm
+sudo dnf install https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.2.6-1.fc43.aarch64.rpm
 ```
 
 ### NixOS / Nix
@@ -102,14 +103,14 @@ nix profile install github:cpfriend1721994/zalos
 ### AppImage (di động, glibc ≥ 2.35)
 ```bash
 # x86_64
-wget https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.2.5-x86_64.AppImage
-chmod +x Zalos-1.2.5-x86_64.AppImage
-./Zalos-1.2.5-x86_64.AppImage
+wget https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.2.6-x86_64.AppImage
+chmod +x Zalos-1.2.6-x86_64.AppImage
+./Zalos-1.2.6-x86_64.AppImage
 
 # ARM64 (aarch64)
-wget https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.2.5-aarch64.AppImage
-chmod +x Zalos-1.2.5-aarch64.AppImage
-./Zalos-1.2.5-aarch64.AppImage
+wget https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.2.6-aarch64.AppImage
+chmod +x Zalos-1.2.6-aarch64.AppImage
+./Zalos-1.2.6-aarch64.AppImage
 ```
 AppImage (~22 MB) ưu tiên dùng Qt 6 sẵn có trên máy và tự chuyển sang runtime Qt 6.4 nhúng sẵn khi hệ thống chưa cài Qt 6 (chỉ cần các thư viện desktop cơ bản và `glibc ≥ 2.35` như Ubuntu 22.04+, Debian 12+, Fedora, openSUSE, Arch).
 
@@ -147,7 +148,7 @@ docker compose run --rm package-rpm      # dist/*.x86_64.rpm
 docker compose run --rm package-nix      # dist/*-nixos.tar.gz
 ```
 
-Đẩy một tag theo chuẩn semantic (`git tag v1.2.5 && git push origin v1.2.5`) sẽ build toàn bộ gói và phát hành
+Đẩy một tag theo chuẩn semantic (`git tag v1.2.6 && git push origin v1.2.6`) sẽ build toàn bộ gói và phát hành
 một GitHub Release.
 
 Xem [CONTRIBUTING.md](CONTRIBUTING.md) để biết quy trình đóng góp.

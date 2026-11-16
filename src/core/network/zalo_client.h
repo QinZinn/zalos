@@ -223,6 +223,13 @@ class ZaloClient : public QObject {
     Q_PROPERTY(bool kikiAvailable READ kikiAvailable NOTIFY kikiStateChanged FINAL)
     Q_PROPERTY(QString kikiUrl READ kikiUrl NOTIFY kikiStateChanged FINAL)
     Q_PROPERTY(bool displayOnRecommendFriend READ displayOnRecommendFriend NOTIFY serverSettingsChanged FINAL)
+
+    Q_PROPERTY(QVariantList groupInvites READ groupInvites NOTIFY groupInvitesChanged FINAL)
+    Q_PROPERTY(QVariantList friendRecommendations READ friendRecommendations NOTIFY friendRecommendationsChanged FINAL)
+    Q_PROPERTY(QVariantList profileRelatedGroups READ profileRelatedGroups NOTIFY currentProfileChanged FINAL)
+    Q_PROPERTY(QVariantList linkedDevices READ linkedDevices NOTIFY linkedDevicesChanged FINAL)
+    Q_PROPERTY(QVariantList bankList READ bankList NOTIFY bankDataChanged FINAL)
+    Q_PROPERTY(QVariantList bankAccounts READ bankAccounts NOTIFY bankDataChanged FINAL)
     Q_PROPERTY(bool addFriendViaPhone READ addFriendViaPhone NOTIFY serverSettingsChanged FINAL)
     Q_PROPERTY(bool addFriendViaQr READ addFriendViaQr NOTIFY serverSettingsChanged FINAL)
     Q_PROPERTY(bool addFriendViaGroup READ addFriendViaGroup NOTIFY serverSettingsChanged FINAL)
@@ -762,6 +769,26 @@ public:
     Q_INVOKABLE bool extractZdbBackup(const QString& zdbPath, const QString& outputDir, const QString& privateKey);
     Q_INVOKABLE QVariantMap deriveSrtpKeys(const QString& sessId);
 
+    QVariantList groupInvites() const { return m_groupInvites; }
+    QVariantList friendRecommendations() const { return m_friendRecommendations; }
+    QVariantList profileRelatedGroups() const { return m_profileRelatedGroups; }
+    QVariantList linkedDevices() const { return m_linkedDevices; }
+    QVariantList bankList() const { return m_bankList; }
+    QVariantList bankAccounts() const { return m_bankAccounts; }
+    Q_INVOKABLE void refreshGroupInvites();
+    Q_INVOKABLE void joinGroupInvite(const QString& groupId);
+    Q_INVOKABLE void deleteGroupInvite(const QString& groupId, bool blockFuture = false);
+    Q_INVOKABLE void refreshFriendRecommendations();
+    Q_INVOKABLE void refreshCloseFriends();
+    Q_INVOKABLE bool isCloseFriend(const QString& uid) const { return m_closeFriendIds.contains(uid); }
+    Q_INVOKABLE void refreshLinkedDevices();
+    Q_INVOKABLE void scanAndOpenUrl(const QString& url);
+    Q_INVOKABLE void reportAbuse(const QString& threadId, bool isGroup, int reason = 0, const QString& content = QString());
+    Q_INVOKABLE void upgradeGroupToCommunity(const QString& groupId);
+    Q_INVOKABLE void refreshBankAccounts();
+    Q_INVOKABLE void createBankAccount(int binBank, const QString& numAccBank, const QString& nameAccBank);
+    Q_INVOKABLE void sendBankCard(int binBank, const QString& numAccBank, const QString& nameAccBank);
+
 signals:
     void windowActivationRequested(const QString& activationToken);
     void syncPromptChanged();
@@ -836,6 +863,10 @@ signals:
     void scheduledMessagesChanged();
     void requestHideForScreenshot();
     void requestRestoreAfterScreenshot();
+    void groupInvitesChanged();
+    void friendRecommendationsChanged();
+    void linkedDevicesChanged();
+    void bankDataChanged();
 
 private Q_SLOTS:
     void onPrepareForSleep(bool sleeping);
@@ -1207,6 +1238,13 @@ private:
         SavedToDownloads
     };
     UpdateCheckState m_updateState{UpdateCheckState::Idle};
+    QVariantList m_groupInvites;
+    QVariantList m_friendRecommendations;
+    QVariantList m_profileRelatedGroups;
+    QVariantList m_linkedDevices;
+    QVariantList m_bankList;
+    QVariantList m_bankAccounts;
+    QSet<QString> m_closeFriendIds;
     bool m_startHiddenInTray{false};
     bool m_closeToTray{true};
     bool m_launchHidden{false};

@@ -62,7 +62,7 @@ Rectangle {
                     text: I18n.tr("welcome_title")
                     font.family: Theme.fontFamily
                     font.pixelSize: 24
-                    font.bold: true
+                    font.weight: Font.DemiBold
                     color: ThemeManager.textColor
                 }
 
@@ -177,7 +177,7 @@ Rectangle {
                                     text: I18n.t("Nội dung", "Content")
                                     font.family: Theme.fontFamily
                                     font.pixelSize: 11
-                                    font.bold: true
+                                    font.weight: Font.DemiBold
                                     color: "#1E293B"
                                 }
 
@@ -201,7 +201,7 @@ Rectangle {
                                         text: I18n.t("Sao chép", "Copy")
                                         font.family: Theme.fontFamily
                                         font.pixelSize: 10
-                                        font.bold: true
+                                        font.weight: Font.DemiBold
                                         color: "#FFFFFF"
                                     }
                                 }
@@ -321,7 +321,7 @@ Rectangle {
                                 anchors.centerIn: parent
                                 spacing: 8
                                 ZIcon { Layout.alignment: Qt.AlignHCenter; name: "clip"; size: 36; color: "#F59E0B" }
-                                Text { Layout.alignment: Qt.AlignHCenter; text: "1 GB"; font.family: Theme.fontFamily; font.bold: true; font.pixelSize: 18; color: "#D97706" }
+                                Text { Layout.alignment: Qt.AlignHCenter; text: "1 GB"; font.family: Theme.fontFamily; font.weight: Font.DemiBold; font.pixelSize: 18; color: "#D97706" }
                             }
                         }
                     }
@@ -350,7 +350,7 @@ Rectangle {
                                     elide: Text.ElideRight
                                     text: I18n.t("⚡ Gửi tức thì", "⚡ Instant send")
                                     font.family: Theme.fontFamily
-                                    font.bold: true
+                                    font.weight: Font.DemiBold
                                     font.pixelSize: 14
                                     color: Theme.zaloBlue
                                 }
@@ -376,7 +376,7 @@ Rectangle {
                 }
                 font.family: Theme.fontFamily
                 font.pixelSize: 16
-                font.bold: true
+                font.weight: Font.DemiBold
                 color: Theme.zaloBlue
             }
 

@@ -89,7 +89,7 @@ Item {
                           : I18n.t("Chuyển tiếp tin nhắn", "Forward message")
                     font.family: Theme.fontFamily
                     font.pixelSize: 16
-                    font.bold: true
+                    font.weight: Font.DemiBold
                     color: ThemeManager.textColor
                     elide: Text.ElideRight
                 }
@@ -237,7 +237,7 @@ Item {
                 text: root.mode === "pickContact" ? I18n.t("Bạn bè", "Friends") : I18n.t("Gần đây", "Recent")
                 font.family: Theme.fontFamily
                 font.pixelSize: 12
-                font.bold: true
+                font.weight: Font.DemiBold
                 color: ThemeManager.secondaryTextColor
                 Layout.topMargin: 4
             }
@@ -279,7 +279,7 @@ Item {
                             text: rowItem.rowName
                             font.family: Theme.fontFamily
                             font.pixelSize: 13
-                            font.bold: true
+                            font.weight: Font.DemiBold
                             color: ThemeManager.textColor
                             elide: Text.ElideRight
                         }

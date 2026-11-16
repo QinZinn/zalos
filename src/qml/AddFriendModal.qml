@@ -157,7 +157,7 @@ Item {
                     text: I18n.t("Thêm bạn", "Add friend")
                     font.family: Theme.fontFamily
                     font.pixelSize: 16
-                    font.bold: true
+                    font.weight: Font.DemiBold
                     color: ThemeManager.textColor
                     elide: Text.ElideRight
                 }
@@ -232,7 +232,7 @@ Item {
                                     text: I18n.t(modePill.modeVi, modePill.modeEn)
                                     font.family: Theme.fontFamily
                                     font.pixelSize: 13
-                                    font.bold: modePill.on
+                                    font.weight: modePill.on ? Font.DemiBold : Font.Normal
                                     color: modePill.on ? Theme.zaloBlueTonalText : ThemeManager.textColor
                                 }
                                 MouseArea {
@@ -268,7 +268,7 @@ Item {
                                 text: "+84"
                                 font.family: Theme.fontFamily
                                 font.pixelSize: 13
-                                font.bold: true
+                                font.weight: Font.DemiBold
                                 color: ThemeManager.textColor
                             }
                         }
@@ -327,7 +327,7 @@ Item {
                                                      : I18n.t("Tìm kiếm", "Search")
                                 font.family: Theme.fontFamily
                                 font.pixelSize: 13
-                                font.bold: true
+                                font.weight: Font.DemiBold
                                 color: "#FFFFFF"
                             }
 
@@ -419,7 +419,7 @@ Item {
                                         text: root.foundName
                                         font.family: Theme.fontFamily
                                         font.pixelSize: 15
-                                        font.bold: true
+                                        font.weight: Font.DemiBold
                                         color: foundProfileMouse.containsMouse ? Theme.zaloBlue : ThemeManager.textColor
                                         elide: Text.ElideRight
                                     }
@@ -528,7 +528,7 @@ Item {
                                                                 : I18n.t("Kết bạn", "Add friend"))
                                         font.family: Theme.fontFamily
                                         font.pixelSize: 13
-                                        font.bold: true
+                                        font.weight: Font.DemiBold
                                         color: "#FFFFFF"
                                     }
 

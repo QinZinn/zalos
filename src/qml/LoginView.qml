@@ -29,7 +29,7 @@ Rectangle {
 
     Connections {
         target: ZaloClient
-        function onHasLoginErrorChanged() {
+        function onHasLoginErrorChanged(): void {
             if (ZaloClient.hasLoginError) {
                 root.loginNoticeVisible = true;
                 loginNoticeTimer.restart();
@@ -38,13 +38,13 @@ Rectangle {
                 loginNoticeTimer.stop();
             }
         }
-        function onLoginStatusMessageChanged() {
+        function onLoginStatusMessageChanged(): void {
             if (ZaloClient.hasLoginError && ZaloClient.loginStatusMessage.length > 0) {
                 root.loginNoticeVisible = true;
                 loginNoticeTimer.restart();
             }
         }
-        function onIsLoggingInChanged() {
+        function onIsLoggingInChanged(): void {
             if (ZaloClient.isLoggingIn) {
                 root.loginNoticeVisible = true;
                 loginNoticeTimer.stop();
@@ -144,7 +144,7 @@ Rectangle {
         wrapMode: Text.WordWrap
         font.family: Theme.fontFamily
         font.pixelSize: 12
-        font.bold: true
+        font.weight: Font.DemiBold
         font.underline: linkMouse.containsMouse
         color: Theme.zaloBlue
 
@@ -186,7 +186,7 @@ Rectangle {
                         text: "Zalos"
                         color: Theme.zaloBlue
                         font.family: Theme.fontFamily
-                        font.bold: true
+                        font.weight: Font.DemiBold
                         font.pixelSize: 28
                     }
 
@@ -199,7 +199,7 @@ Rectangle {
                             text: "Tiếng Việt"
                             font.family: Theme.fontFamily
                             font.pixelSize: 12
-                            font.bold: I18n.currentLanguage === "vi"
+                            font.weight: (I18n.currentLanguage === "vi") ? Font.DemiBold : Font.Normal
                             color: I18n.currentLanguage === "vi" ? Theme.zaloBlue : ThemeManager.secondaryTextColor
 
                             MouseArea {
@@ -213,7 +213,7 @@ Rectangle {
                             text: "English"
                             font.family: Theme.fontFamily
                             font.pixelSize: 12
-                            font.bold: I18n.currentLanguage === "en"
+                            font.weight: (I18n.currentLanguage === "en") ? Font.DemiBold : Font.Normal
                             color: I18n.currentLanguage === "en" ? Theme.zaloBlue : ThemeManager.secondaryTextColor
 
                             MouseArea {
@@ -257,7 +257,7 @@ Rectangle {
                                     text: I18n.t("Mã QR", "QR Code")
                                     font.family: Theme.fontFamily
                                     font.pixelSize: 12
-                                    font.bold: true
+                                    font.weight: Font.DemiBold
                                     color: root.activeTab === 0 ? "#FFFFFF" : ThemeManager.textColor
                                 }
 
@@ -279,7 +279,7 @@ Rectangle {
                                     text: I18n.t("Số điện thoại", "Phone number")
                                     font.family: Theme.fontFamily
                                     font.pixelSize: 12
-                                    font.bold: true
+                                    font.weight: Font.DemiBold
                                     color: root.activeTab === 1 ? "#FFFFFF" : ThemeManager.textColor
                                 }
 
@@ -311,7 +311,7 @@ Rectangle {
                                     horizontalAlignment: Text.AlignHCenter
                                     text: I18n.t("Đăng nhập qua mã QR", "Sign in with QR code")
                                     font.family: Theme.fontFamily
-                                    font.bold: true
+                                    font.weight: Font.DemiBold
                                     font.pixelSize: 15
                                     color: ThemeManager.textColor
                                 }
@@ -361,8 +361,8 @@ Rectangle {
 
                                                     Connections {
                                                         target: ZaloClient
-                                                        function onQrMatrixChanged() { qrCanvas.requestPaint(); }
-                                                        function onQrCodeChanged() { qrCanvas.requestPaint(); }
+                                                        function onQrMatrixChanged(): void { qrCanvas.requestPaint(); }
+                                                        function onQrCodeChanged(): void { qrCanvas.requestPaint(); }
                                                     }
 
                                                     Component.onCompleted: requestPaint()
@@ -418,7 +418,7 @@ Rectangle {
                                                             text: I18n.t("Mã QR đã hết hạn", "QR code expired")
                                                             font.family: Theme.fontFamily
                                                             font.pixelSize: 12
-                                                            font.bold: true
+                                                            font.weight: Font.DemiBold
                                                             color: Theme.badgeRed
                                                         }
 
@@ -436,7 +436,7 @@ Rectangle {
                                                                 color: "#FFFFFF"
                                                                 font.family: Theme.fontFamily
                                                                 font.pixelSize: 11
-                                                                font.bold: true
+                                                                font.weight: Font.DemiBold
                                                             }
 
                                                             MouseArea {
@@ -458,7 +458,7 @@ Rectangle {
                                                 text: I18n.t("Bấm để phóng to mã QR", "Click to zoom QR code")
                                                 font.family: Theme.fontFamily
                                                 font.pixelSize: 12
-                                                font.bold: true
+                                                font.weight: Font.DemiBold
                                                 color: "#0068FF"
 
                                                 MouseArea {
@@ -479,7 +479,7 @@ Rectangle {
                                               : I18n.t("Mã đã hết hạn, vui lòng bấm \"Lấy mã mới\"", "The code has expired. Please click \"Get new code\"")
                                         font.family: Theme.fontFamily
                                         font.pixelSize: 11
-                                        font.bold: ZaloClient.qrSecondsRemaining <= 0
+                                        font.weight: (ZaloClient.qrSecondsRemaining <= 0) ? Font.DemiBold : Font.Normal
                                         color: ZaloClient.qrSecondsRemaining > 0 ? ThemeManager.secondaryTextColor : Theme.badgeRed
                                     }
                                 }
@@ -521,7 +521,7 @@ Rectangle {
                                                 text: ZaloClient.scannedUserName
                                                 font.family: Theme.fontFamily
                                                 font.pixelSize: 14
-                                                font.bold: true
+                                                font.weight: Font.DemiBold
                                                 color: ThemeManager.textColor
                                             }
 
@@ -563,7 +563,7 @@ Rectangle {
                                     Layout.fillWidth: true
                                     text: I18n.t("Phương thức khác", "Other sign-in methods")
                                     font.family: Theme.fontFamily
-                                    font.bold: true
+                                    font.weight: Font.DemiBold
                                     font.pixelSize: 15
                                     color: ThemeManager.textColor
                                 }
@@ -626,7 +626,7 @@ Rectangle {
                                                 font.family: Theme.fontFamily
                                                 font.pixelSize: 13
                                                 color: ThemeManager.textColor
-                                                font.bold: true
+                                                font.weight: Font.DemiBold
                                             }
 
                                             Rectangle {
@@ -784,7 +784,7 @@ Rectangle {
                       : I18n.t("Đang xác thực tài khoản...", "Verifying your account...")
                 font.family: Theme.fontFamily
                 font.pixelSize: 12
-                font.bold: true
+                font.weight: Font.DemiBold
                 color: ZaloClient.hasLoginError ? Theme.badgeRed : Theme.zaloBlueTonalText
             }
         }
@@ -817,7 +817,7 @@ Rectangle {
                         text: I18n.t("Quét mã QR để đăng nhập", "Scan QR code to sign in")
                         font.family: Theme.fontFamily
                         font.pixelSize: 15
-                        font.bold: true
+                        font.weight: Font.DemiBold
                         color: ThemeManager.textColor
                     }
 
@@ -876,8 +876,8 @@ Rectangle {
 
                         Connections {
                             target: ZaloClient
-                            function onQrMatrixChanged() { qrZoomCanvas.requestPaint(); }
-                            function onQrCodeChanged() { qrZoomCanvas.requestPaint(); }
+                            function onQrMatrixChanged(): void { qrZoomCanvas.requestPaint(); }
+                            function onQrCodeChanged(): void { qrZoomCanvas.requestPaint(); }
                         }
 
                         Component.onCompleted: requestPaint()

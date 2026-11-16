@@ -277,7 +277,7 @@ Rectangle {
                     text: I18n.t("Thông tin hội thoại", "Conversation info")
                     font.family: Theme.fontFamily
                     font.pixelSize: 15
-                    font.bold: true
+                    font.weight: Font.DemiBold
                     color: ThemeManager.textColor
                     elide: Text.ElideRight
                 }
@@ -319,6 +319,8 @@ Rectangle {
             id: bodyScroll
             Layout.fillWidth: true
             Layout.fillHeight: true
+            leftPadding: 8
+            rightPadding: 8
             clip: true
             contentWidth: availableWidth
 
@@ -345,6 +347,7 @@ Rectangle {
                             avatarUrl: ZaloClient.currentConversationAvatar
                             name: ZaloClient.currentConversationName
                             isGroup: ZaloClient.currentConversationIsGroup
+                            isVerified: ZaloClient.currentConversationIsOfficial || ZaloClient.currentConversationIsCloud
                             memberCount: ZaloClient.currentConversationMemberCount
                             memberAvatars: ZaloClient.currentConversationIsGroup ? ZaloClient.groupComposite(ZaloClient.currentConversationId, ZaloClient.currentConversationMemberCount) : []
                         }
@@ -411,13 +414,19 @@ Rectangle {
 
                         property bool isEditingName: false
 
+                        Item {
+                            visible: renameButton.visible
+                            Layout.preferredWidth: 24
+                            Layout.preferredHeight: 24
+                        }
+
                         Text {
                             visible: !nameEditRow.isEditingName
                             Layout.fillWidth: true
                             horizontalAlignment: Text.AlignHCenter
                             text: ZaloClient.currentConversationName
                             font.family: Theme.fontFamily
-                            font.bold: true
+                            font.weight: Font.DemiBold
                             font.pixelSize: 16
                             color: ThemeManager.textColor
                             wrapMode: Text.WordWrap
@@ -426,9 +435,10 @@ Rectangle {
                         }
 
                         Rectangle {
+                            id: renameButton
                             visible: !nameEditRow.isEditingName && root.hasConversation && !ZaloClient.currentConversationIsCloud && !ZaloClient.currentConversationIsOfficial
-                            width: 24
-                            height: 24
+                            Layout.preferredWidth: 24
+                            Layout.preferredHeight: 24
                             radius: 12
                             color: renameHover.containsMouse ? ThemeManager.hoverColor : ThemeManager.hoverClearColor
                             ZIcon { anchors.centerIn: parent; name: "edit"; size: 14; color: ThemeManager.secondaryTextColor }
@@ -559,7 +569,7 @@ Rectangle {
                         text: I18n.t("Cài đặt nhóm", "Group settings")
                         font.family: Theme.fontFamily
                         font.pixelSize: 13
-                        font.bold: true
+                        font.weight: Font.DemiBold
                         color: ThemeManager.textColor
                     }
 
@@ -576,9 +586,7 @@ Rectangle {
                             ZIcon { name: "settings"; size: 16; color: ThemeManager.iconColor }
                             Text {
                                 Layout.fillWidth: true
-                                text: root.myRole === "owner" || root.myRole === "admin"
-                                      ? I18n.t("Quản lý nhóm", "Manage group")
-                                      : I18n.t("Link và quyền trong nhóm", "Link and group permissions")
+                                text: I18n.t("Quản lý nhóm", "Manage group")
                                 elide: Text.ElideRight
                                 font.family: Theme.fontFamily
                                 font.pixelSize: 13
@@ -687,6 +695,12 @@ Rectangle {
                         if (ms < 1209600000) return I18n.t("7 ngày", "7 days");
                         return I18n.t("14 ngày", "14 days");
                     }
+                    function ttlIndex(): int {
+                        if (autoDeleteSection.curTtl <= 0) return 0;
+                        if (autoDeleteSection.curTtl < 604800000) return 1;
+                        if (autoDeleteSection.curTtl < 1209600000) return 2;
+                        return 3;
+                    }
                     Component.onCompleted: autoDeleteSection.refreshTtl()
                     Connections {
                         target: ZaloClient
@@ -696,51 +710,33 @@ Rectangle {
 
                     RowLayout {
                         Layout.fillWidth: true
-                        spacing: 8
+                        spacing: 6
                         ZIcon { name: "clock"; size: 16; color: ThemeManager.isDarkMode ? "#45A3DD" : Theme.zaloBlue }
                         Text {
                             Layout.fillWidth: true
                             text: I18n.t("Tin nhắn tự xóa", "Disappearing messages")
                             font.family: Theme.fontFamily
                             font.pixelSize: 13
-                            font.bold: true
+                            font.weight: Font.DemiBold
                             color: ThemeManager.textColor
+                            elide: Text.ElideRight
                         }
-                    }
-                    Flow {
-                        Layout.fillWidth: true
-                        spacing: 6
-                        Repeater {
-                            model: autoDeleteSection.ttlOptions
-                            delegate: Rectangle {
-                                id: ttlChip
-                                required property int modelData
-                                readonly property bool active: autoDeleteSection.curTtl === modelData
-                                implicitWidth: ttlChipText.implicitWidth + 20
-                                implicitHeight: 28
-                                radius: 14
-                                color: ttlChip.active ? (ThemeManager.isDarkMode ? "#592673BF" : Theme.zaloBlueLight)
-                                                      : (ttlMouse.containsMouse ? ThemeManager.inputFillHoverColor : ThemeManager.inputFillColor)
-                                border.color: ttlChip.active ? (ThemeManager.isDarkMode ? "#1F6D99" : Theme.zaloBlue)
-                                                             : (ThemeManager.isDarkMode ? "#14FFFFFF" : ThemeManager.borderColor)
-                                border.width: 1
-                                Text {
-                                    id: ttlChipText
-                                    anchors.centerIn: parent
-                                    text: autoDeleteSection.ttlLabel(ttlChip.modelData)
-                                    font.family: Theme.fontFamily
-                                    font.pixelSize: 12
-                                    font.bold: ttlChip.active
-                                    color: ttlChip.active ? (ThemeManager.isDarkMode ? "#45A3DD" : Theme.zaloBlueTonalText)
-                                                          : ThemeManager.textColor
-                                }
-                                MouseArea {
-                                    id: ttlMouse
-                                    anchors.fill: parent
-                                    hoverEnabled: true
-                                    cursorShape: Qt.PointingHandCursor
-                                    onClicked: ZaloClient.setConversationAutoDelete(ZaloClient.currentConversationId, ttlChip.modelData)
-                                }
+                        ZComboBox {
+                            id: ttlCombo
+                            Layout.preferredWidth: 88
+                            Layout.minimumWidth: 84
+                            implicitHeight: 28
+                            font.pixelSize: 12
+                            model: [
+                                I18n.t("Tắt", "Off"),
+                                I18n.t("1 ngày", "1 day"),
+                                I18n.t("7 ngày", "7 days"),
+                                I18n.t("14 ngày", "14 days")
+                            ]
+                            currentIndex: autoDeleteSection.ttlIndex()
+                            onActivated: function(idx) {
+                                ZaloClient.setConversationAutoDelete(ZaloClient.currentConversationId,
+                                                                     autoDeleteSection.ttlOptions[idx] || 0);
                             }
                         }
                     }
@@ -815,7 +811,7 @@ Rectangle {
                             text: I18n.t("Nhắc hẹn", "Reminders")
                             font.family: Theme.fontFamily
                             font.pixelSize: 13
-                            font.bold: true
+                            font.weight: Font.DemiBold
                             color: ThemeManager.textColor
                         }
                         Rectangle {
@@ -930,7 +926,7 @@ Rectangle {
                             text: I18n.t("Thành viên", "Members") + " (" + Math.max(ZaloClient.currentConversationMemberCount, root.members.length) + ")"
                             font.family: Theme.fontFamily
                             font.pixelSize: 13
-                            font.bold: true
+                            font.weight: Font.DemiBold
                             color: ThemeManager.textColor
                         }
                         Text {
@@ -1084,7 +1080,7 @@ Rectangle {
                             text: I18n.t("Ảnh/Video", "Photos/Videos") + (root.sharedMedia.length > 0 ? " (" + root.sharedMedia.length + ")" : "")
                             font.family: Theme.fontFamily
                             font.pixelSize: 13
-                            font.bold: true
+                            font.weight: Font.DemiBold
                             color: ThemeManager.textColor
                         }
                     }
@@ -1142,7 +1138,7 @@ Rectangle {
                             text: I18n.t("File", "Files") + (root.sharedFiles.length > 0 ? " (" + root.sharedFiles.length + ")" : "")
                             font.family: Theme.fontFamily
                             font.pixelSize: 13
-                            font.bold: true
+                            font.weight: Font.DemiBold
                             color: ThemeManager.textColor
                         }
                     }
@@ -1182,7 +1178,7 @@ Rectangle {
                             text: I18n.t("Link", "Links") + (root.sharedLinks.length > 0 ? " (" + root.sharedLinks.length + ")" : "")
                             font.family: Theme.fontFamily
                             font.pixelSize: 13
-                            font.bold: true
+                            font.weight: Font.DemiBold
                             color: ThemeManager.textColor
                         }
                     }

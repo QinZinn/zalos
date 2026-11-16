@@ -50,7 +50,8 @@ purpose-built architecture:
 - **Voice & video calls** — 1-1 voice/video calls with OpenH264 video encoding; group calls are in beta.
 - **My Documents** — the personal storage thread with instant filters for photos, videos, files and links.
 - **Desktop utilities** — screenshot capture (`Ctrl+Alt+S`), configurable Kiki assistant and zBusiness tools (profile, product catalog, auto reply).
-- **Contacts quick actions** — 1-click voice call, video call, and direct chat on every contact row.
+- **Contacts & groups** — 1-click voice call, video call, and chat on every contact row, pending group invite box, friend recommendations, mutual groups in profiles, and Community upgrade for group owners.
+- **Safety & devices** — Zalo safe link scanning (`scanURL`) before opening external links, message/profile abuse reporting, and E2EE linked devices viewer in Settings.
 - **System tray** — unread-count badge and quick actions.
 - **Offline history** — your conversations stay available without a connection.
 - **In-app update support** — GitHub Releases check with SHA-256 verification (atomic self-update + `gh-releases-zsync` for AppImage; `pkexec`/system installer for `.deb`/`.rpm`).
@@ -76,21 +77,21 @@ installed on the oldest and newest one in CI.
 ### Ubuntu 24.04+ (`.deb`)
 ```bash
 # x86_64 (amd64)
-wget https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.2.5-1~ubuntu24.04_amd64.deb
-sudo apt install ./zalos_1.2.5-1~ubuntu24.04_amd64.deb
+wget https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.2.6-1~ubuntu24.04_amd64.deb
+sudo apt install ./zalos_1.2.6-1~ubuntu24.04_amd64.deb
 
 # ARM64 (aarch64)
-wget https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.2.5-1~ubuntu24.04_arm64.deb
-sudo apt install ./zalos_1.2.5-1~ubuntu24.04_arm64.deb
+wget https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.2.6-1~ubuntu24.04_arm64.deb
+sudo apt install ./zalos_1.2.6-1~ubuntu24.04_arm64.deb
 ```
 
 ### Fedora 43+ (`.rpm`)
 ```bash
 # x86_64
-sudo dnf install https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.2.5-1.fc43.x86_64.rpm
+sudo dnf install https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.2.6-1.fc43.x86_64.rpm
 
 # ARM64 (aarch64)
-sudo dnf install https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.2.5-1.fc43.aarch64.rpm
+sudo dnf install https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.2.6-1.fc43.aarch64.rpm
 ```
 
 ### NixOS / Nix
@@ -102,14 +103,14 @@ nix profile install github:cpfriend1721994/zalos
 ### AppImage (portable, glibc ≥ 2.35)
 ```bash
 # x86_64
-wget https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.2.5-x86_64.AppImage
-chmod +x Zalos-1.2.5-x86_64.AppImage
-./Zalos-1.2.5-x86_64.AppImage
+wget https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.2.6-x86_64.AppImage
+chmod +x Zalos-1.2.6-x86_64.AppImage
+./Zalos-1.2.6-x86_64.AppImage
 
 # ARM64 (aarch64)
-wget https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.2.5-aarch64.AppImage
-chmod +x Zalos-1.2.5-aarch64.AppImage
-./Zalos-1.2.5-aarch64.AppImage
+wget https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.2.6-aarch64.AppImage
+chmod +x Zalos-1.2.6-aarch64.AppImage
+./Zalos-1.2.6-aarch64.AppImage
 ```
 The AppImage (~22 MB) uses your host Qt 6 when available and automatically falls back to its bundled Qt 6.4 runtime on systems without Qt 6 (requiring only standard desktop libraries and `glibc ≥ 2.35`, e.g. Ubuntu 22.04+, Debian 12+, Fedora, openSUSE, Arch).
 
@@ -148,7 +149,7 @@ docker compose run --rm package-rpm      # dist/*.x86_64.rpm
 docker compose run --rm package-nix      # dist/*-nixos.tar.gz
 ```
 
-Pushing a semantic tag (`git tag v1.2.5 && git push origin v1.2.5`) builds the full package set and publishes
+Pushing a semantic tag (`git tag v1.2.6 && git push origin v1.2.6`) builds the full package set and publishes
 a GitHub Release.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the contributor workflow.

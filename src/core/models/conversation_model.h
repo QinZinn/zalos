@@ -69,7 +69,8 @@ public:
         DraftRole,
         MemberAvatarsRole,
         HasUnreadMentionRole,
-        IsHiddenRole
+        IsHiddenRole,
+        IsOfficialRole
     };
 
     explicit ConversationModel(QObject* parent = nullptr);
@@ -166,6 +167,7 @@ private:
     QSet<QString> m_officialIds;
     QString m_myUid;
     bool strangerId(const QString& convId, bool isGroup) const;
+    bool isSystemOrOfficial(const ConversationItem& item) const;
     void stampLabel(ConversationItem& item) const;
     QHash<QString, QVariantMap> m_labels;
 };

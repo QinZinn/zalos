@@ -38,7 +38,7 @@ Rectangle {
             color: "#FFFFFF"
             font.family: Theme.fontFamily
             font.pixelSize: 11
-            font.bold: true
+            font.weight: Font.DemiBold
         }
     }
 

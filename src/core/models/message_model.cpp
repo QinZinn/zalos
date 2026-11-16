@@ -106,14 +106,16 @@ QVariant MessageModel::data(const QModelIndex& index, int role) const {
             return true;
         }
         case RichTextRole: {
-            if (!item.richTextCached) {
-                const QVariantList styles = item.extra.value("styles").toList();
-                item.richTextCache = !styles.isEmpty()
-                    ? styledHtml(item.text, item.mentions, styles)
-                    : (item.mentions.isEmpty() ? linkify(item.text) : linkify(item.text, item.mentions));
-                item.richTextCached = true;
+            const QString key = item.id + QLatin1Char(':') + QString::number(item.text.size());
+            if (const QString* cached = m_richTextLru.object(key)) {
+                return *cached;
             }
-            return item.richTextCache;
+            const QVariantList styles = item.extra.value("styles").toList();
+            const QString html = !styles.isEmpty()
+                ? styledHtml(item.text, item.mentions, styles)
+                : (item.mentions.isEmpty() ? linkify(item.text) : linkify(item.text, item.mentions));
+            m_richTextLru.insert(key, new QString(html));
+            return html;
         }
         case ExtraRole: return item.extra;
         case SeenUidsRole: return item.seenUids;
@@ -496,14 +498,13 @@ void MessageModel::setReaction(const QString& convId, const QString& msgId, cons
 }
 
 void MessageModel::markRecalled(const QString& convId, const QString& msgId, const QString& placeholder) {
+    m_richTextLru.clear();
     updateItem(m_store, m_items, m_currentConvId, convId, msgId, [&](MessageItem& m) {
         m.isRecalled = true;
         m.text = placeholder;
         m.messageType = "text";
         m.mediaUrl.clear();
         m.reaction.clear();
-        m.richTextCache.clear();
-        m.richTextCached = false;
     }, this, {IsRecalledRole, TextRole, RichTextRole, MessageTypeRole, MediaUrlRole, ReactionRole});
 }
 
@@ -649,7 +650,16 @@ void MessageModel::clearThread(const QString& convId) {
     if (m_currentConvId != convId) return;
     beginResetModel();
     m_items.clear();
+    m_richTextLru.clear();
     endResetModel();
+}
+
+void MessageModel::trimThreadWindow(const QString& convId, int maxItems) {
+    if (convId.isEmpty() || maxItems <= 0 || convId == m_currentConvId) return;
+    auto it = m_store.find(convId);
+    if (it == m_store.end() || it->size() <= maxItems) return;
+    const int drop = int(it->size()) - maxItems;
+    it->erase(it->begin(), it->begin() + drop);
 }
 
 void MessageModel::clearAll() {
@@ -657,6 +667,7 @@ void MessageModel::clearAll() {
     m_items.clear();
     m_store.clear();
     m_currentConvId.clear();
+    m_richTextLru.clear();
     endResetModel();
 }
 
@@ -664,6 +675,7 @@ void MessageModel::loadConversation(const QString& conversationId) {
     beginResetModel();
     m_unreadMarkerId.clear();
     m_pendingUnread = 0;
+    m_richTextLru.clear();
     if (conversationId != m_currentConvId) {
         if (!m_currentConvId.isEmpty()) {
             if (!m_items.isEmpty()) m_store.insert(m_currentConvId, std::move(m_items));
@@ -953,8 +965,7 @@ void MessageModel::setPollData(qint64 pollId, const QVariantMap& data) {
         m_items[i].pollData = data;
         if (!data.value("question").toString().isEmpty()) {
             m_items[i].text = data.value("question").toString();
-            m_items[i].richTextCache.clear();
-            m_items[i].richTextCached = false;
+            m_richTextLru.clear();
         }
         emit dataChanged(index(i), index(i), {PollDataRole, TextRole, RichTextRole});
     }
@@ -964,8 +975,7 @@ void MessageModel::setPollData(qint64 pollId, const QVariantMap& data) {
             item.pollData = data;
             if (!data.value("question").toString().isEmpty()) {
                 item.text = data.value("question").toString();
-                item.richTextCache.clear();
-                item.richTextCached = false;
+                m_richTextLru.clear();
             }
         }
     }
@@ -977,7 +987,12 @@ QVariantList MessageModel::sharedItems(const QString& kind, int limit) const {
     for (int i = m_items.size() - 1; i >= 0 && out.size() < limit; --i) {
         const MessageItem& m = m_items.at(i);
         if (m.isRecalled) continue;
-        QVariantMap e{{"msgId", m.id}, {"senderName", m.senderName}, {"ts", m.ts}};
+        QString sender = m.senderName;
+        if (sender.isEmpty() && !m.isMine && m_senderResolver && !m.senderId.isEmpty()
+            && m.senderId != QLatin1String("system")) {
+            sender = m_senderResolver(m.senderId).first;
+        }
+        QVariantMap e{{"msgId", m.id}, {"senderName", sender}, {"ts", m.ts}};
         if (kind == QLatin1String("media")) {
             if (m.messageType != QLatin1String("image") && m.messageType != QLatin1String("video")) continue;
             if (m.mediaUrl.isEmpty()) continue;

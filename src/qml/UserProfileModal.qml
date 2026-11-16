@@ -209,7 +209,8 @@ Item {
                 size: 70
                 avatarUrl: ZaloClient.profileAvatar
                 name: ZaloClient.profileDisplayName
-                showStatusDot: !ZaloClient.profileIsSelf
+                isVerified: ZaloClient.profileIsOfficial || ZaloClient.profileUserId === ZaloClient.myCloudId
+                showStatusDot: !ZaloClient.profileIsSelf && !ZaloClient.profileIsOfficial && ZaloClient.profileUserId !== ZaloClient.myCloudId
                 isOnline: !ZaloClient.isOfflineMode
             }
 
@@ -297,7 +298,7 @@ Item {
                                   ? ZaloClient.profileDisplayName
                                   : I18n.t("Người dùng Zalo", "Zalo User")
                             font.family: Theme.fontFamily
-                            font.bold: true
+                            font.weight: Font.DemiBold
                             font.pixelSize: 18
                             color: ThemeManager.textColor
                             selectionColor: Theme.zaloBlueLight
@@ -322,7 +323,7 @@ Item {
                                          : (ZaloClient.profileIsFriend ? I18n.t("Bạn bè", "Friend") : I18n.t("Người lạ", "Stranger")))
                                 font.family: Theme.fontFamily
                                 font.pixelSize: 11
-                                font.bold: true
+                                font.weight: Font.DemiBold
                                 color: ZaloClient.profileIsSelf ? Theme.zaloBlueTonalText : ThemeManager.secondaryTextColor
                             }
                         }
@@ -485,7 +486,7 @@ Item {
                     Text {
                         text: I18n.t("Thông tin cá nhân", "Personal Information")
                         font.family: Theme.fontFamily
-                        font.bold: true
+                        font.weight: Font.DemiBold
                         font.pixelSize: 13
                         color: ThemeManager.textColor
                     }
@@ -599,7 +600,7 @@ Item {
                                 Text {
                                     text: I18n.t("Chỉnh sửa thông tin", "Edit profile")
                                     font.family: Theme.fontFamily
-                                    font.bold: true
+                                    font.weight: Font.DemiBold
                                     font.pixelSize: 13
                                     color: Theme.zaloBlueTonalText
                                 }
@@ -679,6 +680,109 @@ Item {
                         Layout.fillWidth: true
                         spacing: 8
 
+                        ColumnLayout {
+                            id: mutualGroupsBox
+                            visible: ZaloClient.profileRelatedGroups.length > 0 && !ZaloClient.profileIsSelf
+                            Layout.fillWidth: true
+                            spacing: 6
+                            property bool mutualExpanded: false
+                            readonly property int totalCount: ZaloClient.profileRelatedGroups.length
+                            readonly property var shownGroups: (mutualExpanded || totalCount <= 3)
+                                                               ? ZaloClient.profileRelatedGroups
+                                                               : ZaloClient.profileRelatedGroups.slice(0, 3)
+                            onVisibleChanged: if (!visible) mutualExpanded = false
+                            Connections {
+                                target: ZaloClient
+                                function onCurrentProfileChanged(): void {
+                                    mutualGroupsBox.mutualExpanded = false;
+                                }
+                            }
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: I18n.t("Nhóm chung", "Mutual groups") + " (" + mutualGroupsBox.totalCount + ")"
+                                    font.family: Theme.fontFamily
+                                    font.weight: Font.DemiBold
+                                    font.pixelSize: 12
+                                    color: ThemeManager.secondaryTextColor
+                                }
+                                Text {
+                                    visible: mutualGroupsBox.totalCount > 3
+                                    text: mutualGroupsBox.mutualExpanded
+                                          ? I18n.t("Thu gọn", "Collapse")
+                                          : I18n.t("Xem thêm (+%1)", "Show all (+%1)").arg(mutualGroupsBox.totalCount - 3)
+                                    font.family: Theme.fontFamily
+                                    font.weight: Font.DemiBold
+                                    font.pixelSize: 12
+                                    color: Theme.zaloBlue
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: mutualGroupsBox.mutualExpanded = !mutualGroupsBox.mutualExpanded
+                                    }
+                                }
+                            }
+
+                            ListView {
+                                id: mutGrpList
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: mutualGroupsBox.shownGroups.length > 0
+                                                        ? Math.min(mutualGroupsBox.shownGroups.length * 40 - 4, 220)
+                                                        : 0
+                                clip: true
+                                spacing: 4
+                                boundsBehavior: Flickable.StopAtBounds
+                                interactive: mutualGroupsBox.mutualExpanded && mutualGroupsBox.totalCount > 3
+                                model: mutualGroupsBox.shownGroups
+                                ScrollBar.vertical: ScrollBar {
+                                    policy: mutualGroupsBox.mutualExpanded && mutualGroupsBox.totalCount > 3
+                                            ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
+                                }
+                                delegate: Rectangle {
+                                    id: mutGrpRow
+                                    required property var modelData
+                                    width: mutGrpList.width - (mutualGroupsBox.mutualExpanded && mutualGroupsBox.totalCount > 3 ? 8 : 0)
+                                    height: 36
+                                    radius: 6
+                                    color: mutGrpMouse.containsMouse ? ThemeManager.hoverColor : ThemeManager.inputFillColor
+
+                                    RowLayout {
+                                        anchors.fill: parent
+                                        anchors.leftMargin: 10
+                                        anchors.rightMargin: 10
+                                        spacing: 8
+                                        ZAvatar {
+                                            size: 24
+                                            avatarUrl: mutGrpRow.modelData.avatar || ""
+                                            name: mutGrpRow.modelData.name || ""
+                                            isGroup: true
+                                        }
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: mutGrpRow.modelData.name || mutGrpRow.modelData.id
+                                            elide: Text.ElideRight
+                                            font.family: Theme.fontFamily
+                                            font.pixelSize: 12
+                                            color: ThemeManager.textColor
+                                        }
+                                    }
+
+                                    MouseArea {
+                                        id: mutGrpMouse
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: {
+                                            ZaloClient.closeUserProfile();
+                                            ZaloClient.selectConversation(mutGrpRow.modelData.id, mutGrpRow.modelData.name || "", mutGrpRow.modelData.avatar || "");
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
                         RowLayout {
                             Layout.fillWidth: true
                             spacing: 8
@@ -696,7 +800,7 @@ Item {
                                     Text {
                                         text: I18n.t("Nhắn tin", "Chat")
                                         font.family: Theme.fontFamily
-                                        font.bold: true
+                                        font.weight: Font.DemiBold
                                         font.pixelSize: 13
                                         color: "#FFFFFF"
                                     }
@@ -788,6 +892,16 @@ Item {
                             onClicked: groupPicker.open()
                         }
 
+                        ZButton {
+                            visible: ZaloClient.isLoggedIn && !ZaloClient.profileIsSelf && !ZaloClient.profileIsOfficial
+                                     && ZaloClient.profileUserId !== ZaloClient.myCloudId
+                            Layout.fillWidth: true
+                            variant: "secondary"
+                            iconName: "shield"
+                            text: I18n.t("Báo cáo vi phạm", "Report abuse")
+                            onClicked: ZaloClient.reportAbuse(ZaloClient.profileUserId, false, 0, "")
+                        }
+
                         RowLayout {
                             Layout.fillWidth: true
                             spacing: 8
@@ -858,7 +972,7 @@ Item {
                     Text {
                         text: I18n.t("Chỉnh sửa thông tin tài khoản", "Edit Profile")
                         font.family: Theme.fontFamily
-                        font.bold: true
+                        font.weight: Font.DemiBold
                         font.pixelSize: 13
                         color: ThemeManager.textColor
                     }
@@ -913,7 +1027,7 @@ Item {
                                     anchors.centerIn: parent
                                     text: I18n.t("Nam", "Male")
                                     font.family: Theme.fontFamily
-                                    font.bold: root.editGender === 0
+                                    font.weight: (root.editGender === 0) ? Font.DemiBold : Font.Normal
                                     font.pixelSize: 13
                                     color: root.editGender === 0 ? Theme.zaloBlue : ThemeManager.textColor
                                 }
@@ -936,7 +1050,7 @@ Item {
                                     anchors.centerIn: parent
                                     text: I18n.t("Nữ", "Female")
                                     font.family: Theme.fontFamily
-                                    font.bold: root.editGender === 1
+                                    font.weight: (root.editGender === 1) ? Font.DemiBold : Font.Normal
                                     font.pixelSize: 13
                                     color: root.editGender === 1 ? Theme.zaloBlue : ThemeManager.textColor
                                 }
@@ -1037,7 +1151,7 @@ Item {
                                 anchors.centerIn: parent
                                 text: I18n.t("Lưu thay đổi", "Save")
                                 font.family: Theme.fontFamily
-                                font.bold: true
+                                font.weight: Font.DemiBold
                                 font.pixelSize: 13
                                 color: "#FFFFFF"
                             }
@@ -1087,7 +1201,7 @@ Item {
                 elide: Text.ElideRight
                 font.family: Theme.fontFamily
                 font.pixelSize: 15
-                font.bold: true
+                font.weight: Font.DemiBold
                 color: ThemeManager.textColor
             }
             ZTextField {

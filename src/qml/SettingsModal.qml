@@ -37,7 +37,7 @@ Item {
     component SectionTitle: Text {
         Layout.fillWidth: true
         font.family: Theme.fontFamily
-        font.bold: true
+        font.weight: Font.DemiBold
         font.pixelSize: 15
         color: ThemeManager.textColor
         wrapMode: Text.WordWrap
@@ -80,7 +80,7 @@ Item {
                     Layout.fillWidth: true
                     text: toggleRow.title
                     font.family: Theme.fontFamily
-                    font.bold: toggleRow.subtitle.length > 0
+                    font.weight: (toggleRow.subtitle.length > 0) ? Font.DemiBold : Font.Normal
                     font.pixelSize: 13
                     color: ThemeManager.textColor
                     wrapMode: Text.WordWrap
@@ -123,7 +123,7 @@ Item {
             text: segmentedOption.label
             font.family: Theme.fontFamily
             font.pixelSize: 13
-            font.bold: segmentedOption.selected
+            font.weight: segmentedOption.selected ? Font.DemiBold : Font.Normal
             color: segmentedOption.selected ? Theme.zaloBlueTonalText : ThemeManager.textColor
             elide: Text.ElideRight
         }
@@ -227,7 +227,7 @@ Item {
                 text: langOption.label
                 font.family: Theme.fontFamily
                 font.pixelSize: 13
-                font.bold: langOption.selected
+                font.weight: langOption.selected ? Font.DemiBold : Font.Normal
                 color: ThemeManager.textColor
                 elide: Text.ElideRight
             }
@@ -285,7 +285,7 @@ Item {
                 Layout.fillWidth: true
                 text: soundPicker.title
                 font.family: Theme.fontFamily
-                font.bold: true
+                font.weight: Font.DemiBold
                 font.pixelSize: 13
                 color: ThemeManager.textColor
                 wrapMode: Text.WordWrap
@@ -395,7 +395,7 @@ Item {
                         color: "#FFFFFF"
                         font.family: Theme.fontFamily
                         font.pixelSize: 13
-                        font.bold: true
+                        font.weight: Font.DemiBold
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                     }
@@ -461,7 +461,7 @@ Item {
                     anchors.verticalCenter: parent.verticalCenter
                     text: I18n.t("Cài đặt", "Settings")
                     font.family: Theme.fontFamily
-                    font.bold: true
+                    font.weight: Font.DemiBold
                     font.pixelSize: 17
                     color: ThemeManager.textColor
                     elide: Text.ElideRight
@@ -585,7 +585,7 @@ Item {
                                         text: tabItem.tabLabel
                                         font.family: Theme.fontFamily
                                         font.pixelSize: 13
-                                        font.bold: tabItem.active
+                                        font.weight: tabItem.active ? Font.DemiBold : Font.Normal
                                         color: tabItem.active ? Theme.zaloBlue : ThemeManager.textColor
                                         elide: Text.ElideRight
                                     }
@@ -926,7 +926,7 @@ Item {
                                     Layout.fillWidth: true
                                     text: I18n.t("Hình nền trò chuyện", "Chat background")
                                     font.family: Theme.fontFamily
-                                    font.bold: true
+                                    font.weight: Font.DemiBold
                                     font.pixelSize: 14
                                     color: ThemeManager.textColor
                                 }
@@ -1090,7 +1090,7 @@ Item {
                                     Layout.fillWidth: true
                                     text: I18n.t("Thanh điều hướng", "Navigation bar")
                                     font.family: Theme.fontFamily
-                                    font.bold: true
+                                    font.weight: Font.DemiBold
                                     font.pixelSize: 14
                                     color: ThemeManager.textColor
                                 }
@@ -1240,7 +1240,7 @@ Item {
                                     Layout.fillWidth: true
                                     text: I18n.t("Âm thanh", "Sounds")
                                     font.family: Theme.fontFamily
-                                    font.bold: true
+                                    font.weight: Font.DemiBold
                                     font.pixelSize: 14
                                     color: ThemeManager.textColor
                                 }
@@ -1724,7 +1724,7 @@ Item {
                                                                 : I18n.t("Đang đồng bộ...", "Syncing in progress...")))
                                                     font.family: Theme.fontFamily
                                                     font.pixelSize: 14
-                                                    font.bold: true
+                                                    font.weight: Font.DemiBold
                                                     color: ThemeManager.textColor
                                                 }
 
@@ -1797,7 +1797,7 @@ Item {
                                                              : I18n.t("Bắt đầu đồng bộ", "Start sync"))
                                                     font.family: Theme.fontFamily
                                                     font.pixelSize: 13
-                                                    font.bold: true
+                                                    font.weight: Font.DemiBold
                                                     color: "#FFFFFF"
                                                 }
                                                 MouseArea {
@@ -1859,7 +1859,7 @@ Item {
                                                 text: "Zalos v" + ZaloClient.appVersion
                                                 font.family: Theme.fontFamily
                                                 font.pixelSize: 16
-                                                font.bold: true
+                                                font.weight: Font.DemiBold
                                                 color: ThemeManager.textColor
                                             }
 
@@ -1907,7 +1907,7 @@ Item {
                                                       : I18n.t("Đang tắt", "Disabled")
                                                 font.family: Theme.fontFamily
                                                 font.pixelSize: 13
-                                                font.bold: true
+                                                font.weight: Font.DemiBold
                                                 color: ZaloClient.hardwareAcceleration ? Theme.zaloBlue : ThemeManager.textColor
                                             }
                                         }
@@ -1925,7 +1925,7 @@ Item {
                                                 text: ZaloClient.rendererBackend
                                                 font.family: Theme.fontFamily
                                                 font.pixelSize: 13
-                                                font.bold: true
+                                                font.weight: Font.DemiBold
                                                 color: ThemeManager.textColor
                                             }
                                         }
@@ -1943,7 +1943,7 @@ Item {
                                                 text: "Qt " + ZaloClient.qtRuntimeVersion + " (" + ZaloClient.platformName + ")"
                                                 font.family: Theme.fontFamily
                                                 font.pixelSize: 13
-                                                font.bold: true
+                                                font.weight: Font.DemiBold
                                                 color: ThemeManager.textColor
                                             }
                                         }
@@ -1965,7 +1965,7 @@ Item {
                                                          : I18n.t("Sáng", "Light"))
                                                 font.family: Theme.fontFamily
                                                 font.pixelSize: 13
-                                                font.bold: true
+                                                font.weight: Font.DemiBold
                                                 color: ThemeManager.textColor
                                             }
                                         }
@@ -2046,7 +2046,7 @@ Item {
                                         text: ZaloClient.updateStatus
                                         font.family: Theme.fontFamily
                                         font.pixelSize: 12
-                                        font.bold: ZaloClient.updateAvailable
+                                        font.weight: ZaloClient.updateAvailable ? Font.DemiBold : Font.Normal
                                         color: ZaloClient.updateAvailable ? Theme.zaloBlue : ThemeManager.secondaryTextColor
                                     }
 
@@ -2091,6 +2091,72 @@ Item {
                                         iconName: "help"
                                         text: I18n.t("Báo lỗi", "Report issue")
                                         onClicked: ZaloClient.openExternalUrl("https://github.com/cpfriend1721994/zalos/issues")
+                                    }
+                                }
+
+                                ColumnLayout {
+                                    visible: ZaloClient.isLoggedIn
+                                    Layout.fillWidth: true
+                                    spacing: 8
+                                    onVisibleChanged: if (visible && ZaloClient.linkedDevices.length === 0) ZaloClient.refreshLinkedDevices()
+
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: I18n.t("Thiết bị liên kết (E2EE)", "Linked devices (E2EE)")
+                                            font.family: Theme.fontFamily
+                                            font.weight: Font.DemiBold
+                                            font.pixelSize: 13
+                                            color: ThemeManager.textColor
+                                        }
+                                        ZButton {
+                                            variant: "secondary"
+                                            iconName: "refresh"
+                                            text: I18n.t("Làm mới", "Refresh")
+                                            onClicked: ZaloClient.refreshLinkedDevices()
+                                        }
+                                    }
+
+                                    Text {
+                                        visible: ZaloClient.linkedDevices.length === 0
+                                        Layout.fillWidth: true
+                                        wrapMode: Text.WordWrap
+                                        text: I18n.t("Chưa có dữ liệu thiết bị liên kết.", "No linked device data returned.")
+                                        font.family: Theme.fontFamily
+                                        font.pixelSize: 12
+                                        color: ThemeManager.secondaryTextColor
+                                    }
+
+                                    Repeater {
+                                        model: ZaloClient.linkedDevices
+                                        delegate: Rectangle {
+                                            id: devRow
+                                            required property var modelData
+                                            Layout.fillWidth: true
+                                            Layout.preferredHeight: 38
+                                            radius: Theme.radiusMedium
+                                            color: ThemeManager.cardBackgroundColor
+                                            RowLayout {
+                                                anchors.fill: parent
+                                                anchors.leftMargin: 12
+                                                anchors.rightMargin: 12
+                                                Text {
+                                                    Layout.fillWidth: true
+                                                    text: devRow.modelData.id || I18n.t("Thiết bị Zalo", "Zalo device")
+                                                    elide: Text.ElideRight
+                                                    font.family: Theme.fontFamily
+                                                    font.pixelSize: 12
+                                                    color: ThemeManager.textColor
+                                                }
+                                                Text {
+                                                    text: devRow.modelData.timeText || ""
+                                                    font.family: Theme.fontFamily
+                                                    font.pixelSize: 11
+                                                    color: ThemeManager.secondaryTextColor
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }

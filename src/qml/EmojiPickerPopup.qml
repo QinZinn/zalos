@@ -51,7 +51,7 @@ Rectangle {
                         text: tabItem.modelData
                         font.family: Theme.fontFamily
                         font.pixelSize: 13
-                        font.bold: tabItem.current
+                        font.weight: tabItem.current ? Font.DemiBold : Font.Normal
                         color: tabItem.current ? Theme.zaloBlue : ThemeManager.secondaryTextColor
                     }
                     Rectangle {
@@ -127,7 +127,7 @@ Rectangle {
                         text: I18n.t(rowDelegate.nameVi, rowDelegate.nameEn)
                         font.family: Theme.fontFamily
                         font.pixelSize: 11
-                        font.bold: true
+                        font.weight: Font.DemiBold
                         color: ThemeManager.secondaryTextColor
                         elide: Text.ElideRight
                     }
@@ -223,7 +223,7 @@ Rectangle {
                       : ZaloClient.stickers.currentCategoryName
                 font.family: Theme.fontFamily
                 font.pixelSize: 12
-                font.weight: Font.Medium
+                font.weight: Font.DemiBold
                 color: ThemeManager.secondaryTextColor
                 elide: Text.ElideRight
             }
@@ -238,6 +238,7 @@ Rectangle {
                     bottom: parent.bottom
                 }
                 clip: true
+                cacheBuffer: 120
                 cellWidth: Math.floor(width / Math.max(3, Math.floor(width / 84)))
                 cellHeight: cellWidth
                 model: ZaloClient.stickers.stickers

@@ -78,7 +78,7 @@ Item {
                     text: I18n.t("Tạo cuộc bình chọn", "Create poll")
                     font.family: Theme.fontFamily
                     font.pixelSize: 16
-                    font.bold: true
+                    font.weight: Font.DemiBold
                     color: ThemeManager.textColor
                     elide: Text.ElideRight
                 }
@@ -120,7 +120,7 @@ Item {
                     text: I18n.t("Câu hỏi bình chọn", "Poll question")
                     font.family: Theme.fontFamily
                     font.pixelSize: 13
-                    font.bold: true
+                    font.weight: Font.DemiBold
                     color: ThemeManager.textColor
                 }
 
@@ -158,7 +158,7 @@ Item {
                     text: I18n.t("Các phương án lựa chọn", "Options")
                     font.family: Theme.fontFamily
                     font.pixelSize: 13
-                    font.bold: true
+                    font.weight: Font.DemiBold
                     color: ThemeManager.textColor
                 }
 
@@ -364,7 +364,7 @@ Item {
                         text: I18n.t("Tạo bình chọn", "Create poll")
                         font.family: Theme.fontFamily
                         font.pixelSize: 13
-                        font.bold: true
+                        font.weight: Font.DemiBold
                         color: "#FFFFFF"
                     }
 

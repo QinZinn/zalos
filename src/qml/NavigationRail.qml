@@ -65,7 +65,7 @@ Rectangle {
                 color: "#FFFFFF"
                 font.family: Theme.fontFamily
                 font.pixelSize: 12
-                font.bold: true
+                font.weight: Font.DemiBold
             }
         }
 
@@ -124,7 +124,7 @@ Rectangle {
                 color: ThemeManager.isDarkMode ? folder.dot : "#FFFFFF"
                 font.family: Theme.fontFamily
                 font.pixelSize: Math.max(11, Math.floor(folderDisc.width * 0.36))
-                font.bold: true
+                font.weight: Font.DemiBold
             }
         }
 
@@ -387,7 +387,7 @@ Rectangle {
                     elide: Text.ElideRight
                     font.family: Theme.fontFamily
                     font.pixelSize: 16
-                    font.bold: true
+                    font.weight: Font.DemiBold
                     color: ThemeManager.textColor
                 }
 
@@ -446,7 +446,7 @@ Rectangle {
                     text: I18n.t("Chụp màn hình", "Capture Screenshot")
                     font.family: Theme.fontFamily
                     font.pixelSize: 13
-                    font.bold: true
+                    font.weight: Font.DemiBold
                     color: ThemeManager.textColor
                 }
 
@@ -498,7 +498,7 @@ Rectangle {
                     text: I18n.t("Công cụ zBusiness", "zBusiness Tools")
                     font.family: Theme.fontFamily
                     font.pixelSize: 13
-                    font.bold: true
+                    font.weight: Font.DemiBold
                     color: ThemeManager.textColor
                 }
 

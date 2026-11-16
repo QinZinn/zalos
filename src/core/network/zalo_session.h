@@ -122,7 +122,7 @@ public:
     void deleteAvatarPhotos(const QStringList& photoIds, Callback cb);
 
     void pullMobileMessages(const QString& pcName, const QString& publicKey, qint64 fromSeqId, qint64 minSeqId,
-                            bool isRetry, Callback cb);
+                            bool isRetry, Callback cb, const QString& tempKey = QString());
     void cancelPullMobileMessages(const QString& pcName, const QString& publicKey, Callback cb);
     void cleanMobileSync(const QString& publicKey, Callback cb);
     void fetchAliasList(int page, int count, Callback cb);
@@ -204,6 +204,20 @@ public:
     void fetchBlockedMembers(const QString& groupId, int page, int count, Callback cb);
     void setMembersBlocked(const QString& groupId, const QStringList& memberIds, bool blocked, Callback cb);
     void inviteToGroups(const QString& userId, const QStringList& groupIds, Callback cb);
+
+    void fetchGroupInviteBoxList(int page, int invPerPage, Callback cb);
+    void joinGroupInviteBox(const QString& groupId, Callback cb);
+    void deleteGroupInviteBox(const QStringList& groupIds, bool blockFuture, Callback cb);
+    void fetchRelatedFriendGroups(const QStringList& friendIds, Callback cb);
+    void fetchLinkedDevices(Callback cb);
+    void scanUrl(const QString& url, Callback cb);
+    void sendReport(const QString& threadId, bool isGroup, int reason, const QString& content, Callback cb);
+    void fetchCloseFriends(Callback cb);
+    void upgradeGroupToCommunity(const QString& groupId, Callback cb);
+    void fetchBankList(Callback cb);
+    void fetchBankAccounts(int page, int limit, Callback cb);
+    void createBankAccount(int binBank, const QString& numAccBank, const QString& nameAccBank, Callback cb);
+    void sendBankCard(const QString& threadId, bool isGroup, int binBank, const QString& numAccBank, const QString& nameAccBank, Callback cb);
 
     void connectRealtime();
     void probeRealtime();
