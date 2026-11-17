@@ -25,6 +25,11 @@ on:
         required: false
         type: boolean
         default: false
+      publish_repo:
+        description: 'Publish APT & RPM repo from the latest GitHub Release to GitHub Pages'
+        required: false
+        type: boolean
+        default: true
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -256,3 +261,61 @@ jobs:
           body_path: release-notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-repo:
+    name: Publish APT & RPM repo
+    needs: [release]
+    if: ${{ always() && (needs.release.result == 'success' || (github.event_name == 'workflow_dispatch' && inputs.publish_repo)) }}
+    runs-on: [self-hosted, Linux, X64, tunnm-cicd]
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          clean: true
+      - name: Download .deb and .rpm release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          rm -rf repo-pkgs _repo
+          mkdir -p repo-pkgs
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            gh release download "${{ github.ref_name }}" -p '*.deb' -p '*.rpm' -D repo-pkgs --clobber
+          else
+            gh release download -p '*.deb' -p '*.rpm' -D repo-pkgs --clobber
+          fi
+          ls -lh repo-pkgs/
+      - name: Build and sign APT & RPM repository
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          CID=$(docker create \
+            -e GPG_PRIVATE_KEY \
+            -e GPG_PASSPHRASE \
+            ubuntu:24.04 bash -c "
+              set -e
+              export DEBIAN_FRONTEND=noninteractive
+              apt-get update -qq
+              apt-get install -y --no-install-recommends dpkg-dev apt-utils createrepo-c rpm gpg ca-certificates
+              bash /tmp/scripts/build-pkg-repo.sh /tmp/repo-pkgs /tmp/_repo
+            ")
+          trap 'docker rm -f "${CID}" >/dev/null 2>&1 || true' EXIT
+          docker cp "${GITHUB_WORKSPACE}/scripts" "${CID}:/tmp/scripts"
+          docker cp "${GITHUB_WORKSPACE}/repo-pkgs" "${CID}:/tmp/repo-pkgs"
+          docker start -a "${CID}"
+          docker cp "${CID}:/tmp/_repo" "${GITHUB_WORKSPACE}/_repo"
+      - name: Setup GitHub Pages
+        uses: actions/configure-pages@v6
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: './_repo'
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5

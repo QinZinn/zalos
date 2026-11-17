@@ -1,0 +1,48 @@
+name: zalos
+base: core24
+adopt-info: zalos
+grade: stable
+confinement: strict
+
+apps:
+  zalos:
+    command: usr/bin/zalos
+    extensions: [kde-neon-6]
+    common-id: io.github.cpfriend1721994.zalos
+    desktop: usr/share/applications/zalos.desktop
+    plugs:
+      - network
+      - network-bind
+      - audio-playback
+      - audio-record
+      - camera
+      - home
+      - desktop
+      - desktop-legacy
+      - wayland
+      - x11
+      - opengl
+      - removable-media
+      - password-manager-service
+
+parts:
+  zalos:
+    plugin: cmake
+    source: .
+    cmake-parameters:
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DCMAKE_INSTALL_PREFIX=/usr
+      - -DBUILD_TESTING=OFF
+      - -DZALOS_QML_AOT=OFF
+    build-packages:
+      - pkg-config
+      - libssl-dev
+      - liblzma-dev
+      - zlib1g-dev
+      - libsqlite3-dev
+      - libopenh264-dev
+    stage-packages:
+      - libopus0
+      - libpulse0
+    parse-info:
+      - usr/share/metainfo/io.github.cpfriend1721994.zalos.metainfo.xml
