@@ -28,6 +28,16 @@
   <provides>
     <binary>zalos</binary>
   </provides>
+  <screenshots>
+    <screenshot type="default">
+      <caption>Zalos Light Theme</caption>
+      <image>https://zalos.pages.dev/assets/app-ui-light.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Zalos Dark Theme</caption>
+      <image>https://zalos.pages.dev/assets/app-ui-dark.png</image>
+    </screenshot>
+  </screenshots>
   <releases>
     <release version="1.2.3" date="2026-11-15">
       <description>
