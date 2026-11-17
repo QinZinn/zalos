@@ -302,7 +302,7 @@ jobs:
               set -e
               export DEBIAN_FRONTEND=noninteractive
               apt-get update -qq
-              apt-get install -y --no-install-recommends dpkg-dev apt-utils createrepo-c rpm gpg ca-certificates
+              apt-get install -y --no-install-recommends dpkg-dev apt-utils createrepo-c rpm gnupg ca-certificates
               bash /tmp/scripts/build-pkg-repo.sh /tmp/repo-pkgs /tmp/_repo
             ")
           trap 'docker rm -f "${CID}" >/dev/null 2>&1 || true' EXIT

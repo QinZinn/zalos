@@ -16,16 +16,17 @@ export GNUPGHOME
 chmod 700 "${GNUPGHOME}"
 trap 'rm -rf "${GNUPGHOME}"' EXIT
 
-printf '%s\n' "${GPG_PRIVATE_KEY}" | gpg --batch --import 2>&1
+printf 'allow-loopback-pinentry\n' > "${GNUPGHOME}/gpg-agent.conf"
+GPG_PASS_FILE="${GNUPGHOME}/passphrase"
+printf '%s' "${GPG_PASSPHRASE:-}" > "${GPG_PASS_FILE}"
+chmod 600 "${GPG_PASS_FILE}"
+
+printf '%s\n' "${GPG_PRIVATE_KEY}" | gpg --batch --pinentry-mode loopback --passphrase-file "${GPG_PASS_FILE}" --import 2>&1
 KEY_FP=$(gpg --list-secret-keys --with-colons | awk -F: '/^fpr:/ { print $10; exit }')
 if [ -z "${KEY_FP}" ]; then
     echo "Failed to determine GPG key fingerprint" >&2
     exit 1
 fi
-
-GPG_PASS_FILE="${GNUPGHOME}/passphrase"
-printf '%s' "${GPG_PASSPHRASE:-}" > "${GPG_PASS_FILE}"
-chmod 600 "${GPG_PASS_FILE}"
 
 gpg_sign() {
     gpg --batch --yes --pinentry-mode loopback --passphrase-file "${GPG_PASS_FILE}" "$@"
