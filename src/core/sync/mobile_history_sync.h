@@ -7,12 +7,14 @@
 #include <QJsonObject>
 #include <QObject>
 #include <QPointer>
+#include <QSet>
 #include <QString>
 #include <QStringList>
 #include <QTimer>
 #include <QVector>
 
 #include "crypto/db_cross.h"
+#include "sync/v2/sync_v2_crypto.h"
 
 class QNetworkReply;
 
@@ -81,7 +83,12 @@ private:
     void setState(int state, const QString& status, int progress);
     void log(const QString& line) const;
     void fail(const QString& reason);
-    void failV2Unsupported(const QString& why);
+    void startV2Fallback(const QString& why);
+    void handleV2Control(const QString& act, const QJsonObject& data);
+    void processNextV2Download();
+    bool handleV2BatchBytes(int batchType, const QByteArray& bytes, QString* error);
+    void maybeFinishV2();
+    V2::KeyPair loadOrCreateV2IdentityKey() const;
     void onBackupReady(const QJsonObject& data);
     void download();
     void decryptAndRead();
@@ -121,6 +128,22 @@ private:
     int m_importedConversations{0};
     int m_skipped{0};
     quint64 m_generation{0};
+
+    struct V2BatchTask {
+        int batchType{0};
+        QString url;
+    };
+    bool m_v2Active{false};
+    QString m_v2SyncId;
+    V2::KeyPair m_v2Ik;
+    V2::KeyPair m_v2Ek;
+    V2::SessionRecord m_v2Session;
+    bool m_v2HasSession{false};
+    bool m_v2SawLastBatch{false};
+    bool m_v2InFlightDownload{false};
+    QSet<QString> m_v2SeenUrls;
+    QVector<V2BatchTask> m_v2DownloadQueue;
+    QVector<BackupConversation> m_v2Conversations;
 };
 
 }

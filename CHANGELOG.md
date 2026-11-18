@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.7] - 2026-11-18
+
+### Added & Improved
+- **Phone History Sync v2 Fallback (Beta):** implemented clean-room OpenSSL 3 metadata & message decryption (`openMetadata`, `openMessage`, `generateKeyPair`, `calculateAgreement`), Protobuf partition/message parsing (`parseSyncV2Chunk`), `cmd 590`/`591` WebSocket transport, persisted `ik` + fresh `ek` per session, and automatic V1→V2 fallback when V1 rejects with code `211` or times out after `transfer_sync2` (never mixing V1 and V2 in the same session). Added `ZALOS_FORCE_SYNC_V2=1` / `--force-sync-v2` debug flag for direct V2 testing.
+- **Flexible `libzstd` Support:** links system `libzstd` at build time when available (`ZALOS_HAVE_SYSTEM_ZSTD`) and falls back to runtime `QLibrary("zstd")` loading otherwise.
+- **Qt 6.4 & Threading Fixes:** fixed `Overlay.overlay` (`QtQuick.Templates as T`) and typing-dots `index` references in `LoginView.qml`, `ChatArea.qml`, `AppLinkPopup.qml`, and `HiddenPinPopup.qml` for older Qt 6.4 AppImage runtimes, and fixed `AvatarImageProvider` creating `QNetworkAccessManager` off the main thread.
+- **Docs, Website & Packaging CI Sync:** updated Settings, Sync prompt, READMEs, and `docs/index.html` with beta sync wording, separate APT/DNF repo and `.deb`/`.rpm` instructions, Snap, Flatpak (Testing), and concise per-package call notes; synced Snapcraft version from `CMakeLists.txt` (`override-pull`), added Flathub `x-checker-data`, and added `publish-snap` / `sync-flatpak` CI jobs.
+
 ## [1.2.6] - 2026-11-16
 
 ### Added & Improved

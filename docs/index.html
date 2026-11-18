@@ -1026,12 +1026,6 @@
         gap: 2rem;
       }
 
-      @media (min-width: 900px) {
-        .install-layout {
-          grid-template-columns: 1.35fr 0.65fr;
-        }
-      }
-
       .terminal-box {
         background: var(--bg-surface);
         border: 1px solid var(--border-strong);
@@ -1222,7 +1216,7 @@
         <img src="https://raw.githubusercontent.com/cpfriend1721994/zalos/main/assets/icons/zalos.svg"
           alt="Biểu tượng Zalos" data-en-alt="Zalos logo" class="brand-logo" width="28" height="28">
         <span>Zalos</span>
-        <span class="version-pill">v1.2.6</span>
+        <span class="version-pill">v1.2.7</span>
       </a>
 
       <nav aria-label="Điều hướng chính" data-en-aria="Main navigation">
@@ -1287,7 +1281,7 @@
               <svg aria-hidden="true" viewBox="0 0 24 24">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" />
               </svg>
-              <span data-en="Download release v1.2.6">Tải bản phát hành v1.2.6</span>
+              <span data-en="Download release v1.2.7">Tải bản phát hành v1.2.7</span>
             </a>
             <a href="#install" class="btn-secondary">
               <span data-en="Installation guide">Hướng dẫn cài đặt</span>
@@ -1359,7 +1353,7 @@
           <!-- Pillar 1 -->
           <article class="pillar-card">
             <div class="pillar-head">
-              <h3 class="pillar-title" data-en="High performance &amp; lightweight architecture">Hiệu năng cao &amp; Kiến trúc siêu nhẹ</h3>
+              <h3 class="pillar-title" data-en="Performance &amp; lightweight">Hiệu năng &amp; Siêu nhẹ</h3>
               <span class="pillar-tag">Engine</span>
             </div>
             <p class="pillar-desc"
@@ -1405,8 +1399,8 @@
                 có dấu lẫn không dấu.
               </li>
               <li
-                data-en="<strong>Phone history sync:</strong> streams and decrypts your encrypted mobile backup on background threads without blocking the UI or spiking memory. Zalo on iPhone may use a newer sync method that Zalos doesn't support yet.">
-                <strong>Đồng bộ lịch sử từ điện thoại:</strong> tải và giải mã theo luồng (streaming) bản sao lưu mã hóa ngay trên luồng nền, không gây khựng giao diện hay tốn nhiều RAM. Zalo trên iPhone có thể dùng cách đồng bộ mới mà Zalos chưa hỗ trợ.
+                data-en="<strong>Phone history sync (beta):</strong> streams and decrypts your encrypted mobile backup on background threads without blocking the UI or spiking memory; supports sync v1 (Android) and automatic fallback to v2 (iPhone).">
+                <strong>Đồng bộ lịch sử từ điện thoại (thử nghiệm):</strong> tải và giải mã theo luồng (streaming) bản sao lưu mã hóa ngay trên luồng nền, không gây khựng giao diện hay tốn nhiều RAM; hỗ trợ đồng bộ v1 (Android) và tự động fallback sang v2 (iPhone).
               </li>
             </ul>
           </article>
@@ -1620,10 +1614,18 @@
           <div class="terminal-box">
             <div class="tab-bar" role="tablist" aria-label="Chọn định dạng gói cài đặt Linux"
               data-en-aria="Choose a Linux package format">
-              <button type="button" role="tab" id="tab-deb" aria-controls="panel-deb" aria-selected="true"
-                class="tab-btn">Ubuntu / Debian (.deb)</button>
+              <button type="button" role="tab" id="tab-apt" aria-controls="panel-apt" aria-selected="true"
+                class="tab-btn">APT Repo</button>
+              <button type="button" role="tab" id="tab-dnf" aria-controls="panel-dnf" aria-selected="false"
+                class="tab-btn">DNF Repo</button>
+              <button type="button" role="tab" id="tab-deb" aria-controls="panel-deb" aria-selected="false"
+                class="tab-btn">.deb</button>
               <button type="button" role="tab" id="tab-rpm" aria-controls="panel-rpm" aria-selected="false"
-                class="tab-btn">Fedora (.rpm)</button>
+                class="tab-btn">.rpm</button>
+              <button type="button" role="tab" id="tab-snap" aria-controls="panel-snap" aria-selected="false"
+                class="tab-btn">Snap</button>
+              <button type="button" role="tab" id="tab-flatpak" aria-controls="panel-flatpak" aria-selected="false"
+                class="tab-btn">Flatpak</button>
               <button type="button" role="tab" id="tab-appimage" aria-controls="panel-appimage" aria-selected="false"
                 class="tab-btn">AppImage</button>
               <button type="button" role="tab" id="tab-nix" aria-controls="panel-nix" aria-selected="false"
@@ -1632,57 +1634,144 @@
                 class="tab-btn" data-en="Build from source">Build từ nguồn</button>
             </div>
 
-            <!-- Panel: DEB -->
-            <div id="panel-deb" role="tabpanel" aria-labelledby="tab-deb" class="tab-panel">
+            <!-- Panel: APT Repo -->
+            <div id="panel-apt" role="tabpanel" aria-labelledby="tab-apt" class="tab-panel">
               <p
-                data-en="For <strong>Ubuntu 24.04 LTS+</strong>, Linux Mint, Pop!_OS and Zorin OS (installs required dependencies automatically):">
-                Dành cho <strong>Ubuntu 24.04 LTS+</strong>, Linux Mint, Pop!_OS, Zorin OS (tự động cài đặt các gói phụ
-                thuộc cần thiết):</p>
+                data-en="For <strong>Ubuntu 24.04 LTS+</strong>, Linux Mint, Pop!_OS and Zorin OS — automatically detects architecture and receives updates via <code class=&quot;inline-code&quot;>apt upgrade</code>:">
+                Dành cho <strong>Ubuntu 24.04 LTS+</strong>, Linux Mint, Pop!_OS, Zorin OS — tự động nhận kiến trúc và cập nhật qua <code class="inline-code">apt upgrade</code>:</p>
               <div class="code-block-wrap">
-                <button type="button" class="copy-btn" data-copy-target="code-deb">Sao chép</button>
-                <pre id="code-deb" class="code-pre" tabindex="0"><code># x86_64 (amd64)
-wget https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.2.6-1~ubuntu24.04_amd64.deb
-sudo apt install ./zalos_1.2.6-1~ubuntu24.04_amd64.deb
-
-# ARM64 (aarch64)
-wget https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.2.6-1~ubuntu24.04_arm64.deb
-sudo apt install ./zalos_1.2.6-1~ubuntu24.04_arm64.deb</code></pre>
+                <button type="button" class="copy-btn" data-copy-target="code-apt">Sao chép</button>
+                <pre id="code-apt" class="code-pre" tabindex="0"><code>curl -fsSL https://cpfriend1721994.github.io/zalos/zalos.gpg | sudo gpg --dearmor -o /usr/share/keyrings/zalos.gpg
+echo "deb [signed-by=/usr/share/keyrings/zalos.gpg] https://cpfriend1721994.github.io/zalos/apt stable main" | sudo tee /etc/apt/sources.list.d/zalos.list
+sudo apt update &amp;&amp; sudo apt install -y zalos</code></pre>
               </div>
+              <ul style="color: var(--text-secondary); margin: 0.75rem 0 0; padding-left: 1.25rem;">
+                <li data-en="<strong>Voice calls:</strong> Ready to use right after installing (audio libraries are installed automatically).">
+                  <strong>Gọi thoại:</strong> Dùng được luôn sau khi cài, không cần cài thêm thư viện âm thanh.
+                </li>
+                <li data-en="<strong>Video calls (camera):</strong> Install OpenH264: <code class=&quot;inline-code&quot;>sudo apt install libopenh264-7</code>.">
+                  <strong>Gọi video (bật camera):</strong> Cần cài thêm <code class="inline-code">sudo apt install libopenh264-7</code>.
+                </li>
+              </ul>
             </div>
 
-            <!-- Panel: RPM -->
+            <!-- Panel: DNF Repo -->
+            <div id="panel-dnf" role="tabpanel" aria-labelledby="tab-dnf" class="tab-panel" hidden>
+              <p data-en="For <strong>Fedora 43+</strong> — automatically selects architecture and receives updates via <code class=&quot;inline-code&quot;>dnf upgrade</code>:">
+                Dành cho <strong>Fedora 43+</strong> — tự động chọn kiến trúc và cập nhật qua <code class="inline-code">dnf upgrade</code>:
+              </p>
+              <div class="code-block-wrap">
+                <button type="button" class="copy-btn" data-copy-target="code-dnf">Sao chép</button>
+                <pre id="code-dnf" class="code-pre" tabindex="0"><code>sudo curl -fsSL https://cpfriend1721994.github.io/zalos/zalos.repo -o /etc/yum.repos.d/zalos.repo
+sudo dnf install -y zalos</code></pre>
+              </div>
+              <ul style="color: var(--text-secondary); margin: 0.75rem 0 0; padding-left: 1.25rem;">
+                <li data-en="<strong>Voice calls:</strong> Ready to use right after installing, no extra audio setup needed.">
+                  <strong>Gọi thoại:</strong> Dùng được luôn sau khi cài, không cần cài thêm thư viện âm thanh.
+                </li>
+                <li data-en="<strong>Video calls (camera):</strong> Install OpenH264: <code class=&quot;inline-code&quot;>sudo dnf install openh264</code>.">
+                  <strong>Gọi video (bật camera):</strong> Cần cài thêm <code class="inline-code">sudo dnf install openh264</code>.
+                </li>
+              </ul>
+            </div>
+
+            <!-- Panel: DEB (single file) -->
+            <div id="panel-deb" role="tabpanel" aria-labelledby="tab-deb" class="tab-panel" hidden>
+              <p
+                data-en="Install a standalone <code class=&quot;inline-code&quot;>.deb</code> file on <strong>Ubuntu 24.04 LTS+</strong>, Linux Mint, Pop!_OS and Zorin OS (auto-detects architecture):">
+                Cài đặt từ file <code class="inline-code">.deb</code> lẻ trên <strong>Ubuntu 24.04 LTS+</strong>, Linux Mint, Pop!_OS, Zorin OS (tự nhận kiến trúc máy):</p>
+              <div class="code-block-wrap">
+                <button type="button" class="copy-btn" data-copy-target="code-deb">Sao chép</button>
+                <pre id="code-deb" class="code-pre" tabindex="0"><code>ARCH=$(dpkg --print-architecture)
+wget "https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.2.7-1~ubuntu24.04_${ARCH}.deb"
+sudo apt install "./zalos_1.2.7-1~ubuntu24.04_${ARCH}.deb"</code></pre>
+              </div>
+              <ul style="color: var(--text-secondary); margin: 0.75rem 0 0; padding-left: 1.25rem;">
+                <li data-en="<strong>Voice calls:</strong> Ready to use right after installing (audio libraries are installed automatically).">
+                  <strong>Gọi thoại:</strong> Dùng được luôn sau khi cài, không cần cài thêm thư viện âm thanh.
+                </li>
+                <li data-en="<strong>Video calls (camera):</strong> Install OpenH264: <code class=&quot;inline-code&quot;>sudo apt install libopenh264-7</code>.">
+                  <strong>Gọi video (bật camera):</strong> Cần cài thêm <code class="inline-code">sudo apt install libopenh264-7</code>.
+                </li>
+              </ul>
+            </div>
+
+            <!-- Panel: RPM (single file) -->
             <div id="panel-rpm" role="tabpanel" aria-labelledby="tab-rpm" class="tab-panel" hidden>
-              <p data-en="For <strong>Fedora 43+</strong> on both x86_64 workstations and ARM64 devices:">Dành cho
-                <strong>Fedora 43+</strong> trên cả máy trạm x86_64 và thiết bị ARM64:
+              <p data-en="Install a standalone <code class=&quot;inline-code&quot;>.rpm</code> file on <strong>Fedora 43+</strong> (auto-detects architecture):">
+                Cài đặt từ file <code class="inline-code">.rpm</code> lẻ trên <strong>Fedora 43+</strong> (tự nhận kiến trúc máy):
               </p>
               <div class="code-block-wrap">
                 <button type="button" class="copy-btn" data-copy-target="code-rpm">Sao chép</button>
                 <pre id="code-rpm" class="code-pre"
-                  tabindex="0"><code># x86_64
-sudo dnf install https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.2.6-1.fc43.x86_64.rpm
-
-# ARM64 (aarch64)
-sudo dnf install https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.2.6-1.fc43.aarch64.rpm</code></pre>
+                  tabindex="0"><code>sudo dnf install "https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.2.7-1.fc43.$(uname -m).rpm"</code></pre>
               </div>
+              <ul style="color: var(--text-secondary); margin: 0.75rem 0 0; padding-left: 1.25rem;">
+                <li data-en="<strong>Voice calls:</strong> Ready to use right after installing, no extra audio setup needed.">
+                  <strong>Gọi thoại:</strong> Dùng được luôn sau khi cài, không cần cài thêm thư viện âm thanh.
+                </li>
+                <li data-en="<strong>Video calls (camera):</strong> Install OpenH264: <code class=&quot;inline-code&quot;>sudo dnf install openh264</code>.">
+                  <strong>Gọi video (bật camera):</strong> Cần cài thêm <code class="inline-code">sudo dnf install openh264</code>.
+                </li>
+              </ul>
+            </div>
+
+            <!-- Panel: Snap -->
+            <div id="panel-snap" role="tabpanel" aria-labelledby="tab-snap" class="tab-panel" hidden>
+              <p data-en="Install from the <strong>Snap Store</strong> on Ubuntu and any distro with <code>snapd</code> (automatically detects architecture and updates in the background):">
+                Cài đặt từ <strong>Snap Store</strong> trên Ubuntu và các bản phân phối có <code>snapd</code> (tự động nhận kiến trúc và cập nhật nền):
+              </p>
+              <div class="code-block-wrap">
+                <button type="button" class="copy-btn" data-copy-target="code-snap">Sao chép</button>
+                <pre id="code-snap" class="code-pre" tabindex="0"><code>sudo snap install zalos</code></pre>
+              </div>
+              <ul style="color: var(--text-secondary); margin: 0.75rem 0 0; padding-left: 1.25rem;">
+                <li data-en="<strong>Voice calls:</strong> Ready to use right after installing (audio libraries are bundled inside the Snap).">
+                  <strong>Gọi thoại:</strong> Dùng được luôn sau khi cài (đã đóng gói sẵn thư viện âm thanh).
+                </li>
+                <li data-en="<strong>Mic &amp; camera permissions:</strong> Allow access in Ubuntu Settings if prompted (or check <code class=&quot;inline-code&quot;>snap connections zalos</code>).">
+                  <strong>Quyền micro &amp; camera:</strong> Nếu hệ thống hỏi, hãy bấm cho phép trong Cài đặt Ubuntu (hoặc kiểm tra bằng <code class="inline-code">snap connections zalos</code>).
+                </li>
+              </ul>
+            </div>
+
+            <!-- Panel: Flatpak -->
+            <div id="panel-flatpak" role="tabpanel" aria-labelledby="tab-flatpak" class="tab-panel" hidden>
+              <p data-en="Install the <strong>Flathub (Testing)</strong> build for <code>x86_64</code> and <code>aarch64</code> (<a href=&quot;https://builds.flathub.org/appstream/afeb93f6-0f7e-42bb-a97f-191a935cacd4&quot; target=&quot;_blank&quot; rel=&quot;noopener&quot;>preview app listing</a>; once published, <code class=&quot;inline-code&quot;>flatpak install flathub io.github.cpfriend1721994.zalos</code>):">
+                Cài đặt bản <strong>Flathub (Testing)</strong> cho cả <code>x86_64</code> và <code>aarch64</code> (<a href="https://builds.flathub.org/appstream/afeb93f6-0f7e-42bb-a97f-191a935cacd4" target="_blank" rel="noopener">xem trước trên Flathub</a>; sau khi duyệt xong có thể cài trực tiếp bằng <code class="inline-code">flatpak install flathub io.github.cpfriend1721994.zalos</code>):
+              </p>
+              <div class="code-block-wrap">
+                <button type="button" class="copy-btn" data-copy-target="code-flatpak">Sao chép</button>
+                <pre id="code-flatpak" class="code-pre" tabindex="0"><code>flatpak install --user https://dl.flathub.org/build-repo/342380/io.github.cpfriend1721994.zalos.flatpakref
+flatpak run io.github.cpfriend1721994.zalos</code></pre>
+              </div>
+              <ul style="color: var(--text-secondary); margin: 0.75rem 0 0; padding-left: 1.25rem;">
+                <li data-en="<strong>Voice &amp; video calls:</strong> Ready to use right after installing, no extra setup needed (<code>OpenH264</code>, audio, and camera access are bundled).">
+                  <strong>Gọi thoại &amp; video:</strong> Dùng được luôn sau khi cài, không cần cài thêm gì (đã tích hợp sẵn <code>OpenH264</code>, âm thanh và quyền camera).
+                </li>
+              </ul>
             </div>
 
             <!-- Panel: AppImage -->
             <div id="panel-appimage" role="tabpanel" aria-labelledby="tab-appimage" class="tab-panel" hidden>
               <p
-                data-en="A self-contained (~22 MB) portable package for <strong>glibc ≥ 2.35</strong> distros (Ubuntu 22.04+, Debian 12+, openSUSE, Arch) — bundles a Qt 6.4 fallback when host Qt 6 is absent (x86_64 &amp; aarch64):">
-                Gói di động tự chứa (~22 MB) cho các bản phân phối <strong>glibc ≥ 2.35</strong> (Ubuntu 22.04+, Debian 12+, openSUSE, Arch) — tự dùng Qt 6.4 nhúng sẵn khi máy chưa có Qt 6 (hỗ trợ cả x86_64 &amp; aarch64):</p>
+                data-en="A self-contained (~22 MB) portable package for <strong>glibc ≥ 2.35</strong> distros (Ubuntu 22.04+, Debian 12+, openSUSE, Arch) — bundles a Qt 6.4 fallback when host Qt 6 is absent:">
+                Gói di động tự chứa (~22 MB) cho các bản phân phối <strong>glibc ≥ 2.35</strong> (Ubuntu 22.04+, Debian 12+, openSUSE, Arch) — tự dùng Qt 6.4 nhúng sẵn khi máy chưa có Qt 6:</p>
               <div class="code-block-wrap">
                 <button type="button" class="copy-btn" data-copy-target="code-appimage">Sao chép</button>
-                <pre id="code-appimage" class="code-pre" tabindex="0"><code># x86_64
-wget https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.2.6-x86_64.AppImage
-chmod +x Zalos-1.2.6-x86_64.AppImage
-./Zalos-1.2.6-x86_64.AppImage
-
-# ARM64 (aarch64)
-wget https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.2.6-aarch64.AppImage
-chmod +x Zalos-1.2.6-aarch64.AppImage
-./Zalos-1.2.6-aarch64.AppImage</code></pre>
+                <pre id="code-appimage" class="code-pre" tabindex="0"><code>ARCH=$(uname -m)
+wget "https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.2.7-${ARCH}.AppImage"
+chmod +x "Zalos-1.2.7-${ARCH}.AppImage"
+"./Zalos-1.2.7-${ARCH}.AppImage"</code></pre>
               </div>
+              <ul style="color: var(--text-secondary); margin: 0.75rem 0 0; padding-left: 1.25rem;">
+                <li data-en="<strong>Voice calls:</strong> Ready to use on standard Linux desktops (Ubuntu, Fedora, Mint...). Only stripped-down setups without PulseAudio/PipeWire (e.g. Server/Netinstall builds) need <code class=&quot;inline-code&quot;>libpulse0</code> (Ubuntu/Debian) or <code class=&quot;inline-code&quot;>pulseaudio-libs</code> (Fedora).">
+                  <strong>Gọi thoại:</strong> Dùng được luôn trên các bản Linux có giao diện desktop thông thường (Ubuntu, Fedora, Mint...). Chỉ những máy tự cài từ bản tối giản / Server chưa có sẵn hệ thống âm thanh PulseAudio hoặc PipeWire mới cần cài thêm <code class="inline-code">libpulse0</code> (Ubuntu/Debian) hoặc <code class="inline-code">pulseaudio-libs</code> (Fedora).
+                </li>
+                <li data-en="<strong>Video calls (camera):</strong> Install OpenH264: <code class=&quot;inline-code&quot;>sudo apt install libopenh264-7</code> (Ubuntu/Debian) or <code class=&quot;inline-code&quot;>sudo dnf install openh264</code> (Fedora).">
+                  <strong>Gọi video (bật camera):</strong> Cần cài thêm <code class="inline-code">sudo apt install libopenh264-7</code> (Ubuntu/Debian) hoặc <code class="inline-code">sudo dnf install openh264</code> (Fedora).
+                </li>
+              </ul>
             </div>
 
             <!-- Panel: Nix -->
@@ -1697,6 +1786,11 @@ nix run github:cpfriend1721994/zalos
 # Install into user profile
 nix profile install github:cpfriend1721994/zalos</code></pre>
               </div>
+              <ul style="color: var(--text-secondary); margin: 0.75rem 0 0; padding-left: 1.25rem;">
+                <li data-en="<strong>Voice &amp; video calls:</strong> Ready to use right after installing, no extra setup needed.">
+                  <strong>Gọi thoại &amp; video:</strong> Dùng được luôn sau khi cài, không cần cài thêm gì.
+                </li>
+              </ul>
             </div>
 
             <!-- Panel: Build from source -->
@@ -1716,32 +1810,6 @@ docker compose run --rm package-appimage # Package AppImage into dist/</code></p
               </div>
             </div>
           </div>
-
-          <aside class="aside-card" aria-label="Lưu ý phụ thuộc cho cuộc gọi và kiến trúc"
-            data-en-aria="Notes on call dependencies and architecture">
-            <h3 data-en="Check your CPU architecture">Kiểm tra kiến trúc máy</h3>
-            <p style="color: var(--text-secondary);"
-              data-en="Run <code class=&quot;inline-code&quot;>uname -m</code> in a terminal to see exactly which file to download (<code class=&quot;inline-code&quot;>x86_64</code> or <code class=&quot;inline-code&quot;>aarch64</code>).">
-              Chạy lệnh <code class="inline-code">uname -m</code> trong terminal để biết chính xác định dạng tệp cần tải
-              (<code class="inline-code">x86_64</code> hoặc <code class="inline-code">aarch64</code>).
-            </p>
-            <hr style="border: none; border-block-start: 1px solid var(--border-hairline); margin: 0;">
-            <h3 data-en="Voice &amp; video call dependencies">Phụ thuộc cho Gọi thoại &amp; Video</h3>
-            <p style="color: var(--text-secondary);"
-              data-en="<strong>Voice calls work out of the box</strong> on <code>.deb</code>, <code>.rpm</code>, <code>Nix</code>, and the <strong>AppImage</strong> (AppImage bundles <code>libopus.so.0</code> and uses the desktop's preinstalled <code>libpulse-simple</code>). For <strong>video calls</strong> (camera), install OpenH264:">
-              <strong>Gọi thoại hoạt động ngay</strong> trên <code>.deb</code>, <code>.rpm</code>, <code>Nix</code> và <strong>AppImage</strong> (AppImage đóng gói sẵn <code>libopus.so.0</code> và dùng <code>libpulse-simple</code> có sẵn trên desktop). Với <strong>gọi video</strong> (camera), hãy cài thêm OpenH264:
-            </p>
-            <ul style="color: var(--text-secondary);">
-              <li data-en="Ubuntu / Debian: <code class=&quot;inline-code&quot;>sudo apt install libopenh264-7</code>">
-                Ubuntu / Debian: <code class="inline-code">sudo apt install libopenh264-7</code></li>
-              <li data-en="Fedora: <code class=&quot;inline-code&quot;>sudo dnf install openh264</code>">
-                Fedora: <code class="inline-code">sudo dnf install openh264</code></li>
-            </ul>
-            <p style="color: var(--text-secondary);"
-              data-en="Only minimal systems without PulseAudio/PipeWire client libraries also need <code class=&quot;inline-code&quot;>libpulse0</code> (Ubuntu) or <code class=&quot;inline-code&quot;>pulseaudio-libs</code> (Fedora).">
-              Chỉ các hệ thống tối giản chưa có thư viện PulseAudio/PipeWire mới cần cài thêm <code class="inline-code">libpulse0</code> (Ubuntu) hoặc <code class="inline-code">pulseaudio-libs</code> (Fedora).
-            </p>
-          </aside>
         </div>
       </div>
     </section>
@@ -1770,17 +1838,16 @@ docker compose run --rm package-appimage # Package AppImage into dist/</code></p
                 data-en="QR sign-in and one-click browser-session import from Chromium-based browsers (Chrome/Brave/Edge/Vivaldi/Thorium).">
                 Đăng nhập QR &amp; tự nhận diện phiên từ trình duyệt Chromium
                 (Chrome/Brave/Edge/Vivaldi/Thorium).</li>
-              <li data-en="1-1, group and My Documents messaging, replies, multi-thread forwarding, recall and poll voting.">Nhắn tin
-                1-1, Nhóm, My Documents, trả lời, chuyển tiếp nhiều luồng, thu hồi và bình chọn nhóm.</li>
-              <li data-en="Encrypted history sync from your phone and instant offline message cache.">Đồng bộ lịch sử
-                được mã hóa từ điện thoại và bộ nhớ đệm ngoại tuyến tức thì.</li>
-              <li
-                data-en="Instant Vietnamese search (even without diacritics), label folders on the nav rail, PIN-hidden conversations.">
-                Tìm kiếm tiếng Việt siêu tốc (kể cả không dấu), thư mục nhãn trên thanh điều hướng, ẩn hội thoại bằng mã
-                PIN.</li>
-              <li data-en="1-1 voice/video calls, group calls (beta), AAC voice notes, screenshot capture (Ctrl+Alt+S), My Documents, Kiki assistant &amp; zBusiness tools.">Gọi
-                thoại và video 1-1, gọi nhóm (thử nghiệm), ghi âm/phát thoại AAC, chụp màn hình (Ctrl+Alt+S), My Documents, trợ lý Kiki &amp; công cụ zBusiness.</li>
-              <li data-en="Contacts quick actions with 1-click voice call, video call and direct messaging.">Thao tác nhanh trong danh bạ với 1 cú nhấp gọi thoại, gọi video và nhắn tin trực tiếp.</li>
+              <li data-en="1-1, group and My Documents messaging: replies, multi-thread forwarding, 54 reactions, recall, polls, reminders and auto-delete TTL.">
+                Nhắn tin 1-1, Nhóm, My Documents: trả lời, chuyển tiếp nhiều luồng, 54 cảm xúc, thu hồi, bình chọn, nhắc hẹn và tin nhắn tự xóa (TTL).</li>
+              <li data-en="Instant offline message cache (SQLite + FTS5), label folders on the nav rail, unread filters and PIN-hidden conversations.">
+                Bộ nhớ đệm ngoại tuyến tức thì (SQLite + FTS5), thư mục nhãn trên thanh điều hướng, lọc chưa đọc và ẩn hội thoại bằng mã PIN.</li>
+              <li data-en="Group management (member approvals, invite box, Community upgrade), safe link scanning (scanURL), E2EE linked devices viewer and abuse reporting.">
+                Quản trị nhóm (duyệt thành viên, hộp thư mời, nâng cấp Cộng đồng), quét liên kết an toàn, xem thiết bị E2EE và báo cáo vi phạm.</li>
+              <li data-en="1-1 voice/video calls, AAC voice notes, screenshot capture (Ctrl+Alt+S), image annotation editor, Fcitx5/IBus input, Kiki assistant &amp; zBusiness tools.">
+                Gọi thoại &amp; video 1-1, ghi âm/phát thoại AAC, chụp màn hình (Ctrl+Alt+S), vẽ chú thích ảnh, gõ tiếng Việt Fcitx5/IBus, trợ lý Kiki &amp; công cụ zBusiness.</li>
+              <li data-en="Contacts quick actions (1-click voice call, video call, direct chat) and built-in release update checks.">
+                Thao tác nhanh trong danh bạ (1 cú nhấp gọi thoại, gọi video, nhắn tin) và kiểm tra cập nhật phiên bản mới trực tiếp.</li>
             </ul>
           </div>
 
@@ -1796,6 +1863,10 @@ docker compose run --rm package-appimage # Package AppImage into dist/</code></p
                 (hoặc chạy dưới khay hệ thống).
               </li>
               <li
+                data-en="<strong>Accent-insensitive offline search:</strong> instant Vietnamese search across conversations and messages already cached locally in SQLite.">
+                <strong>Tìm kiếm không dấu ngoại tuyến:</strong> tìm kiếm tiếng Việt tức thì trên toàn bộ hội thoại và tin nhắn đã lưu sẵn trong cơ sở dữ liệu cục bộ.
+              </li>
+              <li
                 data-en="<strong>App lock &amp; anti-peek:</strong> protects the Linux desktop UI itself and Freedesktop push notifications.">
                 <strong>Khóa ứng dụng &amp; Chống nhìn lén:</strong> bảo vệ trực tiếp trên giao diện máy tính Linux và
                 thông báo đẩy Freedesktop.
@@ -1805,22 +1876,26 @@ docker compose run --rm package-appimage # Package AppImage into dist/</code></p
                 <strong>Chặn Đã xem / Đang nhập:</strong> ngăn ứng dụng gửi gói tin trạng thái lên máy chủ khi bạn đọc
                 hoặc gõ phím.
               </li>
+              <li
+                data-en="<strong>Theme &amp; GPU acceleration toggle:</strong> instant light/dark mode following your desktop and hardware acceleration switch with quick restart.">
+                <strong>Giao diện &amp; Tăng tốc phần cứng (GPU):</strong> tự đổi Sáng/Tối theo hệ thống và bật/tắt tăng tốc GPU ngay trong Cài đặt.
+              </li>
             </ul>
           </div>
 
           <div class="scope-box">
             <h3>
               <span style="color: var(--text-muted);" aria-hidden="true">●</span>
-              <span data-en="Not supported / Out of scope">Chưa hỗ trợ / Ngoài phạm vi</span>
+              <span data-en="Beta / Not supported / Out of scope">Thử nghiệm / Chưa hỗ trợ / Ngoài phạm vi</span>
             </h3>
             <ul>
               <li
-                data-en="<strong>In-call screen sharing:</strong> currently in development (1-1 voice/video calls are supported; group calls are in beta).">
-                <strong>Chia sẻ màn hình trong cuộc gọi:</strong> đang trong lộ trình hoàn thiện (gọi thoại và video 1-1 đã hỗ trợ; gọi nhóm đang thử nghiệm).
+                data-en="<strong>Phone history sync (including iPhone Sync v2):</strong> supported at a beta level (sync v1 with automatic fallback to v2) and still needs broader real-device testing.">
+                <strong>Đồng bộ lịch sử từ điện thoại (bao gồm Sync v2 trên iPhone):</strong> đang hỗ trợ ở mức thử nghiệm (beta — dùng v1 và tự động fallback sang v2), cần kiểm chứng thêm trên nhiều thiết bị thực tế.
               </li>
               <li
-                data-en="<strong>Sync with Zalo on iPhone:</strong> Zalo on iPhone may use a newer sync method that Zalos doesn't support yet; it is being researched.">
-                <strong>Đồng bộ với Zalo trên iPhone:</strong> Zalo trên iPhone có thể dùng cách đồng bộ mới mà Zalos chưa hỗ trợ; đang được nghiên cứu.
+                data-en="<strong>Group calls &amp; in-call screen sharing:</strong> group voice/video calls are in beta; in-call screen sharing is not yet implemented.">
+                <strong>Gọi nhóm &amp; Chia sẻ màn hình trong cuộc gọi:</strong> gọi thoại/video nhóm đang ở mức thử nghiệm (beta); chia sẻ màn hình trong cuộc gọi chưa hỗ trợ.
               </li>
               <li
                 data-en="<strong>Personal To-Do lists:</strong> the server restricts this to genuine Zalo PC sessions, so it was removed to avoid errors.">

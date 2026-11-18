@@ -1,6 +1,10 @@
 #include "sync/v2/sync_v2_frames.h"
 
+#ifdef ZALOS_HAVE_SYSTEM_ZSTD
+#include <zstd.h>
+#else
 #include <QLibrary>
+#endif
 
 #include <cstring>
 
@@ -35,21 +39,34 @@ struct ZstdApi {
 };
 
 const ZstdApi* loadZstd() {
+#ifdef ZALOS_HAVE_SYSTEM_ZSTD
+    static const ZstdApi api{&ZSTD_decompress, &ZSTD_getFrameContentSize, &ZSTD_isError, &ZSTD_getErrorName};
+    return &api;
+#else
     static const ZstdApi api = [] {
         ZstdApi a;
-        QLibrary lib(QStringLiteral("zstd"));
-        lib.setLoadHints(QLibrary::ExportExternalSymbolsHint);
-        if (!lib.load()) return a;
-        a.decompress = reinterpret_cast<ZstdApi::DecompressFn>(lib.resolve("ZSTD_decompress"));
-        a.contentSize = reinterpret_cast<ZstdApi::ContentSizeFn>(lib.resolve("ZSTD_getFrameContentSize"));
-        a.isError = reinterpret_cast<ZstdApi::IsErrorFn>(lib.resolve("ZSTD_isError"));
-        a.errorName = reinterpret_cast<ZstdApi::ErrorNameFn>(lib.resolve("ZSTD_getErrorName"));
-        if (!a.decompress || !a.contentSize || !a.isError || !a.errorName) {
-            a = ZstdApi{};
+        auto tryLoad = [&](QLibrary& lib) {
+            lib.setLoadHints(QLibrary::ExportExternalSymbolsHint);
+            if (!lib.load()) return false;
+            a.decompress = reinterpret_cast<ZstdApi::DecompressFn>(lib.resolve("ZSTD_decompress"));
+            a.contentSize = reinterpret_cast<ZstdApi::ContentSizeFn>(lib.resolve("ZSTD_getFrameContentSize"));
+            a.isError = reinterpret_cast<ZstdApi::IsErrorFn>(lib.resolve("ZSTD_isError"));
+            a.errorName = reinterpret_cast<ZstdApi::ErrorNameFn>(lib.resolve("ZSTD_getErrorName"));
+            if (!a.decompress || !a.contentSize || !a.isError || !a.errorName) {
+                a = ZstdApi{};
+                return false;
+            }
+            return true;
+        };
+        QLibrary versioned(QStringLiteral("zstd"), 1);
+        if (!tryLoad(versioned)) {
+            QLibrary unversioned(QStringLiteral("zstd"));
+            tryLoad(unversioned);
         }
         return a;
     }();
     return api.decompress ? &api : nullptr;
+#endif
 }
 
 }  // namespace
@@ -130,6 +147,86 @@ ZstdStatus zstdDecompress(const QByteArray& compressed, QByteArray* out, QByteAr
         return ZstdStatus::Error;
     }
     return ZstdStatus::Ok;
+}
+
+namespace {
+
+std::optional<ParsedSyncV2Attach> parseAttach(const QByteArray& data) {
+    const auto fields = parseProto(data);
+    if (!fields.has_value()) return std::nullopt;
+    ParsedSyncV2Attach att;
+    for (const auto& f : *fields) {
+        if (f.wireType == 0) {
+            if (f.number == 9) att.catId = static_cast<int>(f.varint);
+            else if (f.number == 10) att.id = static_cast<int>(f.varint);
+        } else if (f.wireType == 2) {
+            const QString s = QString::fromUtf8(f.bytes);
+            if (f.number == 1) att.attachType = s;
+            else if (f.number == 3) att.action = s;
+            else if (f.number == 4) att.params = s;
+            else if (f.number == 5) att.title = s;
+            else if (f.number == 6) att.href = s;
+            else if (f.number == 7) att.thumb = s;
+            else if (f.number == 8) att.description = s;
+        }
+    }
+    return att;
+}
+
+std::optional<ParsedSyncV2Message> parseMessage(const QByteArray& data) {
+    const auto fields = parseProto(data);
+    if (!fields.has_value()) return std::nullopt;
+    ParsedSyncV2Message msg;
+    for (const auto& f : *fields) {
+        if (f.wireType == 0) {
+            if (f.number == 2) msg.clientId = f.varint;
+            else if (f.number == 3) msg.msgStatus = static_cast<int>(f.varint);
+            else if (f.number == 4) msg.msgType = static_cast<int>(f.varint);
+            else if (f.number == 5) msg.timestamp = f.varint;
+        } else if (f.wireType == 2) {
+            if (f.number == 1) msg.senderId = QString::fromUtf8(f.bytes);
+            else if (f.number == 6) msg.globalId = QString::fromUtf8(f.bytes);
+            else if (f.number == 7) msg.content = QString::fromUtf8(f.bytes);
+            else if (f.number == 8) {
+                const auto metaFields = parseProto(f.bytes);
+                if (metaFields.has_value()) {
+                    for (const auto& mf : *metaFields) {
+                        if (mf.number == 1 && mf.wireType == 2) {
+                            if (const auto att = parseAttach(mf.bytes)) msg.attaches.append(*att);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return msg;
+}
+
+std::optional<ParsedSyncV2Partition> parsePartition(const QByteArray& data) {
+    const auto fields = parseProto(data);
+    if (!fields.has_value()) return std::nullopt;
+    ParsedSyncV2Partition part;
+    for (const auto& f : *fields) {
+        if (f.number == 1 && f.wireType == 2) part.id = QString::fromUtf8(f.bytes);
+        else if (f.number == 2 && f.wireType == 2) {
+            if (const auto msg = parseMessage(f.bytes)) part.messages.append(*msg);
+        }
+    }
+    return part;
+}
+
+}  // namespace
+
+bool parseSyncV2Chunk(const QByteArray& data, QVector<ParsedSyncV2Partition>* partitions) {
+    if (!partitions) return false;
+    const auto fields = parseProto(data);
+    if (!fields.has_value()) return false;
+    for (const auto& f : *fields) {
+        if (f.number == 2 && f.wireType == 2) {
+            if (const auto part = parsePartition(f.bytes)) partitions->append(*part);
+        }
+    }
+    return true;
 }
 
 }  // namespace Zalos::Core::Sync::V2

@@ -1,12 +1,13 @@
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
+import QtQuick.Templates as T
 import Zalos
 
 Popup {
     id: root
     objectName: "appLinkPopup"
-    parent: Overlay.overlay
+    parent: T.Overlay.overlay
     anchors.centerIn: parent
     width: Math.min(360, parent ? parent.width - 32 : 360)
     modal: true

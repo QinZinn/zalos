@@ -34,7 +34,10 @@ private slots:
     void messageVectorsDecrypt();
     void messageNegativeVectorRejected();
     void messageBadInputSizes();
-    void metadataIsUnsupportedUntilSealIsPinned();
+    void metadataVectorsDecrypt();
+    void metadataNegativeVectorRejected();
+    void keyPairAndAgreementRoundTrip();
+    void protoSyncV2ChunkParsesPartitionAndMessage();
     void fallbackDecisions();
 };
 
@@ -149,10 +152,106 @@ void TestSyncV2::messageBadInputSizes() {
     QCOMPARE(cryptoStatusName(openMessage(record, QByteArray(59, 'c'), &plain)), QStringLiteral("bad_input"));
 }
 
-void TestSyncV2::metadataIsUnsupportedUntilSealIsPinned() {
-    QByteArray plain;
-    QCOMPARE(cryptoStatusName(openMetadata(QByteArray(200, 'e'), &plain)), QStringLiteral("unsupported"));
-    QVERIFY(plain.isEmpty());
+void TestSyncV2::metadataVectorsDecrypt() {
+    QFile file(QStringLiteral(ZALOS_SOURCE_DIR) + QStringLiteral("/tests/data/sync_v2/metadata_v1.json"));
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    const QJsonArray cases = QJsonDocument::fromJson(file.readAll()).object().value(QStringLiteral("cases")).toArray();
+    QVERIFY(cases.size() >= 3);
+    for (const QJsonValue& v : cases) {
+        const QJsonObject c = v.toObject();
+        const QByteArray rIkPub = QByteArray::fromHex(c.value("receiverIdentityPub").toString().toLatin1());
+        const QByteArray rIkPriv = QByteArray::fromHex(c.value("receiverIdentityPriv").toString().toLatin1());
+        const QByteArray rEkPriv = QByteArray::fromHex(c.value("receiverEphemeralPriv").toString().toLatin1());
+        const QByteArray env = QByteArray::fromHex(c.value("envelope").toString().toLatin1());
+        MetadataPlain out;
+        QCOMPARE(cryptoStatusName(openMetadata(env, rIkPub, rIkPriv, rEkPriv, &out)), QStringLiteral("ok"));
+        QCOMPARE(out.plaintext, QByteArray::fromHex(c.value("plaintext").toString().toLatin1()));
+        QCOMPARE(out.session.sessionId, QByteArray::fromHex(c.value("sessionId").toString().toLatin1()));
+        QCOMPARE(out.session.key, QByteArray::fromHex(c.value("sessionKey").toString().toLatin1()));
+        QCOMPARE(out.session.recordId, c.value("recordId").toString().toULongLong());
+        QCOMPARE(out.senderIdentity, QByteArray::fromHex(c.value("senderIdentityPub").toString().toLatin1()));
+    }
+}
+
+void TestSyncV2::metadataNegativeVectorRejected() {
+    QFile file(QStringLiteral(ZALOS_SOURCE_DIR) + QStringLiteral("/tests/data/sync_v2/metadata_v1.json"));
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    const QJsonObject c = QJsonDocument::fromJson(file.readAll()).object().value(QStringLiteral("cases")).toArray().at(0).toObject();
+    const QByteArray rIkPub = QByteArray::fromHex(c.value("receiverIdentityPub").toString().toLatin1());
+    const QByteArray rIkPriv = QByteArray::fromHex(c.value("receiverIdentityPriv").toString().toLatin1());
+    const QByteArray rEkPriv = QByteArray::fromHex(c.value("receiverEphemeralPriv").toString().toLatin1());
+    QByteArray env = QByteArray::fromHex(c.value("envelope").toString().toLatin1());
+    env[env.size() - 20] = static_cast<char>(env.at(env.size() - 20) ^ 0xff);
+    MetadataPlain out;
+    QCOMPARE(cryptoStatusName(openMetadata(env, rIkPub, rIkPriv, rEkPriv, &out)), QStringLiteral("auth_failed"));
+    QVERIFY(out.plaintext.isEmpty());
+}
+
+void TestSyncV2::keyPairAndAgreementRoundTrip() {
+    const KeyPair a = generateKeyPair();
+    const KeyPair b = generateKeyPair();
+    QCOMPARE(a.pub.size(), 33);
+    QCOMPARE(static_cast<unsigned char>(a.pub.at(0)), static_cast<unsigned char>(0x05));
+    QCOMPARE(a.priv.size(), 32);
+    QCOMPARE(b.pub.size(), 33);
+    QCOMPARE(b.priv.size(), 32);
+    const QByteArray sab = calculateAgreement(a.priv, b.pub);
+    const QByteArray sba = calculateAgreement(b.priv, a.pub);
+    QCOMPARE(sab.size(), 32);
+    QCOMPARE(sab, sba);
+}
+
+void TestSyncV2::protoSyncV2ChunkParsesPartitionAndMessage() {
+    auto fieldBytes = [](int fn, const QByteArray& body) {
+        QByteArray out;
+        out.append(static_cast<char>((fn << 3) | 2));
+        int len = body.size();
+        while (len >= 0x80) {
+            out.append(static_cast<char>((len & 0x7f) | 0x80));
+            len >>= 7;
+        }
+        out.append(static_cast<char>(len));
+        out.append(body);
+        return out;
+    };
+    auto fieldVarint = [](int fn, quint64 v) {
+        QByteArray out;
+        out.append(static_cast<char>(fn << 3));
+        while (v >= 0x80) {
+            out.append(static_cast<char>((v & 0x7f) | 0x80));
+            v >>= 7;
+        }
+        out.append(static_cast<char>(v));
+        return out;
+    };
+
+    const QByteArray attach = fieldBytes(5, QByteArray("photo.jpg")) + fieldBytes(6, QByteArray("https://example/p.jpg"));
+    const QByteArray meta = fieldBytes(1, attach);
+    const QByteArray msg = fieldBytes(1, QByteArray("oneone/sender1"))
+                         + fieldVarint(2, 1001)
+                         + fieldVarint(4, 3)
+                         + fieldVarint(5, 1700000000000ULL)
+                         + fieldBytes(6, QByteArray("g999"))
+                         + fieldBytes(7, QByteArray("xin chao"))
+                         + fieldBytes(8, meta);
+    const QByteArray part = fieldBytes(1, QByteArray("oneone/peer1")) + fieldBytes(2, msg);
+    const QByteArray chunk = fieldBytes(2, part);
+
+    QVector<ParsedSyncV2Partition> parts;
+    QVERIFY(parseSyncV2Chunk(chunk, &parts));
+    QCOMPARE(parts.size(), 1);
+    QCOMPARE(parts.at(0).id, QStringLiteral("oneone/peer1"));
+    QCOMPARE(parts.at(0).messages.size(), 1);
+    const ParsedSyncV2Message& m = parts.at(0).messages.at(0);
+    QCOMPARE(m.senderId, QStringLiteral("oneone/sender1"));
+    QCOMPARE(m.clientId, quint64(1001));
+    QCOMPARE(m.msgType, 3);
+    QCOMPARE(m.timestamp, quint64(1700000000000ULL));
+    QCOMPARE(m.globalId, QStringLiteral("g999"));
+    QCOMPARE(m.content, QStringLiteral("xin chao"));
+    QCOMPARE(m.attaches.size(), 1);
+    QCOMPARE(m.attaches.at(0).title, QStringLiteral("photo.jpg"));
+    QCOMPARE(m.attaches.at(0).href, QStringLiteral("https://example/p.jpg"));
 }
 
 void TestSyncV2::fallbackDecisions() {

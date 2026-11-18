@@ -48,3 +48,6 @@ modules:
         url: https://github.com/cpfriend1721994/zalos.git
         tag: v1.2.6
         commit: fed2e05065963886aa0a9e201167c2d8208d0fcb
+        x-checker-data:
+          type: git
+          tag-pattern: ^v([\d.]+)$

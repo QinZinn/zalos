@@ -1671,8 +1671,8 @@ Item {
 
                                 SectionTitle { text: I18n.t("Đồng bộ tin nhắn từ điện thoại", "Sync messages from your phone") }
                                 SectionHint {
-                                    text: I18n.t("Chuyển lịch sử trò chuyện từ Zalo trên điện thoại sang máy tính này. Điện thoại sẽ hỏi bạn xác nhận; tin nhắn được lưu trên máy này và hiển thị cả khi không có mạng. Zalo trên iPhone có thể dùng cách đồng bộ mới mà Zalos chưa hỗ trợ.",
-                                                 "Transfer your chat history from Zalo on your phone to this computer. Your phone asks you to confirm; messages are kept on this computer and shown even offline. Zalo on iPhone may use a newer sync method that Zalos doesn't support yet.")
+                                    text: I18n.t("Chuyển lịch sử trò chuyện từ Zalo trên điện thoại sang máy tính này. Điện thoại sẽ hỏi bạn xác nhận; tin nhắn được lưu trên máy này và hiển thị cả khi không có mạng. Tính năng đang ở mức thử nghiệm (beta), hỗ trợ đồng bộ v1 (Android) và tự động fallback sang v2 (iPhone).",
+                                                 "Transfer your chat history from Zalo on your phone to this computer. Your phone asks you to confirm; messages are kept on this computer and shown even offline. This feature is in beta and supports sync v1 (Android) with automatic fallback to v2 (iPhone).")
                                 }
 
                                 Rectangle {

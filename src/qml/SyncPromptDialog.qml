@@ -46,8 +46,8 @@ Rectangle {
                 Layout.fillWidth: true
                 horizontalAlignment: Text.AlignHCenter
                 wrapMode: Text.Wrap
-                text: I18n.t("Máy tính này chưa có lịch sử trò chuyện cũ của bạn. Đồng bộ để chuyển tin nhắn từ Zalo trên điện thoại sang đây; điện thoại sẽ hỏi bạn xác nhận và tin nhắn được lưu trên máy này. Lưu ý: Zalo trên iPhone có thể dùng cách đồng bộ mới mà Zalos chưa hỗ trợ.",
-                             "This computer doesn't have your older chats yet. Sync to transfer them from Zalo on your phone; your phone asks you to confirm and the messages are kept on this computer. Note: Zalo on iPhone may use a newer sync method that Zalos doesn't support yet.")
+                text: I18n.t("Máy tính này chưa có lịch sử trò chuyện cũ của bạn. Đồng bộ để chuyển tin nhắn từ Zalo trên điện thoại sang đây; điện thoại sẽ hỏi bạn xác nhận và tin nhắn được lưu trên máy này. Lưu ý: tính năng đang ở mức thử nghiệm (beta), hỗ trợ đồng bộ v1 (Android) và tự động fallback sang v2 (iPhone).",
+                             "This computer doesn't have your older chats yet. Sync to transfer them from Zalo on your phone; your phone asks you to confirm and the messages are kept on this computer. Note: this feature is in beta and supports sync v1 (Android) with automatic fallback to v2 (iPhone).")
                 color: ThemeManager.secondaryTextColor
                 font.family: Theme.fontFamily
                 font.pixelSize: 13

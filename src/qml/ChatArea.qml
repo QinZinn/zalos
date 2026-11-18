@@ -3,6 +3,7 @@ import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
 import QtQuick.Dialogs
+import QtQuick.Templates as T
 import Zalos
 import "MediaSource.js" as MediaSource
 
@@ -1367,6 +1368,8 @@ Rectangle {
                             model: 3
                             Rectangle {
                                 id: dot
+                                required property int index
+                                readonly property int dotIndex: index
                                 width: 4
                                 height: 4
                                 radius: 2
@@ -1375,10 +1378,10 @@ Rectangle {
                                 SequentialAnimation on y {
                                     running: typingIndicatorPill.isPartnerTyping
                                     loops: Animation.Infinite
-                                    PauseAnimation { duration: index * 140 }
+                                    PauseAnimation { duration: dot.dotIndex * 140 }
                                     NumberAnimation { from: 0; to: -3; duration: 240; easing.type: Easing.OutQuad }
                                     NumberAnimation { from: -3; to: 0; duration: 240; easing.type: Easing.InQuad }
-                                    PauseAnimation { duration: (2 - index) * 140 }
+                                    PauseAnimation { duration: (2 - dot.dotIndex) * 140 }
                                 }
                             }
                         }
@@ -2583,7 +2586,7 @@ Rectangle {
             Popup {
                 id: pinDetailPopup
                 objectName: "pinDetailPopup"
-                parent: Overlay.overlay
+                parent: T.Overlay.overlay
                 onAboutToShow: {
                     pinDetailText.deselect();
                     pinDetailFlick.contentY = 0;

@@ -35,6 +35,12 @@ parts:
   zalos:
     plugin: cmake
     source: .
+    override-pull: |
+      craftctl default
+      VER=$(sed -n 's/^[[:space:]]*project(zalos VERSION \([0-9.]*\).*/\1/p' "$CRAFT_PART_SRC/CMakeLists.txt" | head -n1)
+      if [ -n "$VER" ]; then
+        craftctl set version="$VER"
+      fi
     cmake-parameters:
       - -DCMAKE_BUILD_TYPE=Release
       - -DCMAKE_INSTALL_PREFIX=/usr

@@ -12,6 +12,7 @@
 [![Platform](https://img.shields.io/badge/Platform-Wayland%20%7C%20X11-purple.svg)](#-features)
 [![Architecture](https://img.shields.io/badge/Arch-x86__64%20%7C%20aarch64-teal.svg)](#-installation)
 [![Packaging](https://img.shields.io/badge/Packaging-deb%20%7C%20RPM%20%7C%20AppImage%20%7C%20Nix-orange.svg)](#-installation)
+[![zalos](https://snapcraft.io/zalos/badge.svg)](https://snapcraft.io/zalos)
 
 [English](README.md) | [Tiếng Việt](README.vi.md) | [Website](https://zalos.pages.dev/)
 
@@ -69,31 +70,54 @@ purpose-built architecture:
 Pick the package for your distribution. Every release is built on the **oldest** release it supports and
 installed on the oldest and newest one in CI.
 
-| Distribution | Package | Supported releases & Qt6 handling |
-|---|---|---|
-| Ubuntu (and Mint, Pop!_OS, Zorin, elementary…) | `.deb` | Ubuntu **24.04 LTS+** (uses distro Qt6) |
-| Fedora | `.rpm` | Fedora **43+** (uses distro Qt6) |
-| NixOS / any distro with Nix | Nix flake | `nixos-unstable` (isolated Qt6 from `/nix/store`) |
-| Ubuntu 22.04+, Debian 12+, openSUSE, Arch, others | AppImage | `glibc ≥ 2.35` (self-contained ~22 MB; bundles Qt 6.4 fallback when host Qt6 is absent) |
+### Install Matrix
 
-### Ubuntu 24.04+ (`.deb`)
+| Method | Target Distributions | Arch | Auto-Update | Voice Calls | Video Calls (Camera) |
+|---|---|---|---|---|---|
+| [**APT Repository**](#ubuntu--debian--apt-repository-recommended) *(recommended)* | Ubuntu 24.04+, Mint, Pop!_OS, Zorin | `amd64` / `arm64` | ✅ `apt upgrade` | ✅ Ready | ➕ `libopenh264-7` |
+| [**DNF Repository**](#fedora--dnf-repository-recommended) *(recommended)* | Fedora 43+ | `x86_64` / `aarch64` | ✅ `dnf upgrade` | ✅ Ready | ➕ `openh264` |
+| [`.deb` (single file)](#ubuntu-2404-deb-single-file) | Ubuntu 24.04+, Debian/derivatives | `amd64` / `arm64` | 🔄 In-app prompt | ✅ Ready | ➕ `libopenh264-7` |
+| [`.rpm` (single file)](#fedora-43-rpm-single-file) | Fedora 43+ | `x86_64` / `aarch64` | 🔄 In-app prompt | ✅ Ready | ➕ `openh264` |
+| [**Snap**](#snap) | Ubuntu & distros with `snapd` | `amd64` / `arm64` | ✅ Snap Store | ✅ Ready | ⚠️ Needs OpenH264 / permissions |
+| [**Flatpak (Testing)**](#flatpak-testing) | Any distro with Flatpak | `x86_64` / `aarch64` | ✅ Flatpak | ✅ Ready | ✅ Bundled (`OpenH264`) |
+| [**Nix Flake**](#nixos--nix) | NixOS / Nix | `x86_64` / `aarch64` | 🔄 `nix profile upgrade` | ✅ Ready | ✅ Bundled |
+| [**AppImage**](#appimage-portable-glibc--235) | Ubuntu 22.04+, Debian 12+, Arch, openSUSE (`glibc ≥ 2.35`) | `x86_64` / `aarch64` | ✅ `zsync` / in-app | ✅ Ready *(desktop)* | ➕ `libopenh264-7` / `openh264` |
+
+### Ubuntu / Debian — APT Repository (recommended)
 ```bash
-# x86_64 (amd64)
-wget https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.2.6-1~ubuntu24.04_amd64.deb
-sudo apt install ./zalos_1.2.6-1~ubuntu24.04_amd64.deb
-
-# ARM64 (aarch64)
-wget https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.2.6-1~ubuntu24.04_arm64.deb
-sudo apt install ./zalos_1.2.6-1~ubuntu24.04_arm64.deb
+curl -fsSL https://cpfriend1721994.github.io/zalos/zalos.gpg | sudo gpg --dearmor -o /usr/share/keyrings/zalos.gpg
+echo "deb [signed-by=/usr/share/keyrings/zalos.gpg] https://cpfriend1721994.github.io/zalos/apt stable main" | sudo tee /etc/apt/sources.list.d/zalos.list
+sudo apt update && sudo apt install -y zalos
 ```
 
-### Fedora 43+ (`.rpm`)
+### Fedora — DNF Repository (recommended)
 ```bash
-# x86_64
-sudo dnf install https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.2.6-1.fc43.x86_64.rpm
+sudo curl -fsSL https://cpfriend1721994.github.io/zalos/zalos.repo -o /etc/yum.repos.d/zalos.repo
+sudo dnf install -y zalos
+```
 
-# ARM64 (aarch64)
-sudo dnf install https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.2.6-1.fc43.aarch64.rpm
+### Ubuntu 24.04+ (`.deb` single file)
+```bash
+ARCH=$(dpkg --print-architecture)
+wget "https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.2.7-1~ubuntu24.04_${ARCH}.deb"
+sudo apt install "./zalos_1.2.7-1~ubuntu24.04_${ARCH}.deb"
+```
+
+### Fedora 43+ (`.rpm` single file)
+```bash
+sudo dnf install "https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.2.7-1.fc43.$(uname -m).rpm"
+```
+
+### Snap
+```bash
+sudo snap install zalos
+```
+
+### Flatpak (Testing)
+Built for both `x86_64` and `aarch64` ([preview app listing](https://builds.flathub.org/appstream/afeb93f6-0f7e-42bb-a97f-191a935cacd4)):
+```bash
+flatpak install --user https://dl.flathub.org/build-repo/342380/io.github.cpfriend1721994.zalos.flatpakref
+flatpak run io.github.cpfriend1721994.zalos
 ```
 
 ### NixOS / Nix
@@ -104,24 +128,16 @@ nix profile install github:cpfriend1721994/zalos
 
 ### AppImage (portable, glibc ≥ 2.35)
 ```bash
-# x86_64
-wget https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.2.6-x86_64.AppImage
-chmod +x Zalos-1.2.6-x86_64.AppImage
-./Zalos-1.2.6-x86_64.AppImage
-
-# ARM64 (aarch64)
-wget https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.2.6-aarch64.AppImage
-chmod +x Zalos-1.2.6-aarch64.AppImage
-./Zalos-1.2.6-aarch64.AppImage
+ARCH=$(uname -m)
+wget "https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.2.7-${ARCH}.AppImage"
+chmod +x "Zalos-1.2.7-${ARCH}.AppImage"
+"./Zalos-1.2.7-${ARCH}.AppImage"
 ```
 The AppImage (~22 MB) uses your host Qt 6 when available and automatically falls back to its bundled Qt 6.4 runtime on systems without Qt 6 (requiring only standard desktop libraries and `glibc ≥ 2.35`, e.g. Ubuntu 22.04+, Debian 12+, Fedora, openSUSE, Arch).
 
 ### Arch Linux & other distributions
-No prebuilt native package is published for Arch Linux. Build it from source — clone this repository and
-follow [Building from source](#️-building-from-source) — or just use the portable **AppImage** above.
-
-> Every release ships **separate x86_64 and aarch64 (ARM64)** files for each format — download the one that
-> matches your `uname -m`.
+No prebuilt native package is published for Arch Linux. Use **Flatpak**, **Snap**, the portable **AppImage** above, or build from source — clone this repository and
+follow [Building from source](#️-building-from-source).
 
 ### Optional: calls
 Voice and video calls run on Zalos's own C++ call engine (`zalos-call` and `zalos-call-audio`, in `libexec/zalos`),

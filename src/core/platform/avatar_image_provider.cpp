@@ -52,7 +52,7 @@ QNetworkAccessManager* sharedNam() {
 
 class AvatarResponse : public QQuickImageResponse {
 public:
-    AvatarResponse(QNetworkAccessManager* nam, const QString& id, const QSize& requestedSize, bool circular)
+    AvatarResponse(const QString& id, const QSize& requestedSize, bool circular)
         : m_circular(circular),
           m_diameter(requestedSize.isValid() && requestedSize.width() > 0
                          ? requestedSize.width()
@@ -103,7 +103,7 @@ public:
             const bool circularFlag = m_circular;
             const QString memKey = m_memKey;
             QPointer<AvatarResponse> self(this);
-            decodePool().start([self, nam, url, cachePath, diameter, circularFlag, memKey]() {
+            decodePool().start([self, url, cachePath, diameter, circularFlag, memKey]() {
                 QImage shaped;
                 if (!AvatarImageProvider::lookupMemCache(memKey, &shaped)) {
                     QFile cachedFile(cachePath);
@@ -123,21 +123,21 @@ public:
                         }
                     }
                 }
-                QMetaObject::invokeMethod(QCoreApplication::instance(), [self, nam, url, cachePath, shaped]() {
+                QMetaObject::invokeMethod(QCoreApplication::instance(), [self, url, cachePath, shaped]() {
                     if (!self) return;
                     if (!shaped.isNull()) {
                         self->deliver(shaped);
                         return;
                     }
-                    self->startNetworkFetch(nam, url, cachePath);
+                    self->startNetworkFetch(url, cachePath);
                 }, Qt::QueuedConnection);
             });
             return;
         }
-        startNetworkFetch(nam, url, cachePath);
+        startNetworkFetch(url, cachePath);
     }
 
-    void startNetworkFetch(QNetworkAccessManager* nam, const QUrl& url, const QString& cachePath) {
+    void startNetworkFetch(const QUrl& url, const QString& cachePath) {
         if (!url.isValid() || !url.scheme().startsWith("http")) {
             failWith(QStringLiteral("unsupported URL"));
             return;
@@ -152,8 +152,9 @@ public:
         req.setAttribute(QNetworkRequest::Http2AllowedAttribute, false);
 
         QPointer<AvatarResponse> self(this);
-        QMetaObject::invokeMethod(nam, [self, nam, req, cachePath]() {
+        QMetaObject::invokeMethod(QCoreApplication::instance(), [self, req, cachePath]() {
             if (!self) return;
+            QNetworkAccessManager* nam = sharedNam();
             const QString key = req.url().toString();
             auto& waiters = inflight()[key];
             const bool running = !waiters.isEmpty();
@@ -307,7 +308,7 @@ AvatarImageProvider::AvatarImageProvider(bool circular)
 AvatarImageProvider::~AvatarImageProvider() = default;
 
 QQuickImageResponse* AvatarImageProvider::requestImageResponse(const QString& id, const QSize& requestedSize) {
-    return new AvatarResponse(sharedNam(), id, requestedSize, m_circular);
+    return new AvatarResponse(id, requestedSize, m_circular);
 }
 
 QString AvatarImageProvider::cacheDirectory() {

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(zalos VERSION 1.2.6 LANGUAGES CXX)
+project(zalos VERSION 1.2.7 LANGUAGES CXX)
 option(BUILD_TESTING "Build unit tests" ON)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -46,6 +46,10 @@ find_package(ZLIB REQUIRED)
 find_package(SQLite3 REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(LZMA REQUIRED liblzma)
+pkg_check_modules(ZSTD QUIET libzstd)
+if(ZSTD_FOUND)
+    add_compile_definitions(ZALOS_HAVE_SYSTEM_ZSTD)
+endif()
 
 # OpenH264 headers only: libopenh264 is dlopen()ed from the user's system at run time and never linked or
 # bundled (see src/core/call/h264_codec.h). Without the headers calls stay audio-only.
@@ -220,6 +224,7 @@ target_include_directories(zalos PRIVATE
     src
     src/core
     ${LZMA_INCLUDE_DIRS}
+    ${ZSTD_INCLUDE_DIRS}
 )
 target_compile_definitions(zalos PRIVATE ZALOS_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
     ZALOS_APP_VERSION="${PROJECT_VERSION}")
@@ -254,6 +259,7 @@ target_link_libraries(zalos PRIVATE
     ZLIB::ZLIB
     SQLite::SQLite3
     ${LZMA_LIBRARIES}
+    ${ZSTD_LIBRARIES}
     ${CMAKE_DL_LIBS}
 )
 
@@ -305,6 +311,7 @@ if(BUILD_TESTING)
         OpenSSL::Crypto
         SQLite::SQLite3
         ${LZMA_LIBRARIES}
+    ${ZSTD_LIBRARIES}
         ${CMAKE_DL_LIBS}
     )
     add_test(NAME test_crypto COMMAND test_crypto)
@@ -354,11 +361,12 @@ if(BUILD_TESTING)
         src/core/sync/v2/sync_v2_frames.cpp
     )
     target_compile_definitions(test_sync_v2 PRIVATE ZALOS_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
-    target_include_directories(test_sync_v2 PRIVATE src src/core)
+    target_include_directories(test_sync_v2 PRIVATE src src/core ${ZSTD_INCLUDE_DIRS})
     target_link_libraries(test_sync_v2 PRIVATE
         Qt6::Core
         Qt6::Test
         OpenSSL::Crypto
+        ${ZSTD_LIBRARIES}
     )
     add_test(NAME test_sync_v2 COMMAND test_sync_v2)
 
@@ -429,6 +437,7 @@ if(BUILD_TESTING)
         ZLIB::ZLIB
         SQLite::SQLite3
         ${LZMA_LIBRARIES}
+    ${ZSTD_LIBRARIES}
         ${CMAKE_DL_LIBS}
     )
 

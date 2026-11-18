@@ -125,6 +125,8 @@ public:
                             bool isRetry, Callback cb, const QString& tempKey = QString());
     void cancelPullMobileMessages(const QString& pcName, const QString& publicKey, Callback cb);
     void cleanMobileSync(const QString& publicKey, Callback cb);
+    bool sendSyncV2Request(const QString& syncId, const QJsonObject& syncData);
+    void sendSyncV2Release(const QString& syncId, int reason);
     void fetchAliasList(int page, int count, Callback cb);
     void fetchUnreadMarks(Callback cb);
     void fetchNoisedIds(const QStringList& userIds, const QStringList& groupIds, Callback cb);

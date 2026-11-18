@@ -2,12 +2,13 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
+import QtQuick.Templates as T
 import Zalos
 
 Popup {
     id: root
     objectName: "hiddenPinPopup"
-    parent: Overlay.overlay
+    parent: T.Overlay.overlay
     anchors.centerIn: parent
     width: Math.min(380, parent ? parent.width - 32 : 380)
     modal: true

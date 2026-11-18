@@ -12,6 +12,7 @@
 [![Platform](https://img.shields.io/badge/Platform-Wayland%20%7C%20X11-purple.svg)](#-tính-năng)
 [![Architecture](https://img.shields.io/badge/Arch-x86__64%20%7C%20aarch64-teal.svg)](#-cài-đặt)
 [![Packaging](https://img.shields.io/badge/Packaging-deb%20%7C%20RPM%20%7C%20AppImage%20%7C%20Nix-orange.svg)](#-cài-đặt)
+[![zalos](https://snapcraft.io/zalos/badge.svg)](https://snapcraft.io/zalos)
 
 [English](README.md) | [Tiếng Việt](README.vi.md) | [Trang chủ](https://zalos.pages.dev/)
 
@@ -69,31 +70,54 @@ hoàn toàn bộ khung Electron/Chromium cồng kềnh:
 Chọn gói theo bản phân phối của bạn. Mỗi bản phát hành được build trên bản phân phối **cũ nhất** mà nó hỗ trợ,
 và được kiểm tra cài đặt trên cả bản cũ nhất lẫn mới nhất trong CI.
 
-| Bản phân phối | Gói | Phiên bản hỗ trợ & Qt6 |
-|---|---|---|
-| Ubuntu (và Mint, Pop!_OS, Zorin, elementary…) | `.deb` | Ubuntu **24.04 LTS+** (dùng Qt6 của distro) |
-| Fedora | `.rpm` | Fedora **43+** (dùng Qt6 của distro) |
-| NixOS / mọi distro có Nix | Nix flake | `nixos-unstable` (Qt6 tách biệt trong `/nix/store`) |
-| Ubuntu 22.04+, Debian 12+, openSUSE, Arch, khác | AppImage | `glibc ≥ 2.35` (tự chứa ~22 MB; nhúng sẵn Qt 6.4 fallback nếu máy chưa có Qt6) |
+### Bảng ma trận cài đặt (Install Matrix)
 
-### Ubuntu 24.04+ (`.deb`)
+| Cách cài đặt | Hệ điều hành hỗ trợ | Kiến trúc | Tự cập nhật | Gọi thoại | Gọi video (Camera) |
+|---|---|---|---|---|---|
+| [**Kho APT**](#ubuntu--debian--kho-apt-khuyên-dùng) *(khuyên dùng)* | Ubuntu 24.04+, Mint, Pop!_OS, Zorin | `amd64` / `arm64` | ✅ `apt upgrade` | ✅ Dùng luôn | ➕ `libopenh264-7` |
+| [**Kho DNF**](#fedora--kho-dnf-khuyên-dùng) *(khuyên dùng)* | Fedora 43+ | `x86_64` / `aarch64` | ✅ `dnf upgrade` | ✅ Dùng luôn | ➕ `openh264` |
+| [File `.deb` lẻ](#ubuntu-2404-file-deb-lẻ) | Ubuntu 24.04+, Debian & phái sinh | `amd64` / `arm64` | 🔄 Báo trong app | ✅ Dùng luôn | ➕ `libopenh264-7` |
+| [File `.rpm` lẻ](#fedora-43-file-rpm-lẻ) | Fedora 43+ | `x86_64` / `aarch64` | 🔄 Báo trong app | ✅ Dùng luôn | ➕ `openh264` |
+| [**Snap**](#snap) | Ubuntu & distro có `snapd` | `amd64` / `arm64` | ✅ Snap Store | ✅ Dùng luôn | ⚠️ Cấp quyền mic/cam |
+| [**Flatpak (Testing)**](#flatpak-testing) | Mọi distro có Flatpak | `x86_64` / `aarch64` | ✅ Flatpak | ✅ Dùng luôn | ✅ Đóng gói sẵn (`OpenH264`) |
+| [**Nix Flake**](#nixos--nix) | NixOS / Nix | `x86_64` / `aarch64` | 🔄 `nix profile upgrade` | ✅ Dùng luôn | ✅ Đóng gói sẵn |
+| [**AppImage**](#appimage-di-động-glibc--235) | Ubuntu 22.04+, Debian 12+, Arch, openSUSE (`glibc ≥ 2.35`) | `x86_64` / `aarch64` | ✅ `zsync` / trong app | ✅ Dùng luôn *(desktop)* | ➕ `libopenh264-7` / `openh264` |
+
+### Ubuntu / Debian — Kho APT (khuyên dùng)
 ```bash
-# x86_64 (amd64)
-wget https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.2.6-1~ubuntu24.04_amd64.deb
-sudo apt install ./zalos_1.2.6-1~ubuntu24.04_amd64.deb
-
-# ARM64 (aarch64)
-wget https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.2.6-1~ubuntu24.04_arm64.deb
-sudo apt install ./zalos_1.2.6-1~ubuntu24.04_arm64.deb
+curl -fsSL https://cpfriend1721994.github.io/zalos/zalos.gpg | sudo gpg --dearmor -o /usr/share/keyrings/zalos.gpg
+echo "deb [signed-by=/usr/share/keyrings/zalos.gpg] https://cpfriend1721994.github.io/zalos/apt stable main" | sudo tee /etc/apt/sources.list.d/zalos.list
+sudo apt update && sudo apt install -y zalos
 ```
 
-### Fedora 43+ (`.rpm`)
+### Fedora — Kho DNF (khuyên dùng)
 ```bash
-# x86_64
-sudo dnf install https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.2.6-1.fc43.x86_64.rpm
+sudo curl -fsSL https://cpfriend1721994.github.io/zalos/zalos.repo -o /etc/yum.repos.d/zalos.repo
+sudo dnf install -y zalos
+```
 
-# ARM64 (aarch64)
-sudo dnf install https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.2.6-1.fc43.aarch64.rpm
+### Ubuntu 24.04+ (file `.deb` lẻ)
+```bash
+ARCH=$(dpkg --print-architecture)
+wget "https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.2.7-1~ubuntu24.04_${ARCH}.deb"
+sudo apt install "./zalos_1.2.7-1~ubuntu24.04_${ARCH}.deb"
+```
+
+### Fedora 43+ (file `.rpm` lẻ)
+```bash
+sudo dnf install "https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.2.7-1.fc43.$(uname -m).rpm"
+```
+
+### Snap
+```bash
+sudo snap install zalos
+```
+
+### Flatpak (Testing)
+Hỗ trợ cả `x86_64` và `aarch64` ([xem trước trên Flathub](https://builds.flathub.org/appstream/afeb93f6-0f7e-42bb-a97f-191a935cacd4)):
+```bash
+flatpak install --user https://dl.flathub.org/build-repo/342380/io.github.cpfriend1721994.zalos.flatpakref
+flatpak run io.github.cpfriend1721994.zalos
 ```
 
 ### NixOS / Nix
@@ -104,23 +128,16 @@ nix profile install github:cpfriend1721994/zalos
 
 ### AppImage (di động, glibc ≥ 2.35)
 ```bash
-# x86_64
-wget https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.2.6-x86_64.AppImage
-chmod +x Zalos-1.2.6-x86_64.AppImage
-./Zalos-1.2.6-x86_64.AppImage
-
-# ARM64 (aarch64)
-wget https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.2.6-aarch64.AppImage
-chmod +x Zalos-1.2.6-aarch64.AppImage
-./Zalos-1.2.6-aarch64.AppImage
+ARCH=$(uname -m)
+wget "https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.2.7-${ARCH}.AppImage"
+chmod +x "Zalos-1.2.7-${ARCH}.AppImage"
+"./Zalos-1.2.7-${ARCH}.AppImage"
 ```
 AppImage (~22 MB) ưu tiên dùng Qt 6 sẵn có trên máy và tự chuyển sang runtime Qt 6.4 nhúng sẵn khi hệ thống chưa cài Qt 6 (chỉ cần các thư viện desktop cơ bản và `glibc ≥ 2.35` như Ubuntu 22.04+, Debian 12+, Fedora, openSUSE, Arch).
 
 ### Arch Linux & các bản phân phối khác
-Dự án không phát hành gói dựng sẵn cho Arch Linux. Hãy **tự build từ mã nguồn** — clone kho này và làm theo
-[Build từ mã nguồn](#️-build-từ-mã-nguồn) — hoặc dùng **AppImage** di động ở trên.
-
-> Mỗi bản phát hành có **file riêng cho x86_64 và aarch64 (ARM64)** ở từng định dạng — tải đúng theo `uname -m`.
+Dự án không phát hành gói dựng sẵn cho Arch Linux. Bạn có thể dùng **Flatpak**, **Snap**, **AppImage** di động ở trên, hoặc **tự build từ mã nguồn** — clone kho này và làm theo
+[Build từ mã nguồn](#️-build-từ-mã-nguồn).
 
 ### Tuỳ chọn: cuộc gọi
 Gọi thoại và video chạy trên engine gọi C++ của chính Zalos (`zalos-call` và `zalos-call-audio`, nằm trong `libexec/zalos`),

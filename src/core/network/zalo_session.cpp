@@ -1,4 +1,5 @@
 #include "zalo_session.h"
+#include "error_catalog.h"
 #include "zalo_crypto.h"
 
 #include <QDateTime>
@@ -1224,6 +1225,22 @@ void ZaloSession::cleanMobileSync(const QString& publicKey, Callback cb) {
            {{"public_key", publicKey}, {"imei", m_imei}}, cb);
 }
 
+bool ZaloSession::sendSyncV2Request(const QString& syncId, const QJsonObject& syncData) {
+    Q_UNUSED(syncId)
+    const bool wsReady = m_ws && m_ws->state() == QAbstractSocket::ConnectedState;
+    if (wsReady) {
+        sendWs(590, 0, {{"data", syncData}}, QStringLiteral("reqId"));
+    }
+    return wsReady;
+}
+
+void ZaloSession::sendSyncV2Release(const QString& syncId, int reason) {
+    if (syncId.isEmpty()) return;
+    sendWs(591, 0,
+           {{"data", QJsonObject{{"syncId", syncId}, {"toDevice", 0}, {"reason", reason}}}},
+           QStringLiteral("reqId"));
+}
+
 void ZaloSession::fetchAliasList(int page, int count, Callback cb) {
     apiGet("alias", "/api/alias/list", {{"page", page}, {"count", count}, {"imei", m_imei}}, cb);
 }
@@ -2122,6 +2139,18 @@ void ZaloSession::onWsBinary(const QByteArray& frame) {
         QMetaObject::invokeMethod(this, [this]() {
             if (m_ws) m_ws->close(QWebSocketProtocol::CloseCode(3000));
         }, Qt::QueuedConnection);
+        return;
+    }
+
+    if (cmd == 590 || cmd == 591 || cmd == 592) {
+        QString detail = QString::fromUtf8(QJsonDocument(parsed).toJson(QJsonDocument::Compact));
+        if (parsed.value("data").isString()) {
+            bool decOk = false;
+            const QByteArray dec = ZaloCrypto::decodeEventData(parsed.value("data").toString(),
+                                                               parsed.value("encrypt").toInt(-1), m_cipherKey, &decOk);
+            if (decOk) detail = QString::fromUtf8(dec);
+        }
+        ErrorCatalog::trace("phone-sync", QStringLiteral("ws cmd=%1 sub=%2 %3").arg(cmd).arg(subCmd).arg(detail.left(400)));
         return;
     }
 

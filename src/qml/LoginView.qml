@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
+import QtQuick.Templates as T
 import Zalos
 
 Rectangle {
@@ -792,7 +793,7 @@ Rectangle {
 
     Popup {
         id: qrZoomPopup
-        parent: Overlay.overlay
+        parent: T.Overlay.overlay
         anchors.centerIn: parent
         modal: true
         padding: 20

@@ -39,6 +39,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="1.2.7" date="2026-11-18">
+      <description>
+        <p>Phone history sync v2 fallback (clean-room OpenSSL 3 implementation), flexible system/runtime libzstd support, Qt 6.4 QML compatibility fixes, and thread-safe avatar loading.</p>
+      </description>
+    </release>
     <release version="1.2.3" date="2026-11-15">
       <description>
         <p>Self-contained AppImage (~22 MB) with bundled Qt 6.4 fallback and glibc 2.35 compatibility (Ubuntu 22.04+ and other modern Linux distributions), canonical MIT license and AppStream validation fixes, and full Qt 6.4 QML compatibility across all components.</p>
