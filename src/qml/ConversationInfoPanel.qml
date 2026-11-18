@@ -38,9 +38,15 @@ Rectangle {
 
     function refreshShared(): void {
         if (!root.visible) return;
-        root.sharedMedia = ZaloClient.messageModel.sharedItems("media", 60);
-        root.sharedFiles = ZaloClient.messageModel.sharedItems("file", 30);
-        root.sharedLinks = ZaloClient.messageModel.sharedItems("link", 30);
+        const cid = ZaloClient.currentConversationId;
+        root.sharedMedia = ZaloClient.sharedItemsForConversation(cid, "media", 60);
+        root.sharedFiles = ZaloClient.sharedItemsForConversation(cid, "file", 30);
+        root.sharedLinks = ZaloClient.sharedItemsForConversation(cid, "link", 30);
+    }
+
+    function requestServerShared(): void {
+        if (!root.visible || ZaloClient.currentConversationId.length === 0) return;
+        ZaloClient.fetchConversationSharedMedia(ZaloClient.currentConversationId);
     }
 
     function openViewer(msgId: string): void {
@@ -70,17 +76,21 @@ Rectangle {
         return (ms < Date.now() ? I18n.t("Quá hạn ", "Overdue ") : I18n.t("Hạn ", "Due ")) + text;
     }
 
-    Component.onCompleted: { root.refreshMembers(); root.refreshShared(); }
-    onVisibleChanged: { root.refreshMembers(); root.refreshShared(); }
+    Component.onCompleted: { root.refreshMembers(); root.refreshShared(); root.requestServerShared(); }
+    onVisibleChanged: { root.refreshMembers(); root.refreshShared(); root.requestServerShared(); }
     Connections {
         target: ZaloClient
         function onCurrentConversationChanged() {
             root.showAllMembers = false;
             root.refreshMembers();
             root.refreshShared();
+            root.requestServerShared();
         }
         function onGroupMembersChanged(groupId: string) {
             if (groupId === ZaloClient.currentConversationId) root.refreshMembers();
+        }
+        function onSharedMediaUpdated(convId: string) {
+            if (convId === ZaloClient.currentConversationId) root.refreshShared();
         }
     }
     Connections {

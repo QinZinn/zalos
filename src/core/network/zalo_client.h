@@ -9,6 +9,7 @@ class QJSEngine;
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QObject>
+#include <QPointer>
 #include <QSet>
 #include <QString>
 #include <QTimer>
@@ -39,7 +40,7 @@ class QMediaPlayer;
 #include "platform/shortcut_map.h"
 #include "platform/storage_manager.h"
 
-namespace Zalos::Core::Platform { class DesktopNotifications; }
+namespace Zalos::Core::Platform { class DesktopNotifications; class SystemTrayController; }
 
 namespace Zalos::Core::Sync { class MobileHistorySync; }
 
@@ -111,6 +112,7 @@ class ZaloClient : public QObject {
     Q_PROPERTY(bool isSyncing READ isSyncing NOTIFY syncStateChanged FINAL)
     Q_PROPERTY(QString myCloudId READ myCloudId NOTIFY userProfileChanged FINAL)
     Q_PROPERTY(QString currentConversationStatus READ currentConversationStatus NOTIFY conversationStatusChanged FINAL)
+    Q_PROPERTY(bool currentConversationIsTyping READ currentConversationIsTyping NOTIFY conversationStatusChanged FINAL)
     Q_PROPERTY(bool currentConversationHasPresence READ currentConversationHasPresence NOTIFY conversationStatusChanged FINAL)
     Q_PROPERTY(bool isSendingAttachment READ isSendingAttachment NOTIFY attachmentStateChanged FINAL)
     Q_PROPERTY(bool isConnected READ isConnected NOTIFY connectionStateChanged FINAL)
@@ -200,7 +202,7 @@ class ZaloClient : public QObject {
     Q_PROPERTY(bool startHiddenInTray READ startHiddenInTray WRITE setStartHiddenInTray NOTIFY settingsChanged FINAL)
     Q_PROPERTY(bool closeToTray READ closeToTray WRITE setCloseToTray NOTIFY settingsChanged FINAL)
     Q_PROPERTY(bool startWithSystem READ startWithSystem WRITE setStartWithSystem NOTIFY settingsChanged FINAL)
-    Q_PROPERTY(bool trayAvailable READ trayAvailable CONSTANT FINAL)
+    Q_PROPERTY(bool trayAvailable READ trayAvailable NOTIFY settingsChanged FINAL)
     Q_PROPERTY(bool launchHidden READ launchHidden CONSTANT FINAL)
 
     Q_PROPERTY(bool blockTyping READ blockTyping WRITE setBlockTyping NOTIFY privacySettingsChanged FINAL)
@@ -230,6 +232,7 @@ class ZaloClient : public QObject {
     Q_PROPERTY(QVariantList linkedDevices READ linkedDevices NOTIFY linkedDevicesChanged FINAL)
     Q_PROPERTY(QVariantList bankList READ bankList NOTIFY bankDataChanged FINAL)
     Q_PROPERTY(QVariantList bankAccounts READ bankAccounts NOTIFY bankDataChanged FINAL)
+    Q_PROPERTY(QVariantList blockedUsers READ blockedUsers NOTIFY blockedUsersChanged FINAL)
     Q_PROPERTY(bool addFriendViaPhone READ addFriendViaPhone NOTIFY serverSettingsChanged FINAL)
     Q_PROPERTY(bool addFriendViaQr READ addFriendViaQr NOTIFY serverSettingsChanged FINAL)
     Q_PROPERTY(bool addFriendViaGroup READ addFriendViaGroup NOTIFY serverSettingsChanged FINAL)
@@ -293,6 +296,7 @@ public:
     bool isSyncing() const { return m_syncing; }
     QString myCloudId() const;
     QString currentConversationStatus() const;
+    bool currentConversationIsTyping() const;
     bool currentConversationHasPresence() const;
     bool isSendingAttachment() const { return m_pendingAttachments > 0; }
     Platform::SoundEngine* soundEngine() const { return m_sound; }
@@ -407,6 +411,9 @@ public:
     Q_INVOKABLE void closeCreatePollModal();
     Q_INVOKABLE void createPoll(const QString& groupId, const QString& question, const QStringList& options, bool allowMultiChoices);
     Q_INVOKABLE void votePoll(qint64 pollId, int optionId);
+    Q_INVOKABLE void addPollOption(qint64 pollId, const QString& content);
+    Q_INVOKABLE void sharePoll(qint64 pollId);
+    Q_INVOKABLE void lockPoll(qint64 pollId);
 
     Q_INVOKABLE void changeGroupName(const QString& groupId, const QString& newName);
     Q_INVOKABLE void addMemberToGroup(const QString& groupId, const QString& memberId);
@@ -748,6 +755,7 @@ public:
 
 #ifdef ZALOS_TESTING
     void triggerSimulatedIncomingCall(const QString& callerName = "Người gọi Zalo");
+    void setTrayAvailableForTesting(int mode) { m_trayAvailableOverride = mode; emit settingsChanged(); }
 #endif
     Q_INVOKABLE void answerCall(bool withCamera = true);
     Q_INVOKABLE void declineCall();
@@ -756,6 +764,7 @@ public:
     Q_INVOKABLE QVariantMap windowGeometry() const;
     Q_INVOKABLE void saveWindowGeometry(int x, int y, int width, int height, bool maximized);
     Q_INVOKABLE void notifyWindowVisibility(bool visible);
+    Q_INVOKABLE void hideWindowToTray();
     Q_SLOT void onScreenshotResponse(uint response, const QVariantMap& results);
 
     Q_INVOKABLE QVariantMap getDiskUsage(const QString& path = QString());
@@ -775,6 +784,7 @@ public:
     QVariantList linkedDevices() const { return m_linkedDevices; }
     QVariantList bankList() const { return m_bankList; }
     QVariantList bankAccounts() const { return m_bankAccounts; }
+    QVariantList blockedUsers() const { return m_blockedUsers; }
     Q_INVOKABLE void refreshGroupInvites();
     Q_INVOKABLE void joinGroupInvite(const QString& groupId);
     Q_INVOKABLE void deleteGroupInvite(const QString& groupId, bool blockFuture = false);
@@ -782,15 +792,20 @@ public:
     Q_INVOKABLE void refreshCloseFriends();
     Q_INVOKABLE bool isCloseFriend(const QString& uid) const { return m_closeFriendIds.contains(uid); }
     Q_INVOKABLE void refreshLinkedDevices();
+    Q_INVOKABLE void refreshBlockedUsers();
     Q_INVOKABLE void scanAndOpenUrl(const QString& url);
     Q_INVOKABLE void reportAbuse(const QString& threadId, bool isGroup, int reason = 0, const QString& content = QString());
     Q_INVOKABLE void upgradeGroupToCommunity(const QString& groupId);
     Q_INVOKABLE void refreshBankAccounts();
     Q_INVOKABLE void createBankAccount(int binBank, const QString& numAccBank, const QString& nameAccBank);
     Q_INVOKABLE void sendBankCard(int binBank, const QString& numAccBank, const QString& nameAccBank);
+    Q_INVOKABLE void fetchConversationSharedMedia(const QString& convId);
+    Q_INVOKABLE QVariantList sharedItemsForConversation(const QString& convId, const QString& kind, int limit = 60);
+    static QString bankShortNameForBin(int bin);
 
 signals:
     void windowActivationRequested(const QString& activationToken);
+    void hideWindowRequested();
     void syncPromptChanged();
     void groupMembersChanged(const QString& groupId);
     void quickMessagesChanged();
@@ -867,6 +882,8 @@ signals:
     void friendRecommendationsChanged();
     void linkedDevicesChanged();
     void bankDataChanged();
+    void blockedUsersChanged();
+    void sharedMediaUpdated(const QString& convId);
 
 private Q_SLOTS:
     void onPrepareForSleep(bool sleeping);
@@ -984,6 +1001,7 @@ private:
     void loadArchivedChats();
     void loadAutoDeleteSettings();
     void resolveSticker(const QString& convId, const QString& msgId, qint64 stickerId);
+    void resolveZInstantBankCard(const QString& convId, const QString& msgId, const QString& dataUrl);
     QString threadOfMessage(const QString& msgId) const;
     bool isGroupThread(const QString& threadId) const;
     void handleMobileSyncControl(const QJsonObject& content);
@@ -1029,6 +1047,9 @@ private:
     QVariantList m_myAvatarHistory;
     Platform::SoundEngine* m_sound{nullptr};
     Call::CallBridge* m_calls{nullptr};
+    QPointer<Platform::SystemTrayController> m_boundTray;
+    QString m_lastCallPhase;
+    void syncCallTrayState();
 
     QHash<QString, Profile> m_users;
     QHash<QString, Profile> m_groups;
@@ -1244,10 +1265,14 @@ private:
     QVariantList m_linkedDevices;
     QVariantList m_bankList;
     QVariantList m_bankAccounts;
+    QVariantList m_blockedUsers;
+    QHash<QString, QHash<QString, QVariantList>> m_serverSharedMedia;
+    QSet<QString> m_bankCardFetching;
     QSet<QString> m_closeFriendIds;
     bool m_startHiddenInTray{false};
     bool m_closeToTray{true};
     bool m_launchHidden{false};
+    int m_trayAvailableOverride{-1};
 
     bool m_blockTyping{false};
     bool m_blockDelivered{false};

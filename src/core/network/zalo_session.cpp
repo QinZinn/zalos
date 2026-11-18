@@ -38,6 +38,10 @@ QString compactJson(const QJsonObject& obj) {
     return QString::fromUtf8(QJsonDocument(obj).toJson(QJsonDocument::Compact));
 }
 
+QString compactJsonArray(const QJsonArray& arr) {
+    return QString::fromUtf8(QJsonDocument(arr).toJson(QJsonDocument::Compact));
+}
+
 QByteArray encodeQuery(const QList<QPair<QString, QString>>& items) {
     QByteArray out;
     for (const auto& item : items) {
@@ -82,6 +86,9 @@ ZaloSession::ZaloSession(QNetworkAccessManager* nam, SessionCookieJar* jar, QObj
         sendWs(2, 1, QJsonObject{{"eventId", QDateTime::currentMSecsSinceEpoch()}}, QString());
         m_pongWatchdog.start(15000);
     });
+
+    m_wsReconnectTimer.setSingleShot(true);
+    connect(&m_wsReconnectTimer, &QTimer::timeout, this, &ZaloSession::connectRealtime);
 }
 
 void ZaloSession::logRealtime(const QString& line) const {
@@ -94,6 +101,7 @@ void ZaloSession::logRealtime(const QString& line) const {
 }
 
 void ZaloSession::reset() {
+    m_wsReconnectTimer.stop();
     disconnectRealtime();
     m_uploadWaiters.clear();
     m_earlyFileDone.clear();
@@ -106,10 +114,10 @@ void ZaloSession::reset() {
 }
 
 void ZaloSession::scheduleWsReconnect() {
-    if (m_secretKey.isEmpty()) return;
+    if (m_secretKey.isEmpty() || m_wsReconnectTimer.isActive()) return;
     const int shift = qMin(m_wsReconnectAttempts++, 3);
     const int delayMs = qMin(30000, 5000 * (1 << shift));
-    QTimer::singleShot(delayMs, this, &ZaloSession::connectRealtime);
+    m_wsReconnectTimer.start(delayMs);
 }
 
 QString ZaloSession::phonebookVersion() const {
@@ -226,7 +234,7 @@ void ZaloSession::login(const QString& imei, const QString& userAgent, const QSt
     });
 }
 
-void ZaloSession::requestServerInfo() {
+void ZaloSession::requestServerInfo(int retryCount) {
     QMap<QString, QString> signParams{
         {"imei", m_imei},
         {"type", QString::number(kApiType)},
@@ -243,15 +251,20 @@ void ZaloSession::requestServerInfo() {
     QNetworkRequest req(makeUrl("https://wpa.chat.zalo.me/api/login/getServerInfo", query, false));
     applyHeaders(req, false);
     QNetworkReply* reply = m_nam->get(req);
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+    const QString keyAtStart = m_secretKey;
+    connect(reply, &QNetworkReply::finished, this, [this, reply, retryCount, keyAtStart]() {
         reply->deleteLater();
         if (reply->error() == QNetworkReply::NoError && reply->isOpen()) {
             const QJsonObject data = QJsonDocument::fromJson(reply->readAll()).object().value("data").toObject();
             m_serverSettings = data.value("setttings").toObject();
             if (m_serverSettings.isEmpty()) m_serverSettings = data.value("settings").toObject();
             m_extraVer = data.value("extra_ver").toObject();
+        } else if (retryCount < 2 && !keyAtStart.isEmpty()) {
+            QTimer::singleShot(1500, this, [this, retryCount, keyAtStart]() {
+                if (!m_secretKey.isEmpty() && m_secretKey == keyAtStart) requestServerInfo(retryCount + 1);
+            });
         }
-        emit loggedIn();
+        if (retryCount == 0) emit loggedIn();
     });
 }
 
@@ -351,6 +364,7 @@ void ZaloSession::sendApi(const QString& service, const QString& path, bool post
     const int first = qBound(0, m_preferredHost.value(service), int(hosts.size()) - 1);
     const int attempt = hostIndex < 0 ? 0 : hostIndex;
     const int index = (first + attempt) % hosts.size();
+    const int maxAttempts = qMax(int(hosts.size()), 2);
     const QString base = hosts.at(index);
 
     const bool rawParams = extraQuery.contains("__raw_params");
@@ -367,13 +381,25 @@ void ZaloSession::sendApi(const QString& service, const QString& path, bool post
     applyHeaders(req, post);
     QNetworkReply* reply = post ? m_nam->post(req, paramsInQuery ? QByteArray() : encodeQuery({{"params", encrypted}}))
                                 : m_nam->get(req);
+    const QString keyAtStart = m_secretKey;
     connect(reply, &QNetworkReply::finished, this,
-            [this, reply, cb, service, path, post, params, extraQuery, attempt, index, hosts]() {
+            [this, reply, cb, service, path, post, params, extraQuery, attempt, index, hosts, maxAttempts, keyAtStart]() {
         const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-        if ((reply->error() != QNetworkReply::NoError || status == 404)
-            && isFailoverError(reply->error(), status) && attempt + 1 < hosts.size()) {
+        const bool transient = isFailoverError(reply->error(), status) || status == 429;
+        if ((reply->error() != QNetworkReply::NoError || status == 404 || status == 429)
+            && transient && attempt + 1 < maxAttempts) {
             reply->deleteLater();
-            sendApi(service, path, post, params, cb, extraQuery, attempt + 1);
+            if (attempt + 1 < int(hosts.size())) {
+                sendApi(service, path, post, params, cb, extraQuery, attempt + 1);
+            } else {
+                QTimer::singleShot(600, this, [this, service, path, post, params, extraQuery, attempt, cb, keyAtStart]() {
+                    if (m_secretKey.isEmpty() || m_secretKey != keyAtStart) {
+                        cb(false, {}, QStringLiteral("not_logged_in"), -1);
+                        return;
+                    }
+                    sendApi(service, path, post, params, cb, extraQuery, attempt + 1);
+                });
+            }
             return;
         }
         if (reply->error() == QNetworkReply::NoError) m_preferredHost[service] = index;
@@ -816,13 +842,118 @@ void ZaloSession::sendAttachment(const QString& threadId, bool isGroup, const QS
     }
 
     const bool isImage = (ext == "jpg" || ext == "jpeg" || ext == "png" || ext == "webp");
+    const bool isGif = (ext == "gif");
     const bool isVideo = (ext == "mp4" || ext == "mov" || ext == "webm" || ext == "mkv" || ext == "avi");
     QSize size;
-    if (isImage) size = QImageReader(filePath).size();
-    const UploadKind kind = isImage ? UploadKind::Photo : (isVideo ? UploadKind::Video : UploadKind::File);
+    if (isImage || isGif) size = QImageReader(filePath).size();
     file.close();
+    if (isGif) {
+        sendGif(threadId, isGroup, filePath, info.fileName(), size.width(), size.height(), caption, cb, sendClientId, ttl);
+        return;
+    }
+    const UploadKind kind = isImage ? UploadKind::Photo : (isVideo ? UploadKind::Video : UploadKind::File);
     uploadChunks(threadId, isGroup, filePath, info.fileName(), kind,
                  size.width(), size.height(), caption, cb, sendClientId, ttl);
+}
+
+void ZaloSession::sendGif(const QString& threadId, bool isGroup, const QString& filePath, const QString& fileName,
+                          int width, int height, const QString& caption, Callback cb,
+                          const QString& sendClientId, qint64 ttl) {
+    const QString base = serviceUrl("file");
+    if (base.isEmpty() || m_secretKey.isEmpty()) {
+        cb(false, {}, QStringLiteral("not_logged_in"), -1);
+        return;
+    }
+    QFile file(filePath);
+    if (!file.open(QIODevice::ReadOnly) || file.size() <= 0) {
+        cb(false, {}, QStringLiteral("file_unreadable"), -1);
+        return;
+    }
+    const qint64 totalSize = file.size();
+    const QByteArray gifBytes = file.readAll();
+    file.close();
+    if (gifBytes.isEmpty()) {
+        cb(false, {}, QStringLiteral("file_unreadable"), -1);
+        return;
+    }
+
+    QByteArray thumbBytes;
+    QImageReader reader(filePath);
+    reader.setAutoTransform(true);
+    const QImage thumbImg = reader.read();
+    if (!thumbImg.isNull()) {
+        QBuffer buf(&thumbBytes);
+        buf.open(QIODevice::WriteOnly);
+        thumbImg.save(&buf, "PNG");
+    }
+    if (thumbBytes.isEmpty()) thumbBytes = gifBytes;
+
+    const qint64 clientId = sendClientId.isEmpty() ? QDateTime::currentMSecsSinceEpoch() : sendClientId.toLongLong();
+    const QString thumbEnc = ZaloCrypto::encodeAES(
+        m_secretKey, compactJson(QJsonObject{{"clientId", clientId}, {"imei", m_imei}}).toUtf8());
+    QNetworkRequest thumbReq(makeUrl(base + QStringLiteral("/api/message/upthumb?"),
+                                     {qMakePair(QStringLiteral("params"), thumbEnc)}));
+    applyHeaders(thumbReq, false);
+    thumbReq.setHeader(QNetworkRequest::ContentTypeHeader, QVariant());
+    auto* thumbMulti = new QHttpMultiPart(QHttpMultiPart::FormDataType);
+    QHttpPart thumbPart;
+    thumbPart.setHeader(QNetworkRequest::ContentTypeHeader, "image/png");
+    thumbPart.setHeader(QNetworkRequest::ContentDispositionHeader, QStringLiteral("form-data; name=\"fileContent\"; filename=\"blob\""));
+    thumbPart.setBody(thumbBytes);
+    thumbMulti->append(thumbPart);
+    QNetworkReply* thumbReply = m_nam->post(thumbReq, thumbMulti);
+    thumbMulti->setParent(thumbReply);
+
+    const QString checksum = QString::fromLatin1(QCryptographicHash::hash(gifBytes, QCryptographicHash::Md5).toHex());
+    const int gifW = width > 0 ? width : (!thumbImg.isNull() ? thumbImg.width() : 320);
+    const int gifH = height > 0 ? height : (!thumbImg.isNull() ? thumbImg.height() : 240);
+    connect(thumbReply, &QNetworkReply::finished, this, [=, this]() {
+        handleApiReply(thumbReply, [=, this](bool ok, const QJsonValue& data, const QString& err, int code) {
+            if (!ok) {
+                cb(false, {}, err, code);
+                return;
+            }
+            const QString thumbUrl = data.toObject().value("url").toString();
+            QJsonObject params{
+                {"clientId", QString::number(clientId)},
+                {"fileName", fileName},
+                {"totalSize", totalSize},
+                {"width", gifW},
+                {"height", gifH},
+                {"msg", caption},
+                {"type", 1},
+                {"ttl", ttl},
+                {"thumb", thumbUrl},
+                {"checksum", checksum},
+                {"totalChunk", 1},
+                {"chunkId", 1},
+            };
+            if (isGroup) {
+                params["grid"] = threadId;
+                params["visibility"] = 0;
+            } else {
+                params["toid"] = threadId;
+            }
+            const QString enc = ZaloCrypto::encodeAES(m_secretKey, compactJson(params).toUtf8());
+            const QString path = isGroup ? QStringLiteral("/api/group/gif?") : QStringLiteral("/api/message/gif?");
+            QNetworkRequest req(makeUrl(base + path,
+                                        {qMakePair(QStringLiteral("nretry"), QStringLiteral("0")),
+                                         qMakePair(QStringLiteral("params"), enc),
+                                         qMakePair(QStringLiteral("type"), QStringLiteral("1"))}));
+            applyHeaders(req, false);
+            req.setHeader(QNetworkRequest::ContentTypeHeader, QVariant());
+            auto* multi = new QHttpMultiPart(QHttpMultiPart::FormDataType);
+            QHttpPart part;
+            part.setHeader(QNetworkRequest::ContentTypeHeader, "application/octet-stream");
+            part.setHeader(QNetworkRequest::ContentDispositionHeader,
+                           QStringLiteral("form-data; name=\"chunkContent\"; filename=\"%1\"").arg(fileName));
+            part.setBody(gifBytes);
+            multi->append(part);
+            QNetworkReply* reply = m_nam->post(req, multi);
+            multi->setParent(reply);
+            connect(reply, &QNetworkReply::finished, this, [this, reply, cb]() { handleApiReply(reply, cb); });
+        });
+    });
 }
 
 void ZaloSession::sendVoice(const QString& threadId, bool isGroup, const QString& filePath, const QString& clientId,
@@ -1582,6 +1713,21 @@ void ZaloSession::votePoll(qint64 pollId, const QList<int>& optionIds, Callback 
     apiGet("group", "/api/poll/vote", params, cb);
 }
 
+void ZaloSession::addPollOptions(qint64 pollId, const QJsonArray& newOptions, const QList<int>& votedOptionIds, Callback cb) {
+    QJsonArray votedArr;
+    for (int id : votedOptionIds) votedArr.append(id);
+    const QJsonObject params{
+        {"poll_id", pollId},
+        {"new_options", compactJsonArray(newOptions)},
+        {"voted_option_ids", votedArr},
+    };
+    apiGet("group", "/api/poll/option/add", params, cb);
+}
+
+void ZaloSession::sharePoll(qint64 pollId, Callback cb) {
+    apiPost("group", "/api/poll/share", {{"poll_id", pollId}, {"imei", m_imei}}, cb);
+}
+
 void ZaloSession::lockPoll(qint64 pollId, Callback cb) {
     const QJsonObject params{
         {"poll_id", pollId},
@@ -1822,6 +1968,11 @@ void ZaloSession::unblockUser(const QString& userId, Callback cb) {
     apiPost("friend", "/api/friend/unblock", params, cb);
 }
 
+void ZaloSession::fetchBlockedUsers(int page, int count, Callback cb) {
+    apiGet("friend", "/api/friend/blocklistv2",
+           {{"page", qMax(1, page)}, {"count", qBound(1, count, 100)}, {"avatar", 75}}, cb);
+}
+
 void ZaloSession::removeFriend(const QString& userId, Callback cb) {
     const QJsonObject params{
         {"fid", userId},
@@ -1833,18 +1984,25 @@ void ZaloSession::removeFriend(const QString& userId, Callback cb) {
 void ZaloSession::probeRealtime() {
     if (m_secretKey.isEmpty()) return;
     m_wsReconnectAttempts = 0;
+    m_wsReconnectTimer.stop();
     if (!m_ws) {
         logRealtime(QStringLiteral("probe: no socket, connecting now"));
         connectRealtime();
         return;
     }
-    if (!m_realtimeReady) return;
+    if (!m_realtimeReady) {
+        logRealtime(QStringLiteral("probe: resetting half-open socket after network change or resume"));
+        disconnectRealtime();
+        connectRealtime();
+        return;
+    }
     logRealtime(QStringLiteral("probe: ping after network change or resume"));
     sendWs(2, 1, QJsonObject{{"eventId", QDateTime::currentMSecsSinceEpoch()}}, QString());
     m_pongWatchdog.start(15000);
 }
 
 void ZaloSession::connectRealtime() {
+    m_wsReconnectTimer.stop();
     const QJsonArray urls = m_loginInfo.value("zpw_ws").toArray();
     if (urls.isEmpty() || m_ws) return;
 
@@ -1910,6 +2068,7 @@ void ZaloSession::connectRealtime() {
 }
 
 void ZaloSession::disconnectRealtime() {
+    m_wsReconnectTimer.stop();
     m_pingTimer.stop();
     m_pongWatchdog.stop();
     m_realtimeReady = false;
@@ -2025,17 +2184,28 @@ void ZaloSession::createBankAccount(int binBank, const QString& numAccBank, cons
 }
 
 void ZaloSession::sendBankCard(const QString& threadId, bool isGroup, int binBank, const QString& numAccBank,
-                               const QString& nameAccBank, Callback cb) {
+                               const QString& nameAccBank, Callback cb, const QString& cliMsgId) {
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
     apiPost("zimsg", "/api/transfer/card", QJsonObject{
         {"binBank", binBank},
         {"numAccBank", numAccBank},
         {"nameAccBank", nameAccBank.trimmed().isEmpty() ? QStringLiteral("---") : nameAccBank.trimmed().toUpper()},
-        {"cliMsgId", QString::number(now)},
+        {"cliMsgId", cliMsgId.isEmpty() ? QString::number(now) : cliMsgId},
         {"tsMsg", now},
         {"destUid", threadId},
         {"destType", isGroup ? 1 : 0},
     }, cb);
+}
+
+void ZaloSession::fetchMediaStorePreview(const QString& threadId, bool isSendToMe, int limit, Callback cb) {
+    QJsonObject params{{"limit", qBound(1, limit, 100)}};
+    if (!isSendToMe) {
+        params["group_id"] = threadId;
+        params["imei"] = m_imei;
+    }
+    apiPost(isSendToMe ? QStringLiteral("media_store_send2me") : QStringLiteral("media_store"),
+            isSendToMe ? QStringLiteral("/api/media/oneone/preview?") : QStringLiteral("/api/mediastore/preview?"),
+            params, cb, {{"__params_in_query", "1"}});
 }
 
 namespace {

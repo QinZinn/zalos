@@ -14,6 +14,9 @@ ApplicationWindow {
     color: ThemeManager.backgroundColor
 
     readonly property bool isCompactMode: width < 680
+    readonly property bool inActiveCall: !!(ZaloClient.calls && ZaloClient.calls.phase.length > 0 && ZaloClient.calls.phase !== "ended")
+    property bool forceQuit: false
+    property int preHideVisibility: Window.AutomaticVisibility
     property int preScreenshotVisibility: Window.AutomaticVisibility
 
     flags: Qt.Window
@@ -79,6 +82,9 @@ ApplicationWindow {
             mainWindow.preScreenshotVisibility = mainWindow.visibility;
             mainWindow.hide();
         }
+        function onHideWindowRequested(): void {
+            mainWindow.minimizeOrHideForCall();
+        }
         function onRequestRestoreAfterScreenshot() {
             if (mainWindow.preScreenshotVisibility === Window.FullScreen) {
                 mainWindow.showFullScreen();
@@ -101,27 +107,57 @@ ApplicationWindow {
         }
     }
 
-    function toggleVisibility(): void {
-        if (mainWindow.visible) {
-            mainWindow.hide();
+    function hideToTray(): void {
+        mainWindow.recordGeometry();
+        if (mainWindow.visibility === Window.Maximized || mainWindow.visibility === Window.FullScreen) {
+            mainWindow.preHideVisibility = mainWindow.visibility;
         } else {
-            mainWindow.show();
-            mainWindow.raise();
-            mainWindow.requestActivate();
+            mainWindow.preHideVisibility = Window.AutomaticVisibility;
+        }
+        mainWindow.hide();
+    }
+
+    function minimizeOrHideForCall(): void {
+        if (ZaloClient.trayAvailable) {
+            mainWindow.hideToTray();
+        } else {
+            mainWindow.recordGeometry();
+            if (callOverlayLoader.item) callOverlayLoader.item.minimized = true;
+            mainWindow.showMinimized();
+        }
+    }
+
+    function toggleVisibility(): void {
+        if (mainWindow.visible && mainWindow.visibility !== Window.Minimized) {
+            mainWindow.hideToTray();
+        } else {
+            mainWindow.showAndActivate();
         }
     }
 
     onClosing: (close) => {
+        if (mainWindow.forceQuit) return;
         mainWindow.recordGeometry();
-        if (ZaloClient.closeToTray && ZaloClient.trayAvailable) {
+        if (mainWindow.inActiveCall) {
             close.accepted = false;
-            mainWindow.hide();
+            mainWindow.minimizeOrHideForCall();
+        } else if (ZaloClient.closeToTray && ZaloClient.trayAvailable) {
+            close.accepted = false;
+            mainWindow.hideToTray();
         }
     }
 
     function showAndActivate(): void {
-        if (mainWindow.visibility === Window.Minimized) mainWindow.showNormal();
-        else mainWindow.show();
+        if (mainWindow.preHideVisibility === Window.FullScreen) {
+            mainWindow.showFullScreen();
+        } else if (mainWindow.preHideVisibility === Window.Maximized) {
+            mainWindow.showMaximized();
+        } else if (mainWindow.visibility === Window.Minimized) {
+            mainWindow.showNormal();
+        } else {
+            mainWindow.show();
+        }
+        mainWindow.preHideVisibility = Window.AutomaticVisibility;
         mainWindow.raise();
         mainWindow.requestActivate();
     }
@@ -358,7 +394,10 @@ ApplicationWindow {
     }
     Shortcut {
         sequences: ZaloClient.shortcuts.keySequences("app.quit")
-        onActivated: Qt.quit()
+        onActivated: {
+            mainWindow.forceQuit = true;
+            Qt.quit();
+        }
     }
 
     Connections {
@@ -443,6 +482,7 @@ ApplicationWindow {
     }
 
     LazyOverlay {
+        id: callOverlayLoader
         z: 2000
         active: !!(ZaloClient.calls && ZaloClient.calls.phase.length > 0)
         source: active ? Qt.resolvedUrl("CallOverlay.qml") : ""

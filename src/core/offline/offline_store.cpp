@@ -13,6 +13,7 @@
 #include <QStandardPaths>
 #include <QSqlQuery>
 #include <QSqlError>
+#include <QUrl>
 #include <QDebug>
 
 namespace Zalos::Core::Offline {
@@ -797,6 +798,16 @@ QJsonObject ZaloOfflineStore::rawMessage(const QString& msgId) const {
     return decodeRaw(q.value(0));
 }
 
+bool ZaloOfflineStore::isAnimatedImageHref(const QString& msgType, const QString& href) {
+    if (href.isEmpty()) return false;
+    if (msgType == QLatin1String("chat.gif")) return true;
+    const QUrl hrefUrl(href);
+    const QString hrefPath = hrefUrl.path().toLower();
+    const QString hrefHost = hrefUrl.host().toLower();
+    return hrefPath.endsWith(QLatin1String(".gif")) || hrefPath.endsWith(QLatin1String("_gif"))
+           || hrefHost.contains(QLatin1String("zgif")) || hrefHost.contains(QLatin1String("zalo-gif"));
+}
+
 QVector<Models::MessageItem> ZaloOfflineStore::loadMessages(const QString& convId, QHash<QString, QJsonObject>* raws,
                                                             int limit, qint64 beforeTs) {
     QVector<Models::MessageItem> list;
@@ -838,10 +849,15 @@ QVector<Models::MessageItem> ZaloOfflineStore::loadMessages(const QString& convI
             item.fileSize = q.value(20).toLongLong();
             const QString seenColumn = q.value(22).toString();
             if (!seenColumn.isEmpty()) item.seenUids = seenColumn.split(QLatin1Char(','), Qt::SkipEmptyParts);
-            if (raws) {
-                const QJsonObject raw = decodeRaw(q.value(18));
-                if (!raw.isEmpty()) raws->insert(item.id, raw);
+            const bool needRaw = raws != nullptr
+                || (item.messageType == QLatin1String("image") && !item.href.isEmpty()
+                    && !isAnimatedImageHref(QString(), item.href));
+            const QJsonObject raw = needRaw ? decodeRaw(q.value(18)) : QJsonObject();
+            if (item.messageType == QLatin1String("image")
+                && isAnimatedImageHref(raw.value(QLatin1String("msgType")).toString(), item.href)) {
+                item.extra.insert(QStringLiteral("animatedUrl"), item.href);
             }
+            if (raws && !raw.isEmpty()) raws->insert(item.id, raw);
             list.append(item);
         }
     }

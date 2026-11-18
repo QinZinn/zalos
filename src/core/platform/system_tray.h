@@ -7,6 +7,7 @@ class QJSEngine;
 
 #include <QObject>
 #include <QSystemTrayIcon>
+#include <QAction>
 #include <QMenu>
 #include <QIcon>
 #include <QPixmap>
@@ -27,13 +28,35 @@ public:
     void setAntiPeeking(bool on);
     void setLanguage(const QString& lang);
     void setWindowVisible(bool visible);
+    void setCallState(const QString& phase, const QString& peerName, bool isVideo,
+                      bool muted, bool speakerOff, bool cameraOn, bool screenShareOn);
+    QString callPhase() const { return m_callPhase; }
+    QString toolTip() const;
     bool isVisible() const;
+
+    QAction* callStatusAction() const { return m_callStatusAction; }
+    QAction* callAcceptAction() const { return m_callAcceptAction; }
+    QAction* callAcceptNoCamAction() const { return m_callAcceptNoCamAction; }
+    QAction* callRejectAction() const { return m_callRejectAction; }
+    QAction* callMuteAction() const { return m_callMuteAction; }
+    QAction* callSpeakerAction() const { return m_callSpeakerAction; }
+    QAction* callCameraAction() const { return m_callCameraAction; }
+    QAction* callScreenShareAction() const { return m_callScreenShareAction; }
+    QAction* callHangupAction() const { return m_callHangupAction; }
 
 signals:
     void toggleWindowRequested();
     void quitRequested();
     void toggleDarkModeRequested();
     void antiPeekingToggled(bool on);
+    void showCallWindowRequested();
+    void acceptCallRequested(bool withoutCamera);
+    void rejectCallRequested();
+    void hangupCallRequested();
+    void toggleCallMuteRequested();
+    void toggleCallSpeakerRequested();
+    void toggleCallCameraRequested();
+    void toggleCallScreenShareRequested();
 
 public slots:
     void showMessage(const QString& title, const QString& message);
@@ -53,6 +76,23 @@ private:
     int m_unreadCount{0};
     bool m_hasMentions{false};
     bool m_antiPeeking{false};
+    QString m_callPhase;
+    QString m_callPeerName;
+    bool m_callIsVideo{false};
+    bool m_callMuted{false};
+    bool m_callSpeakerOff{false};
+    bool m_callCameraOn{false};
+    bool m_callScreenShareOn{false};
+    QAction* m_callStatusAction{nullptr};
+    QAction* m_callAcceptAction{nullptr};
+    QAction* m_callAcceptNoCamAction{nullptr};
+    QAction* m_callRejectAction{nullptr};
+    QAction* m_callMuteAction{nullptr};
+    QAction* m_callSpeakerAction{nullptr};
+    QAction* m_callCameraAction{nullptr};
+    QAction* m_callScreenShareAction{nullptr};
+    QAction* m_callHangupAction{nullptr};
+    QAction* m_callSeparator{nullptr};
     QAction* m_antiPeekAction{nullptr};
     QAction* m_openAction{nullptr};
     QAction* m_themeAction{nullptr};

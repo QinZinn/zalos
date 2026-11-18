@@ -1,5 +1,6 @@
 #include <QtTest>
 #include <QGuiApplication>
+#include <QInputMethodEvent>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQmlEngine>
@@ -15,6 +16,8 @@
 #endif
 #include <QProcess>
 #include <QSignalSpy>
+#include <QTcpServer>
+#include <QTcpSocket>
 #include <QQuickImageProvider>
 #include <QDateTime>
 #include <QBuffer>
@@ -98,6 +101,7 @@ private slots:
         settings.setValue("auth/isLoggedIn", false);
         settings.setValue("auth/userName", "");
         settings.setValue("auth/userPhone", "");
+        settings.remove("settings/closeToTray");
         QString baseDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
         QFile::remove(QDir(baseDir).filePath("offline.db"));
         QQuickWindow::setTextRenderType(QQuickWindow::NativeTextRendering); // as main.cpp: screenshots match the app
@@ -228,6 +232,7 @@ private slots:
         settings.setValue("auth/isLoggedIn", false);
         settings.setValue("auth/userName", "");
         settings.setValue("auth/userPhone", "");
+        settings.remove("settings/closeToTray");
     }
 
     // 1. System Integration: QML Engine & Context Properties
@@ -5281,6 +5286,17 @@ private slots:
         QCOMPARE(gifItem.messageType, QStringLiteral("image"));
         QCOMPARE(gifItem.extra.value("animatedUrl").toString(), QStringLiteral("https://example.invalid/anim.gif"));
 
+        const QJsonObject zgifMsg{
+            {"msgId", "7103"}, {"uidFrom", "u-p1"}, {"idTo", "g-gif"},
+            {"msgType", "chat.gif"}, {"ts", "1700000000002"},
+            {"content", QJsonObject{{"href", "https://zchat-search.zadn.vn/8884179135713762630_gif"},
+                                    {"thumb", "https://zchat-search.zadn.vn/8884179135713762630_png"}}}
+        };
+        const MessageItem zgifItem = client.toMessageItemForTesting(zgifMsg, true);
+        QCOMPARE(zgifItem.messageType, QStringLiteral("image"));
+        QCOMPARE(zgifItem.extra.value("animatedUrl").toString(),
+                 QStringLiteral("https://zchat-search.zadn.vn/8884179135713762630_gif"));
+
         {
             ZaloOfflineStore store;
             store.bindOwner(QStringLiteral("u-ts-owner"));
@@ -5295,6 +5311,51 @@ private slots:
             item.text = QStringLiteral("indexed ts check");
             item.ts = 1700000123456LL;
             QVERIFY(store.saveMessage(QStringLiteral("u-ts-peer"), item));
+
+            MessageItem cachedGif;
+            cachedGif.id = QStringLiteral("msg-gif-902");
+            cachedGif.senderId = QStringLiteral("u-ts-peer");
+            cachedGif.messageType = QStringLiteral("image");
+            cachedGif.mediaUrl = QStringLiteral("https://zgif-v2.zdn.vn/thumb.png");
+            cachedGif.href = QStringLiteral("https://zgif-v2.zdn.vn/anim.gif");
+            cachedGif.ts = 1700000123457LL;
+            QVERIFY(store.saveMessage(QStringLiteral("u-ts-peer"), cachedGif, zgifMsg, true));
+
+            MessageItem cachedStaticWebp = webpItem;
+            cachedStaticWebp.id = QStringLiteral("msg-webp-903");
+            cachedStaticWebp.ts = 1700000123458LL;
+            QVERIFY(store.saveMessage(QStringLiteral("u-ts-peer"), cachedStaticWebp, staticWebp, false));
+
+            const QVector<MessageItem> reloaded = store.loadMessages(QStringLiteral("u-ts-peer"));
+            bool foundGif = false;
+            bool foundWebp = false;
+            for (const MessageItem& r : reloaded) {
+                if (r.id == QStringLiteral("msg-gif-902")) {
+                    foundGif = true;
+                    QCOMPARE(r.extra.value("animatedUrl").toString(), cachedGif.href);
+                } else if (r.id == QStringLiteral("msg-webp-903")) {
+                    foundWebp = true;
+                    QVERIFY(r.extra.value("animatedUrl").toString().isEmpty());
+                }
+            }
+            QVERIFY(foundGif);
+            QVERIFY(foundWebp);
+
+            MessageModel gifModel;
+            gifModel.loadConversation(QStringLiteral("u-ts-peer"));
+            MessageItem staleGif = gifItem;
+            staleGif.extra.remove(QStringLiteral("animatedUrl"));
+            gifModel.mergeMessages(QStringLiteral("u-ts-peer"), {staleGif});
+            QVERIFY(gifModel.data(gifModel.index(0), MessageModel::ExtraRole).toMap().value("animatedUrl").toString().isEmpty());
+            QSignalSpy backfillSpy(&gifModel, &MessageModel::dataChanged);
+            gifModel.mergeMessages(QStringLiteral("u-ts-peer"), {gifItem});
+            QVERIFY(!backfillSpy.isEmpty());
+            QCOMPARE(gifModel.data(gifModel.index(0), MessageModel::ExtraRole).toMap().value("animatedUrl").toString(),
+                     QStringLiteral("https://example.invalid/anim.gif"));
+            const QVariantList media = gifModel.mediaItems();
+            QCOMPARE(media.size(), 1);
+            QCOMPARE(media.at(0).toMap().value("animated").toBool(), true);
+            QCOMPARE(media.at(0).toMap().value("url").toString(), QStringLiteral("https://example.invalid/anim.gif"));
 
             QString convOut;
             QCOMPARE(store.messageTs(QStringLiteral("msg-ts-901"), &convOut), 1700000123456LL);
@@ -5574,6 +5635,428 @@ private slots:
         QCOMPARE(client.conversationModel()->rowCount(), 1);
         QCOMPARE(client.conversationModel()->data(client.conversationModel()->index(0, 0), ConversationModel::IdRole).toString(),
                  QStringLiteral("u-stranger"));
+    }
+
+    void testImePreeditEnterToSendAndComposerIndent() {
+        ZaloClient client;
+        ThemeManager themeMgr;
+        SystemTrayController trayCtrl;
+        client.setLoggedInForTesting(true);
+        client.setMyUidForTesting("u-me");
+
+        ConversationItem conv;
+        conv.id = QStringLiteral("u-ime-peer");
+        conv.name = QStringLiteral("Peer IME");
+        client.conversationModel()->setConversations({conv});
+        client.selectConversation(conv.id, conv.name, "");
+
+        QQmlApplicationEngine engine;
+        engine.addImageProvider("avatar", new AvatarImageProvider);
+        engine.addImageProvider("media", new AvatarImageProvider(false));
+        engine.addImageProvider("icon", new Zalos::Core::Platform::IconImageProvider);
+        engine.addImportPath("qrc:/");
+        engine.addImportPath("qrc:/qt/qml");
+        loadMainWindow(engine);
+        auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().value(0));
+        QVERIFY(window != nullptr);
+        window->resize(1280, 800);
+        window->show();
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        QTest::qWait(200);
+
+        auto* msgInput = window->findChild<QQuickItem*>(QStringLiteral("msgInput"));
+        QVERIFY(msgInput != nullptr);
+        msgInput->forceActiveFocus();
+        QTest::qWait(50);
+
+        QSignalSpy sentSpy(&client, &ZaloClient::messageSent);
+
+        // 1. IME commitString ending with newline (Wayland Fcitx5-Bamboo / Lotus style) submits without inserting '\n'.
+        {
+            QInputMethodEvent pre(QStringLiteral("tieeng"), {});
+            QCoreApplication::sendEvent(msgInput, &pre);
+            QCOMPARE(msgInput->property("preeditText").toString(), QStringLiteral("tieeng"));
+
+            QInputMethodEvent enterCommit;
+            enterCommit.setCommitString(QStringLiteral("tiếng\n"));
+            QCoreApplication::sendEvent(msgInput, &enterCommit);
+        }
+        QTRY_COMPARE_WITH_TIMEOUT(sentSpy.count(), 1, 1000);
+        QCOMPARE(sentSpy.at(0).at(0).toString(), QStringLiteral("tiếng"));
+        QCOMPARE(msgInput->property("text").toString(), QString());
+        QCOMPARE(msgInput->property("preeditText").toString(), QString());
+
+        // 2. Key_Return while preedit is active flushes preedit synchronously and sends.
+        {
+            QInputMethodEvent pre(QStringLiteral("chao"), {});
+            QCoreApplication::sendEvent(msgInput, &pre);
+            QTest::keyClick(window, Qt::Key_Return);
+        }
+        QTRY_COMPARE_WITH_TIMEOUT(sentSpy.count(), 2, 1000);
+        QCOMPARE(sentSpy.at(1).at(0).toString(), QStringLiteral("chao"));
+        QCOMPARE(msgInput->property("text").toString(), QString());
+
+        // Late duplicate commit arriving <150ms after flush must be swallowed so no ghost word reappears.
+        {
+            QInputMethodEvent lateDup;
+            lateDup.setCommitString(QStringLiteral("chao"));
+            QCoreApplication::sendEvent(msgInput, &lateDup);
+        }
+        QTest::qWait(30);
+        QCOMPARE(msgInput->property("text").toString(), QString());
+
+        // 3. Shift+Return while composing inserts newline without sending.
+        {
+            QInputMethodEvent pre(QStringLiteral("dong1"), {});
+            QCoreApplication::sendEvent(msgInput, &pre);
+            QTest::keyClick(window, Qt::Key_Return, Qt::ShiftModifier);
+        }
+        QTest::qWait(50);
+        QCOMPARE(sentSpy.count(), 2);
+        QCOMPARE(msgInput->property("text").toString(), QStringLiteral("dong1\n"));
+
+        // 4. Composer indent (ind_10 / ind_20) round-trip and rich HTML rendering.
+        QTextDocument doc;
+        doc.setPlainText(QStringLiteral("Doan thut le"));
+        RichComposer composer;
+        composer.attachDocument(&doc);
+        composer.changeIndent(2, 0, 5);
+        const QVariantList styles = composer.styles();
+        QCOMPARE(styles.size(), 1);
+        QCOMPARE(styles.at(0).toMap().value("st").toString(), QStringLiteral("ind_20"));
+        const QString html = MessageModel::styledHtml(doc.toPlainText(), {}, styles);
+        QVERIFY(html.startsWith(QString(8, QChar(0x00A0))));
+
+        QTextDocument restored;
+        restored.setPlainText(QStringLiteral("Doan thut le"));
+        RichComposer::applyStyles(&restored, styles);
+        QCOMPARE(RichComposer::exportStyles(&restored).at(0).toMap().value("st").toString(), QStringLiteral("ind_20"));
+    }
+
+    void testTypingIndicatorGroupAndHistory() {
+        ZaloClient client;
+        auto* session = client.apiClient()->session();
+
+        ConversationItem grp;
+        grp.id = QStringLiteral("grp-typing");
+        grp.name = QStringLiteral("Team");
+        grp.isGroup = true;
+        grp.memberCount = 5;
+        client.conversationModel()->setConversations({grp});
+        client.selectConversation(grp.id, grp.name, "");
+
+        QSignalSpy statusSpy(&client, &ZaloClient::conversationStatusChanged);
+        emit session->typingReceived(grp.id, QStringLiteral("u-bob"), true);
+        QCOMPARE(client.currentConversationIsTyping(), true);
+        QVERIFY(statusSpy.count() >= 1);
+
+        // Old history batches must NOT clear active typing status.
+        const qint64 now = QDateTime::currentMSecsSinceEpoch();
+        QJsonObject oldMsg{{"msgId", "9001"}, {"uidFrom", "u-bob"}, {"idTo", grp.id},
+                           {"msgType", "webchat"}, {"content", "old"}, {"ts", now - 60000}};
+        emit session->messagesReceived(QJsonArray{oldMsg}, true, true);
+        QCOMPARE(client.currentConversationIsTyping(), true);
+
+        // Live incoming message clears typing and notifies the UI.
+        QJsonObject liveMsg{{"msgId", "9002"}, {"uidFrom", "u-bob"}, {"idTo", grp.id},
+                            {"msgType", "webchat"}, {"content", "live"}, {"ts", now}};
+        emit session->messagesReceived(QJsonArray{liveMsg}, true, false);
+        QCOMPARE(client.currentConversationIsTyping(), false);
+    }
+
+    void testBankCardAndScreenShare() {
+        QCOMPARE(ZaloClient::bankShortNameForBin(970436), QStringLiteral("Vietcombank"));
+
+        ZaloClient client;
+        client.setLoggedInForTesting(true);
+        client.setMyUidForTesting(QStringLiteral("u-me"));
+        client.selectConversation(QStringLiteral("u-bank-peer"), QStringLiteral("Bank Peer"), QString());
+
+        const QJsonObject bankParams{
+            {"action", "zinstant.bankcard"},
+            {"binBank", 970422},
+            {"numAccBank", "0987654321"},
+            {"nameAccBank", "TRAN THI B"}
+        };
+        const QJsonObject bankRaw{
+            {"msgId", "77001"},
+            {"cliMsgId", "77001"},
+            {"uidFrom", "u-bank-peer"},
+            {"idTo", "u-me"},
+            {"msgType", "chat.webcontent"},
+            {"ts", QDateTime::currentMSecsSinceEpoch()},
+            {"content", QJsonObject{
+                {"title", "MB Bank · 0987654321"},
+                {"action", "zinstant.bankcard"},
+                {"params", QString::fromUtf8(QJsonDocument(bankParams).toJson(QJsonDocument::Compact))}
+            }}
+        };
+        emit client.apiClient()->session()->messagesReceived(QJsonArray{bankRaw}, false, false);
+        QCOMPARE(client.messageModel()->rowCount(), 1);
+        const auto idx = client.messageModel()->index(0, 0);
+        QCOMPARE(client.messageModel()->data(idx, MessageModel::MessageTypeRole).toString(), QStringLiteral("bankcard"));
+        const QVariantMap extra = client.messageModel()->data(idx, MessageModel::ExtraRole).toMap();
+        QCOMPARE(extra.value("bankName").toString(), QStringLiteral("MB Bank"));
+        QCOMPARE(extra.value("accountNumber").toString(), QStringLiteral("0987654321"));
+        QCOMPARE(extra.value("accountHolder").toString(), QStringLiteral("TRAN THI B"));
+
+        // Screen share image -> I420 + aspect-preserving encoding + Xvfb/Wayland grab fallback + CallBridge transitions.
+        QImage shot(64, 36, QImage::Format_RGB32);
+        shot.fill(Qt::darkBlue);
+        const QByteArray i420 = Zalos::Core::Call::imageToI420(shot, QSize(32, 18));
+        QCOMPARE(i420.size(), 32 * 18 * 3 / 2);
+
+        if (Zalos::Core::Call::OpenH264::instance().available()) {
+            Zalos::Core::Call::CameraSender sender;
+            QList<QSize> encodedSizes;
+            QList<bool> encodedKeys;
+            connect(&sender, &Zalos::Core::Call::CameraSender::frameEncoded, this,
+                    [&](bool key, const QByteArray&, int w, int h) {
+                encodedKeys << key;
+                encodedSizes << QSize(w, h);
+            });
+
+            QImage fhd(1920, 1080, QImage::Format_RGB32);
+            fhd.fill(Qt::darkGreen);
+            sender.processScreenImage(fhd);
+            QCOMPARE(encodedSizes.size(), 1);
+            QCOMPARE(encodedKeys.first(), true);
+            QCOMPARE(encodedSizes.first(), QSize(1280, 720));
+
+            QTest::qWait(110);
+            QImage ratio1610(1920, 1200, QImage::Format_RGB32);
+            ratio1610.fill(Qt::darkCyan);
+            sender.processScreenImage(ratio1610);
+            QCOMPARE(encodedSizes.size(), 2);
+            QCOMPARE(encodedSizes.last(), QSize(1152, 720));
+
+            if (Zalos::Core::Call::CameraSender::screenAvailable()) {
+                QQuickWindow win;
+                win.resize(320, 180);
+                win.show();
+                QVERIFY(QTest::qWaitForWindowExposed(&win));
+
+                Zalos::Core::Call::CameraSender liveSender;
+                QVideoSink previewSink;
+                QSignalSpy previewSpy(&previewSink, &QVideoSink::videoFrameChanged);
+                QSignalSpy liveEncSpy(&liveSender, &Zalos::Core::Call::CameraSender::frameEncoded);
+                liveSender.setPreviewSink(&previewSink);
+                liveSender.setEncodingEnabled(true);
+                QVERIFY(liveSender.startScreen());
+                QTRY_VERIFY_WITH_TIMEOUT(previewSpy.count() >= 1 && liveEncSpy.count() >= 1, 2000);
+                QCOMPARE(liveEncSpy.first().at(0).toBool(), true);
+                liveSender.stop();
+            }
+        }
+
+        auto* calls = client.calls();
+        calls->injectUiLineForTesting(R"({"type":"state","phase":"connected","video":false,"peerSharing":true,"name":"Peer","since":10})");
+        QCOMPARE(calls->peerSharing(), true);
+        if (Zalos::Core::Call::CameraSender::encoderAvailable() && Zalos::Core::Call::CameraSender::screenAvailable()) {
+            calls->setScreenShare(true);
+            QCOMPARE(calls->screenShareOn(), true);
+            QCOMPARE(calls->cameraOn(), false);
+            calls->setScreenShare(false);
+            QCOMPARE(calls->screenShareOn(), false);
+        }
+        calls->injectUiLineForTesting(R"({"type":"close"})");
+        calls->hangup();
+        QCOMPARE(calls->peerSharing(), false);
+    }
+
+    void testCallMinimizeAndNetworkRetry() {
+        ZaloClient client;
+        ThemeManager themeMgr;
+        SystemTrayController trayCtrl;
+        client.setLoggedInForTesting(true);
+        client.setMyUidForTesting(QStringLiteral("u-me"));
+
+        ConversationItem conv;
+        conv.id = QStringLiteral("u-call-chat");
+        conv.name = QStringLiteral("Call Friend");
+        client.conversationModel()->setConversations({conv});
+        client.selectConversation(conv.id, conv.name, QString());
+
+        QQmlApplicationEngine engine;
+        engine.addImageProvider(QStringLiteral("avatar"), new AvatarImageProvider);
+        engine.addImageProvider(QStringLiteral("cover"), new AvatarImageProvider(false));
+        engine.addImageProvider(QStringLiteral("media"), new AvatarImageProvider(false));
+        engine.addImageProvider(QStringLiteral("icon"), new Zalos::Core::Platform::IconImageProvider);
+        engine.addImportPath(QStringLiteral("qrc:/"));
+        engine.addImportPath(QStringLiteral("qrc:/qt/qml"));
+        loadMainWindow(engine);
+        auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().value(0));
+        QVERIFY(window != nullptr);
+        QObject::connect(&client, &ZaloClient::windowActivationRequested, window, [window]() {
+            QMetaObject::invokeMethod(window, "showAndActivate");
+        });
+        window->resize(1280, 800);
+        window->show();
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        QTest::qWait(150);
+
+        auto* calls = client.calls();
+        calls->injectUiLineForTesting(R"({"type":"state","phase":"connected","video":false,"name":"Call Friend","since":1000})");
+        QTRY_VERIFY_WITH_TIMEOUT(window->findChild<QQuickItem*>(QStringLiteral("callOverlayRoot")) != nullptr, 2000);
+        auto* overlay = window->findChild<QQuickItem*>(QStringLiteral("callOverlayRoot"));
+        auto* callCard = window->findChild<QQuickItem*>(QStringLiteral("callCard"));
+        auto* minBtn = window->findChild<QQuickItem*>(QStringLiteral("callMinimizeBtn"));
+        QVERIFY(overlay && callCard && minBtn);
+        QCOMPARE(overlay->property("minimized").toBool(), false);
+
+        const QPoint minCenter = minBtn->mapToScene(QPointF(minBtn->width() / 2.0, minBtn->height() / 2.0)).toPoint();
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, minCenter);
+        QTRY_VERIFY_WITH_TIMEOUT(overlay->property("minimized").toBool(), 1000);
+        QCOMPARE(callCard->width(), 300.0);
+
+        // Chat composer behind minimized floating card remains clickable and functional during the call.
+        auto* msgInput = window->findChild<QQuickItem*>(QStringLiteral("msgInput"));
+        QVERIFY(msgInput != nullptr);
+        const QPoint inputCenter = msgInput->mapToScene(QPointF(msgInput->width() / 2.0, msgInput->height() / 2.0)).toPoint();
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, inputCenter);
+        QTRY_VERIFY_WITH_TIMEOUT(msgInput->hasActiveFocus(), 1000);
+        QSignalSpy sentSpy(&client, &ZaloClient::messageSent);
+        for (const QChar ch : QStringLiteral("dang goi")) {
+            if (ch == QLatin1Char(' ')) QTest::keyClick(window, Qt::Key_Space);
+            else QTest::keyClick(window, Qt::Key(Qt::Key_A + ch.toUpper().unicode() - 'A'));
+        }
+        QTest::keyClick(window, Qt::Key_Return);
+        QTRY_COMPARE_WITH_TIMEOUT(sentSpy.count(), 1, 1000);
+        QCOMPARE(sentSpy.at(0).at(0).toString(), QStringLiteral("dang goi"));
+
+        auto* expandBtn = window->findChild<QQuickItem*>(QStringLiteral("callExpandBtn"));
+        QVERIFY(expandBtn != nullptr);
+        const QPoint expCenter = expandBtn->mapToScene(QPointF(expandBtn->width() / 2.0, expandBtn->height() / 2.0)).toPoint();
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, expCenter);
+        QTRY_VERIFY_WITH_TIMEOUT(!overlay->property("minimized").toBool(), 1000);
+
+        if (Zalos::Core::Call::CameraSender::encoderAvailable() && Zalos::Core::Call::CameraSender::screenAvailable()) {
+            calls->setScreenShare(true);
+            QTRY_VERIFY_WITH_TIMEOUT(overlay->property("minimized").toBool(), 1000);
+            calls->setScreenShare(false);
+            QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
+                              expandBtn->mapToScene(QPointF(expandBtn->width() / 2.0, expandBtn->height() / 2.0)).toPoint());
+            QTRY_VERIFY_WITH_TIMEOUT(!overlay->property("minimized").toBool(), 1000);
+        }
+
+        calls->injectUiLineForTesting(R"({"type":"state","phase":"connected","video":true,"name":"Call Friend","since":1000,"micVolume":82})");
+        calls->injectUiLineForTesting(R"({"type":"micLevel","level":6})");
+        QTRY_COMPARE_WITH_TIMEOUT(trayCtrl.callPhase(), QStringLiteral("connected"), 1000);
+        QVERIFY(trayCtrl.toolTip().contains(QStringLiteral("Call Friend")));
+        QVERIFY(trayCtrl.callStatusAction()->isVisible());
+        QVERIFY(trayCtrl.callMuteAction()->isVisible());
+        QVERIFY(trayCtrl.callSpeakerAction()->isVisible());
+        QVERIFY(trayCtrl.callCameraAction()->isVisible());
+        QVERIFY(trayCtrl.callHangupAction()->isVisible());
+
+        trayCtrl.callMuteAction()->trigger();
+        QCOMPARE(calls->muted(), true);
+        QCOMPARE(trayCtrl.callMuteAction()->isChecked(), true);
+        trayCtrl.callMuteAction()->trigger();
+        QCOMPARE(calls->muted(), false);
+        trayCtrl.callSpeakerAction()->trigger();
+        QCOMPARE(calls->speakerOff(), true);
+
+        QCOMPARE(calls->micVolume(), 82);
+        QCOMPARE(calls->micLevel(), 6);
+        auto* settingsBtn = window->findChild<QQuickItem*>(QStringLiteral("callSettingsBtn"));
+        auto* deviceMenu = window->findChild<QQuickItem*>(QStringLiteral("callDeviceMenu"));
+        QVERIFY(settingsBtn && deviceMenu);
+        QTRY_VERIFY_WITH_TIMEOUT(settingsBtn->isVisible(), 1000);
+        QCOMPARE(deviceMenu->isVisible(), false);
+        const QPoint settingsCenter = settingsBtn->mapToScene(QPointF(settingsBtn->width() / 2.0, settingsBtn->height() / 2.0)).toPoint();
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, settingsCenter);
+        QTRY_VERIFY_WITH_TIMEOUT(deviceMenu->isVisible(), 1000);
+        calls->setMicVolume(65);
+        QCOMPARE(calls->micVolume(), 65);
+        calls->selectAudioDevice(QStringLiteral("mic"), QStringLiteral("test_mic_id"));
+        calls->selectAudioDevice(QStringLiteral("speaker"), QStringLiteral("test_spk_id"));
+        QCOMPARE(calls->selectedMicId(), QStringLiteral("test_mic_id"));
+        QCOMPARE(calls->selectedSpeakerId(), QStringLiteral("test_spk_id"));
+
+        const bool prevCloseToTray = client.closeToTray();
+        client.setTrayAvailableForTesting(1);
+        client.setCloseToTray(false);
+        window->close();
+        QTRY_VERIFY_WITH_TIMEOUT(!window->isVisible(), 1000);
+        QCOMPARE(calls->phase(), QStringLiteral("connected"));
+        QCOMPARE(trayCtrl.callPhase(), QStringLiteral("connected"));
+
+        trayCtrl.callStatusAction()->trigger();
+        QTRY_VERIFY_WITH_TIMEOUT(window->isVisible(), 1000);
+
+        client.setTrayAvailableForTesting(0);
+        overlay->setProperty("minimized", false);
+        window->close();
+        QTRY_VERIFY_WITH_TIMEOUT(overlay->property("minimized").toBool(), 1000);
+        QVERIFY(window->isVisible());
+        QCOMPARE(calls->phase(), QStringLiteral("connected"));
+        window->showNormal();
+        overlay->setProperty("minimized", false);
+
+        trayCtrl.callHangupAction()->trigger();
+        QTRY_COMPARE_WITH_TIMEOUT(calls->phase(), QString(), 1000);
+        QCOMPARE(trayCtrl.callPhase(), QString());
+        QVERIFY(!trayCtrl.callStatusAction()->isVisible());
+        QVERIFY(!trayCtrl.callHangupAction()->isVisible());
+
+        client.setTrayAvailableForTesting(1);
+        window->hide();
+        QTRY_VERIFY_WITH_TIMEOUT(!window->isVisible(), 1000);
+        calls->injectUiLineForTesting(R"({"type":"state","phase":"incoming","video":false,"name":"Incoming Friend"})");
+        QTRY_VERIFY_WITH_TIMEOUT(window->isVisible(), 1000);
+        QCOMPARE(trayCtrl.callPhase(), QStringLiteral("incoming"));
+        QVERIFY(trayCtrl.callAcceptAction()->isVisible());
+        trayCtrl.callRejectAction()->trigger();
+        calls->hangup();
+        client.setTrayAvailableForTesting(-1);
+        client.setCloseToTray(prevCloseToTray);
+        QSettings("Zalos", "ZalosApp").remove(QStringLiteral("settings/closeToTray"));
+        calls->selectAudioDevice(QStringLiteral("mic"), QString());
+        calls->selectAudioDevice(QStringLiteral("speaker"), QString());
+
+        // Single-host transient blip retry in ZaloSession::sendApi over real loopback TCP.
+        QTcpServer server;
+        QVERIFY(server.listen(QHostAddress::LocalHost, 0));
+        int hits = 0;
+        connect(&server, &QTcpServer::newConnection, this, [&server, &hits]() {
+            while (QTcpSocket* sock = server.nextPendingConnection()) {
+                const int attempt = ++hits;
+                connect(sock, &QTcpSocket::readyRead, sock, [sock, attempt]() {
+                    sock->readAll();
+                    if (attempt == 1) {
+                        sock->write("HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+                    } else {
+                        const QByteArray body = R"({"error_code":0,"data":{"ok":true}})";
+                        sock->write("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: "
+                                    + QByteArray::number(body.size()) + "\r\nConnection: close\r\n\r\n" + body);
+                    }
+                    sock->disconnectFromHost();
+                });
+                connect(sock, &QTcpSocket::disconnected, sock, &QObject::deleteLater);
+            }
+        });
+
+        auto* session = client.apiClient()->session();
+        const QString baseUrl = QStringLiteral("http://127.0.0.1:%1").arg(server.serverPort());
+        session->setLoginInfoForTesting(QJsonObject{
+            {"uid", "u-me"},
+            {"zpw_enk", QString::fromLatin1(QByteArray(32, 'A').toBase64())},
+            {"zpw_service_map_v3", QJsonObject{{"chat", QJsonArray{baseUrl}}}}
+        });
+        bool apiDone = false;
+        bool apiOk = false;
+        QJsonValue apiData;
+        session->apiGet(QStringLiteral("chat"), QStringLiteral("/api/test/retry"), QJsonObject{},
+                        [&](bool ok, const QJsonValue& data, const QString&, int) {
+            apiDone = true;
+            apiOk = ok;
+            apiData = data;
+        });
+        QTRY_VERIFY_WITH_TIMEOUT(apiDone, 3000);
+        QCOMPARE(apiOk, true);
+        QCOMPARE(hits, 2);
+        QCOMPARE(apiData.toObject().value("ok").toBool(), true);
     }
 };
 

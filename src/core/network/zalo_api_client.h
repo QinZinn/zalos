@@ -7,6 +7,7 @@
 #include <QNetworkReply>
 #include <QObject>
 #include <QString>
+#include <QTimer>
 
 #include "network/zalo_session.h"
 
@@ -70,8 +71,10 @@ private:
     QString m_qrCode;
     QString m_qrImageUrl;
     int m_qrGeneration{0};
+    int m_qrPollRetries{0};
     bool m_isPollingScan{false};
     bool m_isPollingConfirm{false};
+    QTimer m_qrRetryTimer;
 };
 
 }

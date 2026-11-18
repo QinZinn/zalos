@@ -12,8 +12,16 @@ QtObject {
     property bool currentIsMine: false
     property real currentTs: 0
     property bool currentIsVideo: false
+    property bool currentIsAnimated: false
 
     onIndexChanged: syncCurrent()
+
+    function isAnimatedUrl(u: string): bool {
+        if (!u) return false;
+        const clean = u.split("?")[0].split("#")[0].toLowerCase();
+        return clean.endsWith(".gif") || clean.endsWith("_gif")
+            || clean.indexOf("zgif") >= 0 || clean.indexOf("zalo-gif") >= 0;
+    }
 
     function syncCurrent(): void {
         count = items ? items.length : 0;
@@ -24,12 +32,14 @@ QtObject {
             currentIsMine = !!cur.isMine;
             currentTs = Number(cur.ts || 0);
             currentIsVideo = !!cur.isVideo;
+            currentIsAnimated = !currentIsVideo && (!!cur.animated || isAnimatedUrl(currentUrl));
         } else {
             currentUrl = "";
             currentSenderName = "";
             currentIsMine = false;
             currentTs = 0;
             currentIsVideo = false;
+            currentIsAnimated = false;
         }
     }
 

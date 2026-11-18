@@ -47,15 +47,15 @@ purpose-built architecture:
 - **High performance & ultra-lightweight** — sub-second startup (<0.5s), smooth 60 FPS Qt Quick rendering, ~6 MB native `.deb`/`.rpm` (~22 MB self-contained AppImage), and minimal RAM usage (~40–65 MB).
 - **Wayland & X11** — runs on both, with native window controls on GNOME and KDE, plus a GPU hardware-acceleration toggle with instant restart in Settings.
 - **Automatic light/dark theme** — follows your system colour scheme in real time.
-- **Messaging** — one-to-one and group chats, animated Stickers, emoji, 54 Zalo reactions, replies,
-  forwards, pinned messages, labels, conversation type filters (All / Groups / Direct), and full-history search.
+- **Messaging** — one-to-one and group chats, animated Stickers & GIFs, emoji, 54 Zalo reactions, rich formatting (with indent), replies,
+  forwards, polls, bank cards, pinned messages, labels, conversation type filters (All / Groups / Direct), and full-history search.
 - **Smart mobile history sync** — detects empty group histories on sign-in and offers encrypted phone sync.
-- **Voice & video calls** — 1-1 voice/video calls with OpenH264 video encoding; group calls are in beta.
+- **Voice & video calls** — 1-1 voice/video calls with OpenH264 video encoding, in-call screen sharing (X11 & Wayland), floating PiP minimize mode, and in-call device/mic-volume picker; group calls are in beta.
 - **My Documents** — the personal storage thread with instant filters for photos, videos, files and links.
 - **Desktop utilities** — screenshot capture (`Ctrl+Alt+S`), configurable Kiki assistant and zBusiness tools (profile, product catalog, auto reply).
 - **Contacts & groups** — 1-click voice call, video call, and chat on every contact row, pending group invite box, friend recommendations, mutual groups in profiles, and Community upgrade for group owners.
 - **Safety & devices** — Zalo safe link scanning (`scanURL`) before opening external links, message/profile abuse reporting, and E2EE linked devices viewer in Settings.
-- **System tray** — unread-count badge and quick actions.
+- **System tray** — unread-count badge, live call badge/tooltip, and in-call tray controls (mute, speaker, camera, screen share, hang up) with automatic minimize fallback on tray-less desktops.
 - **Offline history** — your conversations stay available without a connection.
 - **In-app update support** — GitHub Releases check with SHA-256 verification (atomic self-update + `gh-releases-zsync` for AppImage; `pkexec`/system installer for `.deb`/`.rpm`).
 - **Bilingual interface** — instant switching between Vietnamese and English.

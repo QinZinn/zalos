@@ -130,7 +130,7 @@ void configureInputMethod() {
 
     qputenv("QT_IM_MODULE", chosen.toUtf8());
     qputenv("XMODIFIERS", QByteArray("@im=") + (fcitxRunning ? "fcitx" : "ibus"));
-    if (chosen == "ibus" && !ibusRunning && fcitxRunning) {
+    if (chosen == "ibus" && fcitxRunning && (!ibusRunning || sessionBusHasName("org.freedesktop.portal.IBus"))) {
         qputenv("IBUS_USE_PORTAL", "1");
     }
     if (QFile::exists("/.flatpak-info") || QFile::exists("/run/.containerenv") || QFile::exists("/.dockerenv")) {
@@ -447,7 +447,14 @@ int main(int argc, char* argv[]) {
                 QMetaObject::invokeMethod(obj, "toggleTheme");
             });
             QObject::connect(trayController, &Zalos::Core::Platform::SystemTrayController::quitRequested,
-                             &QApplication::quit);
+                             obj, [obj, zaloClient]() {
+                obj->setProperty("forceQuit", true);
+                if (zaloClient->calls()) {
+                    zaloClient->calls()->hangup();
+                    zaloClient->calls()->shutdown();
+                }
+                QApplication::quit();
+            });
             auto activate = [obj](const QString& token) {
                 if (!token.isEmpty()) qputenv("XDG_ACTIVATION_TOKEN", token.toUtf8());
                 QMetaObject::invokeMethod(obj, "showAndActivate");
@@ -463,8 +470,9 @@ int main(int argc, char* argv[]) {
     engine.load(QUrl(QStringLiteral("qrc:/Zalos/src/qml/Main.qml")));
 #endif
 
-    QObject::connect(&app, &QCoreApplication::aboutToQuit, []() {
+    QObject::connect(&app, &QCoreApplication::aboutToQuit, zaloClient, [zaloClient]() {
         Zalos::Core::Platform::RenderGuard::markFirstFrame();
+        if (zaloClient->calls()) zaloClient->calls()->shutdown();
     });
 
     for (QObject* obj : engine.rootObjects()) {
@@ -487,6 +495,10 @@ int main(int argc, char* argv[]) {
         bgTrimTimer->setInterval(30000);
         QObject::connect(bgTrimTimer, &QTimer::timeout, window, [window, &engine, zaloClient]() {
             if (window->isVisible()) return;
+            if (zaloClient->calls() && !zaloClient->calls()->phase().isEmpty()
+                && zaloClient->calls()->phase() != QLatin1String("ended")) {
+                return;
+            }
             zaloClient->trimMemoryForBackground();
             QPixmapCache::clear();
             engine.trimComponentCache();

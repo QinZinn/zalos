@@ -48,7 +48,12 @@ Rectangle {
     property var menuMessage: ({})
 
     function runSearch(): void {
-        root.searchHits = ZaloClient.searchConversationMessages(inChatSearchInput.text);
+        const pre = inChatSearchInput.preeditText;
+        const pos = Math.max(0, Math.min(inChatSearchInput.cursorPosition, inChatSearchInput.text.length));
+        const q = (pre && pre.length > 0)
+                  ? inChatSearchInput.text.substring(0, pos) + pre + inChatSearchInput.text.substring(pos)
+                  : inChatSearchInput.text;
+        root.searchHits = ZaloClient.searchConversationMessages(q);
         root.searchCursor = root.searchHits.length > 0 ? root.searchHits.length - 1 : -1;
         root.showSearchHit();
     }
@@ -130,6 +135,7 @@ Rectangle {
         if (root.draftConvId.length > 0) ZaloClient.setDraft(root.draftConvId, msgInput.text);
         root.draftConvId = ZaloClient.currentConversationId;
         root.loadingDraft = true;
+        ZaloClient.composer.resetPreedit();
         msgInput.text = root.draftConvId.length > 0 ? ZaloClient.draftFor(root.draftConvId) : "";
         msgInput.cursorPosition = msgInput.text.length;
         ZaloClient.composer.clearFormatting(0, 0);
@@ -195,8 +201,34 @@ Rectangle {
         }
     }
 
+    function composerComposedText(): string {
+        const t = msgInput.text;
+        const pre = msgInput.preeditText;
+        if (!pre || pre.length === 0) return t;
+        const pos = Math.max(0, Math.min(msgInput.cursorPosition, t.length));
+        return t.substring(0, pos) + pre + t.substring(pos);
+    }
+
+    function handleComposerSubmit(): void {
+        if (root.suggestItems.length > 0) {
+            root.acceptSuggestion(root.suggestIndex);
+            return;
+        }
+        root.sendComposer();
+    }
+
+    function handleComposerReturn(event: var): void {
+        event.accepted = true;
+        ZaloClient.composer.flushPreedit();
+        if (event.modifiers & Qt.ShiftModifier) {
+            msgInput.insert(msgInput.cursorPosition, "\n");
+            return;
+        }
+        root.handleComposerSubmit();
+    }
+
     function sendComposer(): void {
-        Qt.inputMethod.commit();
+        ZaloClient.composer.flushPreedit();
         const text = msgInput.text;
         const trimmed = text.trim();
         const attCount = draftAttachmentsModel.count;
@@ -220,6 +252,7 @@ Rectangle {
             const mentions = ZaloClient.currentConversationIsGroup ? root.collectMentions(text) : [];
             ZaloClient.sendComposedMessage(text, mentions, ZaloClient.composer.styles());
         }
+        ZaloClient.composer.resetPreedit();
         msgInput.text = "";
         ZaloClient.composer.clearFormatting(0, 0);
         root.mentionPicks = [];
@@ -248,10 +281,12 @@ Rectangle {
     }
 
     function updateSuggestions(): void {
-        if (msgInput.text === root.lastSuggestText && msgInput.cursorPosition === root.lastSuggestCursor) return;
-        root.lastSuggestText = msgInput.text;
-        root.lastSuggestCursor = msgInput.cursorPosition;
-        const before = msgInput.text.substring(0, msgInput.cursorPosition);
+        const composed = root.composerComposedText();
+        const curPos = msgInput.cursorPosition + (msgInput.preeditText ? msgInput.preeditText.length : 0);
+        if (composed === root.lastSuggestText && curPos === root.lastSuggestCursor) return;
+        root.lastSuggestText = composed;
+        root.lastSuggestCursor = curPos;
+        const before = composed.substring(0, curPos);
         const mention = ZaloClient.currentConversationIsGroup ? before.match(/(^|\s)@([^\s@]{0,30})$/) : null;
         if (mention) {
             const q = root.foldText(mention[2]);
@@ -294,8 +329,9 @@ Rectangle {
     function acceptSuggestion(index: int): void {
         if (index < 0 || index >= root.suggestItems.length) return;
         const item = root.suggestItems[index];
-        const t = msgInput.text;
-        const cursor = msgInput.cursorPosition;
+        const t = root.composerComposedText();
+        const cursor = msgInput.cursorPosition + (msgInput.preeditText ? msgInput.preeditText.length : 0);
+        ZaloClient.composer.resetPreedit();
         if (root.suggestMode === "mention") {
             const label = "@" + item.name;
             const newPos = root.suggestStart + label.length + 1;
@@ -438,6 +474,11 @@ Rectangle {
         }
     }
 
+    Connections {
+        target: ZaloClient.composer
+        function onSubmitRequested() { root.handleComposerSubmit(); }
+    }
+
     function applyStyle(st: string): void {
         if (!ZaloClient.composer.apply(st, msgInput.selectionStart, msgInput.selectionEnd))
             ZaloClient.showNotice(I18n.t("Chọn đoạn chữ cần định dạng", "Select the text to format"));
@@ -446,6 +487,11 @@ Rectangle {
 
     function toggleList(st: string): void {
         ZaloClient.composer.toggleList(st, msgInput.selectionStart, msgInput.selectionEnd);
+        msgInput.forceActiveFocus();
+    }
+
+    function changeIndent(delta: int): void {
+        ZaloClient.composer.changeIndent(delta, msgInput.selectionStart, msgInput.selectionEnd);
         msgInput.forceActiveFocus();
     }
 
@@ -783,7 +829,15 @@ Rectangle {
                         clip: true
 
                         onTextChanged: searchDebounce.restart()
+                        onPreeditTextChanged: searchDebounce.restart()
                         Keys.onReturnPressed: function(event) {
+                            event.accepted = true;
+                            Qt.inputMethod.commit();
+                            root.stepSearch((event.modifiers & Qt.ShiftModifier) ? 1 : -1);
+                        }
+                        Keys.onEnterPressed: function(event) {
+                            event.accepted = true;
+                            Qt.inputMethod.commit();
                             root.stepSearch((event.modifiers & Qt.ShiftModifier) ? 1 : -1);
                         }
                         Keys.onEscapePressed: root.closeSearch()
@@ -795,13 +849,13 @@ Rectangle {
                             color: ThemeManager.secondaryTextColor
                             font.family: Theme.fontFamily
                             font.pixelSize: 13
-                            visible: !inChatSearchInput.text && !inChatSearchInput.activeFocus
+                            visible: !inChatSearchInput.text && !inChatSearchInput.preeditText && !inChatSearchInput.activeFocus
                             anchors.verticalCenter: parent.verticalCenter
                         }
                     }
 
                     Text {
-                        visible: inChatSearchInput.text.trim().length > 0
+                        visible: inChatSearchInput.text.trim().length > 0 || inChatSearchInput.preeditText.trim().length > 0
                         text: root.searchHits.length === 0
                               ? I18n.t("Không có kết quả trong tin đã tải", "No results in loaded messages")
                               : (root.searchHits.length - root.searchCursor) + "/" + root.searchHits.length
@@ -1348,7 +1402,7 @@ Rectangle {
                 border.width: 1
                 z: 10
 
-                readonly property bool isPartnerTyping: ZaloClient.currentConversationStatus === I18n.t("Đang soạn tin...", "Typing...")
+                readonly property bool isPartnerTyping: ZaloClient.currentConversationIsTyping
                 visible: opacity > 0
                 opacity: isPartnerTyping ? 1.0 : 0.0
                 Behavior on opacity { NumberAnimation { duration: 180 } }
@@ -1376,7 +1430,7 @@ Rectangle {
                                 color: Theme.zaloBlue
 
                                 SequentialAnimation on y {
-                                    running: typingIndicatorPill.isPartnerTyping
+                                    running: typingIndicatorPill.isPartnerTyping && (Window.window ? (Window.window.visible && Window.window.visibility !== Window.Minimized) : true)
                                     loops: Animation.Infinite
                                     PauseAnimation { duration: dot.dotIndex * 140 }
                                     NumberAnimation { from: 0; to: -3; duration: 240; easing.type: Easing.OutQuad }
@@ -1388,7 +1442,7 @@ Rectangle {
                     }
 
                     Text {
-                        text: I18n.t("Đang soạn tin...", "Typing...")
+                        text: ZaloClient.currentConversationStatus.length > 0 ? ZaloClient.currentConversationStatus : I18n.t("Đang soạn tin...", "Typing...")
                         font.family: Theme.fontFamily
                         font.pixelSize: 11
                         font.italic: true
@@ -2170,6 +2224,8 @@ Rectangle {
                                 { st: "color", icon: "palette", vi: "Màu chữ", en: "Text colour" },
                                 { st: "lst_1", icon: "format_list_bulleted", vi: "Danh sách gạch đầu dòng", en: "Bulleted list" },
                                 { st: "lst_2", icon: "format_list_numbered", vi: "Danh sách đánh số", en: "Numbered list" },
+                                { st: "ind_inc", icon: "format_indent_increase", vi: "Tăng thụt lề", en: "Increase indent" },
+                                { st: "ind_dec", icon: "format_indent_decrease", vi: "Giảm thụt lề", en: "Decrease indent" },
                                 { st: "undo", icon: "undo", vi: "Hoàn tác (Ctrl+Z)", en: "Undo (Ctrl+Z)" },
                                 { st: "redo", icon: "redo", vi: "Làm lại (Ctrl+Y)", en: "Redo (Ctrl+Y)" },
                                 { st: "clear", icon: "format_clear", vi: "Xóa định dạng", en: "Clear formatting" }
@@ -2180,6 +2236,7 @@ Rectangle {
                                 readonly property var state: ZaloClient.composer.active
                                 readonly property bool on: fmtButton.modelData.st === "lst_1" || fmtButton.modelData.st === "lst_2"
                                                            ? fmtButton.state.list === fmtButton.modelData.st
+                                                           : fmtButton.modelData.st === "ind_inc" ? Number(fmtButton.state.indent || 0) > 0
                                                            : fmtButton.modelData.st === "size" ? (fmtButton.state.size || "").length > 0
                                                            : fmtButton.modelData.st === "color" ? (fmtButton.state.color || "").length > 0
                                                            : fmtButton.state[fmtButton.modelData.st] === true
@@ -2210,6 +2267,8 @@ Rectangle {
                                         if (st === "size") { fontSizePopup.parent = fmtButton; fontSizePopup.x = 0; fontSizePopup.y = -fontSizePopup.implicitHeight - 6; fontSizePopup.open(); }
                                         else if (st === "color") { textColorPopup.parent = fmtButton; textColorPopup.x = 0; textColorPopup.y = -textColorPopup.implicitHeight - 6; textColorPopup.open(); }
                                         else if (st === "lst_1" || st === "lst_2") root.toggleList(st);
+                                        else if (st === "ind_inc") root.changeIndent(1);
+                                        else if (st === "ind_dec") root.changeIndent(-1);
                                         else if (st === "undo") { msgInput.undo(); msgInput.forceActiveFocus(); }
                                         else if (st === "redo") { msgInput.redo(); msgInput.forceActiveFocus(); }
                                         else if (st === "clear") root.clearFormatting();
@@ -2240,12 +2299,13 @@ Rectangle {
 
                         TextArea.flickable: TextArea {
                             id: msgInput
+                            objectName: "msgInput"
                             wrapMode: TextEdit.Wrap
                             color: ThemeManager.textColor
                             font.family: Theme.fontFamily
                             font.pixelSize: 15
                             persistentSelection: true
-                            Component.onCompleted: ZaloClient.composer.attach(msgInput.textDocument)
+                            Component.onCompleted: ZaloClient.composer.attach(msgInput.textDocument, msgInput)
                             onCursorRectangleChanged: {
                                 const r = msgInput.cursorRectangle;
                                 if (r.y < flickArea.contentY) flickArea.contentY = r.y;
@@ -2296,7 +2356,18 @@ Rectangle {
 
                             onTextChanged: {
                                 root.updateSuggestions();
-                                if (!root.loadingDraft) draftSaveTimer.restart();
+                                if (!root.loadingDraft) {
+                                    draftSaveTimer.restart();
+                                    if (msgInput.activeFocus && (msgInput.text.length > 0 || msgInput.preeditText.length > 0)) {
+                                        ZaloClient.notifyTyping();
+                                    }
+                                }
+                            }
+                            onPreeditTextChanged: {
+                                root.updateSuggestions();
+                                if (!root.loadingDraft && msgInput.activeFocus && msgInput.preeditText.length > 0) {
+                                    ZaloClient.notifyTyping();
+                                }
                             }
                             onCursorPositionChanged: {
                                 ZaloClient.composer.refresh(msgInput.selectionStart, msgInput.selectionEnd);
@@ -2316,21 +2387,10 @@ Rectangle {
                             }
 
                             Keys.onReturnPressed: function(event) {
-                                if (msgInput.inputMethodComposing) {
-                                    event.accepted = false;
-                                    return;
-                                }
-                                if (root.suggestItems.length > 0 && !(event.modifiers & Qt.ShiftModifier)) {
-                                    event.accepted = true;
-                                    root.acceptSuggestion(root.suggestIndex);
-                                    return;
-                                }
-                                if (event.modifiers & Qt.ShiftModifier) {
-                                    msgInput.insert(msgInput.cursorPosition, "\n");
-                                } else {
-                                    event.accepted = true;
-                                    root.sendComposer();
-                                }
+                                root.handleComposerReturn(event);
+                            }
+                            Keys.onEnterPressed: function(event) {
+                                root.handleComposerReturn(event);
                             }
                             Keys.onEscapePressed: function(event) {
                                 if (root.suggestItems.length > 0) {
@@ -2444,13 +2504,13 @@ Rectangle {
                             font.family: Theme.fontFamily
                             font.pixelSize: 11
                             color: ThemeManager.secondaryTextColor
-                            visible: msgInput.activeFocus || msgInput.text.length > 0
+                            visible: msgInput.activeFocus || msgInput.text.length > 0 || msgInput.preeditText.length > 0
                         }
 
                         Item { Layout.fillWidth: true }
 
                         Rectangle {
-                            visible: msgInput.text.trim() === ""
+                            visible: msgInput.text.trim() === "" && msgInput.preeditText.trim() === "" && draftAttachmentsModel.count === 0
                             width: 30
                             height: 30
                             radius: 15
@@ -2478,7 +2538,7 @@ Rectangle {
                         }
 
                         Rectangle {
-                            visible: msgInput.text.trim() !== "" || draftAttachmentsModel.count > 0
+                            visible: msgInput.text.trim() !== "" || msgInput.preeditText.trim() !== "" || draftAttachmentsModel.count > 0
                             width: 30
                             height: 30
                             radius: 15

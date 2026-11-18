@@ -1453,9 +1453,9 @@
             </p>
             <ul class="pillar-list" role="list">
               <li
-                data-en="<strong>Text &amp; interactions:</strong> rich formatting (bold, italic, underline, colour, lists), quoted replies, multi-thread forwarding, <code>@All</code> mentions and a reaction detail panel.">
-                <strong>Văn bản &amp; tương tác:</strong> định dạng chữ (đậm, nghiêng, gạch chân, màu sắc, danh sách),
-                trả lời trích dẫn, chuyển tiếp nhiều hội thoại, nhắc tên <code>@All</code> và bảng chi tiết cảm xúc.
+                data-en="<strong>Text &amp; interactions:</strong> rich formatting (bold, italic, underline, colour, lists, indent), quoted replies, multi-thread forwarding, custom GIF uploads, <code>@All</code> mentions, poll options/sharing, bank cards and a reaction detail panel.">
+                <strong>Văn bản &amp; tương tác:</strong> định dạng chữ (đậm, nghiêng, gạch chân, màu sắc, danh sách, thụt lề),
+                trả lời trích dẫn, chuyển tiếp nhiều hội thoại, gửi tệp GIF động, nhắc tên <code>@All</code>, thêm lựa chọn/chia sẻ bình chọn, thẻ chuyển khoản ngân hàng và bảng chi tiết cảm xúc.
               </li>
               <li
                 data-en="<strong>My Documents &amp; Screenshot:</strong> instant screenshot tool (<code>Ctrl+Alt+S</code>) via the system portal and a built-in My Documents browser for saved photos, videos, files and links.">
@@ -1518,8 +1518,8 @@
                 <strong>Tích hợp hệ thống &amp; Cập nhật:</strong> bộ gõ <code>Fcitx5</code> / <code>IBus</code> mượt mà, chuyển ngôn ngữ Việt/Anh tức thì, bật/tắt tăng tốc phần cứng (GPU) và kiểm tra/cài đặt cập nhật trực tiếp (AppImage + <code>zsync</code>, <code>.deb</code>/<code>.rpm</code>).
               </li>
               <li
-                data-en="<strong>1-1 &amp; Group voice/video calls:</strong> built-in native engine for 1-1 calls, plus multi-participant group calls (beta, still being verified on live calls), with OpenH264 video encoding and infrared (IR) camera filtering.">
-                <strong>Gọi thoại &amp; Video 1-1 và Nhóm:</strong> engine gọi thoại tích hợp cho cuộc gọi cá nhân 1-1, kèm gọi nhóm nhiều người tham gia (thử nghiệm, đang kiểm chứng trên cuộc gọi thật), mã hóa video OpenH264 và lọc camera hồng ngoại (IR).
+                data-en="<strong>1-1 &amp; Group calls + screen share:</strong> built-in native engine for 1-1 calls with in-call screen sharing, plus multi-participant group calls (beta, still being verified on live calls), with OpenH264 video encoding and infrared (IR) camera filtering.">
+                <strong>Gọi thoại, Video 1-1 &amp; Chia sẻ màn hình:</strong> engine gọi thoại tích hợp cho cuộc gọi cá nhân 1-1 kèm chia sẻ màn hình, cùng gọi nhóm nhiều người tham gia (thử nghiệm, đang kiểm chứng trên cuộc gọi thật), mã hóa video OpenH264 và lọc camera hồng ngoại (IR).
               </li>
             </ul>
           </article>
@@ -1838,14 +1838,14 @@ docker compose run --rm package-appimage # Package AppImage into dist/</code></p
                 data-en="QR sign-in and one-click browser-session import from Chromium-based browsers (Chrome/Brave/Edge/Vivaldi/Thorium).">
                 Đăng nhập QR &amp; tự nhận diện phiên từ trình duyệt Chromium
                 (Chrome/Brave/Edge/Vivaldi/Thorium).</li>
-              <li data-en="1-1, group and My Documents messaging: replies, multi-thread forwarding, 54 reactions, recall, polls, reminders and auto-delete TTL.">
-                Nhắn tin 1-1, Nhóm, My Documents: trả lời, chuyển tiếp nhiều luồng, 54 cảm xúc, thu hồi, bình chọn, nhắc hẹn và tin nhắn tự xóa (TTL).</li>
-              <li data-en="Instant offline message cache (SQLite + FTS5), label folders on the nav rail, unread filters and PIN-hidden conversations.">
-                Bộ nhớ đệm ngoại tuyến tức thì (SQLite + FTS5), thư mục nhãn trên thanh điều hướng, lọc chưa đọc và ẩn hội thoại bằng mã PIN.</li>
+              <li data-en="1-1, group and My Documents messaging: RTF formatting (with indent), replies, multi-thread forwarding, 54 reactions, recall, custom GIFs, polls (add option/share/close), bank cards, reminders and auto-delete TTL.">
+                Nhắn tin 1-1, Nhóm, My Documents: định dạng RTF (kèm thụt lề), trả lời, chuyển tiếp nhiều luồng, 54 cảm xúc, thu hồi, ảnh GIF động, bình chọn (thêm lựa chọn/chia sẻ/khóa), thẻ ngân hàng, nhắc hẹn và tin nhắn tự xóa (TTL).</li>
+              <li data-en="Instant offline message cache (SQLite + FTS5) + server shared media/files/links store, label folders on the nav rail, unread filters, startup blocklist sync and PIN-hidden conversations.">
+                Bộ nhớ đệm ngoại tuyến tức thì (SQLite + FTS5) + kho ảnh/tệp/link chung trên máy chủ, thư mục nhãn trên thanh điều hướng, lọc chưa đọc, đồng bộ danh sách chặn khi mở ứng dụng và ẩn hội thoại bằng mã PIN.</li>
               <li data-en="Group management (member approvals, invite box, Community upgrade), safe link scanning (scanURL), E2EE linked devices viewer and abuse reporting.">
                 Quản trị nhóm (duyệt thành viên, hộp thư mời, nâng cấp Cộng đồng), quét liên kết an toàn, xem thiết bị E2EE và báo cáo vi phạm.</li>
-              <li data-en="1-1 voice/video calls, AAC voice notes, screenshot capture (Ctrl+Alt+S), image annotation editor, Fcitx5/IBus input, Kiki assistant &amp; zBusiness tools.">
-                Gọi thoại &amp; video 1-1, ghi âm/phát thoại AAC, chụp màn hình (Ctrl+Alt+S), vẽ chú thích ảnh, gõ tiếng Việt Fcitx5/IBus, trợ lý Kiki &amp; công cụ zBusiness.</li>
+              <li data-en="1-1 voice/video calls with screen sharing, AAC voice notes, screenshot capture (Ctrl+Alt+S), image annotation editor, Fcitx5/IBus input, Kiki assistant &amp; zBusiness tools.">
+                Gọi thoại &amp; video 1-1 kèm chia sẻ màn hình, ghi âm/phát thoại AAC, chụp màn hình (Ctrl+Alt+S), vẽ chú thích ảnh, gõ tiếng Việt Fcitx5/IBus, trợ lý Kiki &amp; công cụ zBusiness.</li>
               <li data-en="Contacts quick actions (1-click voice call, video call, direct chat) and built-in release update checks.">
                 Thao tác nhanh trong danh bạ (1 cú nhấp gọi thoại, gọi video, nhắn tin) và kiểm tra cập nhật phiên bản mới trực tiếp.</li>
             </ul>
@@ -1894,8 +1894,8 @@ docker compose run --rm package-appimage # Package AppImage into dist/</code></p
                 <strong>Đồng bộ lịch sử từ điện thoại (bao gồm Sync v2 trên iPhone):</strong> đang hỗ trợ ở mức thử nghiệm (beta — dùng v1 và tự động fallback sang v2), cần kiểm chứng thêm trên nhiều thiết bị thực tế.
               </li>
               <li
-                data-en="<strong>Group calls &amp; in-call screen sharing:</strong> group voice/video calls are in beta; in-call screen sharing is not yet implemented.">
-                <strong>Gọi nhóm &amp; Chia sẻ màn hình trong cuộc gọi:</strong> gọi thoại/video nhóm đang ở mức thử nghiệm (beta); chia sẻ màn hình trong cuộc gọi chưa hỗ trợ.
+                data-en="<strong>Group calls:</strong> group voice/video calls remain in beta and need broader real-call testing (1-1 voice, video and screen sharing are verified on C++ engine/codec suites).">
+                <strong>Gọi nhóm:</strong> gọi thoại/video nhóm đang ở mức thử nghiệm (beta) và cần kiểm chứng thêm trên cuộc gọi thực tế (gọi thoại, video và chia sẻ màn hình 1-1 đã hoàn chỉnh).
               </li>
               <li
                 data-en="<strong>Personal To-Do lists:</strong> the server restricts this to genuine Zalo PC sessions, so it was removed to avoid errors.">

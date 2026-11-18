@@ -894,45 +894,131 @@ Item {
                         Loader {
                             active: msgRow.isBankCard && !msgRow.isRecalled
                             visible: active
-                            Layout.preferredWidth: Math.min(280, bubbleRect.innerMax)
-                            sourceComponent: RowLayout {
-                                spacing: 10
-                                Rectangle {
-                                    Layout.preferredWidth: 40
-                                    Layout.preferredHeight: 40
-                                    radius: 20
-                                    color: Theme.zaloBlueLight
-                                    ZIcon { anchors.centerIn: parent; name: "contacts"; size: 20; color: Theme.zaloBlueTonalText }
-                                }
-                                ColumnLayout {
+                            Layout.preferredWidth: Math.min(300, bubbleRect.innerMax)
+                            sourceComponent: ColumnLayout {
+                                id: bankCardBox
+                                spacing: 8
+                                readonly property string bankName: (msgRow.isBankCard && msgRow.extra.bankName) ? String(msgRow.extra.bankName) : ""
+                                readonly property int binBank: (msgRow.isBankCard && msgRow.extra.binBank) ? Number(msgRow.extra.binBank) : 0
+                                readonly property string accNum: (msgRow.isBankCard && msgRow.extra.accountNumber) ? String(msgRow.extra.accountNumber) : ""
+                                readonly property string accHolder: (msgRow.isBankCard && msgRow.extra.accountHolder) ? String(msgRow.extra.accountHolder) : ""
+                                readonly property bool hasDetails: accNum.length > 0
+
+                                RowLayout {
                                     Layout.fillWidth: true
-                                    spacing: 2
-                                    Text {
-                                        Layout.fillWidth: true
-                                        text: I18n.t("Thông tin chuyển khoản", "Bank transfer details")
-                                        font.family: Theme.fontFamily
-                                        font.pixelSize: 14
-                                        font.weight: Font.DemiBold
-                                        color: ThemeManager.textColor
+                                    spacing: 10
+                                    Rectangle {
+                                        Layout.preferredWidth: 40
+                                        Layout.preferredHeight: 40
+                                        radius: 20
+                                        color: Theme.zaloBlueLight
+                                        ZIcon { anchors.centerIn: parent; name: "bank"; size: 20; color: Theme.zaloBlueTonalText }
                                     }
-                                    Text {
-                                        visible: msgRow.text !== I18n.t("Thông tin chuyển khoản", "Bank transfer details")
+                                    ColumnLayout {
                                         Layout.fillWidth: true
-                                        text: msgRow.text
-                                        wrapMode: Text.Wrap
-                                        maximumLineCount: 2
-                                        elide: Text.ElideRight
-                                        font.family: Theme.fontFamily
-                                        font.pixelSize: 13
-                                        color: ThemeManager.textColor
+                                        spacing: 2
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            spacing: 6
+                                            Text {
+                                                Layout.fillWidth: true
+                                                text: bankCardBox.bankName.length > 0 ? bankCardBox.bankName
+                                                                                      : I18n.t("Thông tin chuyển khoản", "Bank transfer details")
+                                                elide: Text.ElideRight
+                                                font.family: Theme.fontFamily
+                                                font.pixelSize: 14
+                                                font.weight: Font.DemiBold
+                                                color: ThemeManager.textColor
+                                            }
+                                            Rectangle {
+                                                visible: bankCardBox.binBank > 0
+                                                radius: 4
+                                                color: ThemeManager.hoverColor
+                                                implicitWidth: binLbl.implicitWidth + 8
+                                                implicitHeight: binLbl.implicitHeight + 4
+                                                Text {
+                                                    id: binLbl
+                                                    anchors.centerIn: parent
+                                                    text: "BIN " + bankCardBox.binBank
+                                                    font.family: Theme.fontFamily
+                                                    font.pixelSize: 10
+                                                    color: ThemeManager.secondaryTextColor
+                                                }
+                                            }
+                                        }
+                                        Text {
+                                            visible: bankCardBox.accHolder.length > 0
+                                            Layout.fillWidth: true
+                                            text: bankCardBox.accHolder
+                                            elide: Text.ElideRight
+                                            font.family: Theme.fontFamily
+                                            font.pixelSize: 12
+                                            color: ThemeManager.secondaryTextColor
+                                        }
+                                        Text {
+                                            visible: bankCardBox.hasDetails
+                                            Layout.fillWidth: true
+                                            text: bankCardBox.accNum
+                                            font.family: Theme.fontFamily
+                                            font.pixelSize: 15
+                                            font.weight: Font.Bold
+                                            color: Theme.zaloBlueTonalText
+                                            elide: Text.ElideRight
+                                        }
+                                        Text {
+                                            visible: !bankCardBox.hasDetails && msgRow.text !== I18n.t("Thông tin chuyển khoản", "Bank transfer details")
+                                            Layout.fillWidth: true
+                                            text: msgRow.text
+                                            wrapMode: Text.Wrap
+                                            maximumLineCount: 2
+                                            elide: Text.ElideRight
+                                            font.family: Theme.fontFamily
+                                            font.pixelSize: 13
+                                            color: ThemeManager.textColor
+                                        }
+                                        Text {
+                                            visible: !bankCardBox.hasDetails
+                                            Layout.fillWidth: true
+                                            text: msgRow.isBankCard ? (msgRow.extra.desc || "") : ""
+                                            wrapMode: Text.Wrap
+                                            font.family: Theme.fontFamily
+                                            font.pixelSize: 12
+                                            color: ThemeManager.secondaryTextColor
+                                        }
                                     }
-                                    Text {
-                                        Layout.fillWidth: true
-                                        text: msgRow.isBankCard ? (msgRow.extra.desc || "") : ""
-                                        wrapMode: Text.Wrap
-                                        font.family: Theme.fontFamily
-                                        font.pixelSize: 12
-                                        color: ThemeManager.secondaryTextColor
+                                }
+
+                                Rectangle {
+                                    visible: bankCardBox.hasDetails
+                                    Layout.fillWidth: true
+                                    height: 30
+                                    radius: 6
+                                    color: copyBankMouse.containsMouse ? Theme.zaloBlueHover : Theme.zaloBlueLight
+                                    RowLayout {
+                                        anchors.centerIn: parent
+                                        spacing: 6
+                                        ZIcon {
+                                            name: "copy"
+                                            size: 14
+                                            color: copyBankMouse.containsMouse ? "#FFFFFF" : Theme.zaloBlueTonalText
+                                        }
+                                        Text {
+                                            text: I18n.t("Sao chép số tài khoản", "Copy account number")
+                                            font.family: Theme.fontFamily
+                                            font.pixelSize: 12
+                                            font.weight: Font.DemiBold
+                                            color: copyBankMouse.containsMouse ? "#FFFFFF" : Theme.zaloBlueTonalText
+                                        }
+                                    }
+                                    MouseArea {
+                                        id: copyBankMouse
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: {
+                                            ZaloClient.copyText(bankCardBox.accNum);
+                                            ZaloClient.showNotice(I18n.t("Đã sao chép số tài khoản", "Account number copied"));
+                                        }
                                     }
                                 }
                             }
@@ -1169,17 +1255,121 @@ Item {
                                         }
                                     }
                                 }
-                                Text {
+                                RowLayout {
+                                    id: addOptionRow
+                                    visible: !pollCard.poll.closed && pollCard.poll.allow_add_new_option !== false && (pollCard.poll.poll_id || 0) > 0
                                     Layout.fillWidth: true
-                                    wrapMode: Text.Wrap
-                                    text: !pollCard.poll.loaded
-                                          ? ((pollCard.poll.poll_id || 0) > 0 ? I18n.t("Đang tải kết quả bình chọn…", "Loading poll results…")
-                                                                             : I18n.t("Không đọc được mã bình chọn", "Poll id unavailable"))
-                                          : (pollCard.total + I18n.t(" lượt bình chọn", " votes")
-                                             + (pollCard.poll.closed ? I18n.t(" · Đã khóa", " · Closed") : ""))
-                                    font.family: Theme.fontFamily
-                                    font.pixelSize: 12
-                                    color: ThemeManager.secondaryTextColor
+                                    spacing: 6
+                                    function submitOption(): void {
+                                        Qt.inputMethod.commit();
+                                        const text = (pollOptionInput.preeditText.length > 0
+                                                      ? pollOptionInput.text + pollOptionInput.preeditText
+                                                      : pollOptionInput.text).trim();
+                                        if (text.length === 0) return;
+                                        Qt.inputMethod.reset();
+                                        pollOptionInput.text = "";
+                                        ZaloClient.addPollOption(pollCard.poll.poll_id, text);
+                                    }
+                                    TextField {
+                                        id: pollOptionInput
+                                        Layout.fillWidth: true
+                                        implicitHeight: 30
+                                        placeholderText: I18n.t("+ Thêm lựa chọn...", "+ Add option...")
+                                        font.family: Theme.fontFamily
+                                        font.pixelSize: 12
+                                        color: ThemeManager.textColor
+                                        placeholderTextColor: ThemeManager.secondaryTextColor
+                                        background: Rectangle {
+                                            color: ThemeManager.inputFillColor
+                                            border.color: pollOptionInput.activeFocus ? Theme.zaloBlue : ThemeManager.borderColor
+                                            border.width: 1
+                                            radius: 6
+                                        }
+                                        onAccepted: addOptionRow.submitOption()
+                                        Keys.onReturnPressed: function(event) { event.accepted = true; addOptionRow.submitOption(); }
+                                        Keys.onEnterPressed: function(event) { event.accepted = true; addOptionRow.submitOption(); }
+                                    }
+                                    Rectangle {
+                                        Layout.preferredWidth: 30
+                                        Layout.preferredHeight: 30
+                                        radius: 6
+                                        color: addOptMouse.containsMouse ? Theme.zaloBlueHover : Theme.zaloBlueLight
+                                        ZIcon {
+                                            anchors.centerIn: parent
+                                            name: "plus"
+                                            size: 16
+                                            color: addOptMouse.containsMouse ? "#FFFFFF" : Theme.zaloBlueTonalText
+                                        }
+                                        MouseArea {
+                                            id: addOptMouse
+                                            anchors.fill: parent
+                                            hoverEnabled: true
+                                            cursorShape: Qt.PointingHandCursor
+                                            onClicked: addOptionRow.submitOption()
+                                        }
+                                    }
+                                }
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 8
+                                    Text {
+                                        Layout.fillWidth: true
+                                        wrapMode: Text.Wrap
+                                        text: !pollCard.poll.loaded
+                                              ? ((pollCard.poll.poll_id || 0) > 0 ? I18n.t("Đang tải kết quả bình chọn…", "Loading poll results…")
+                                                                                 : I18n.t("Không đọc được mã bình chọn", "Poll id unavailable"))
+                                              : (pollCard.total + I18n.t(" lượt bình chọn", " votes")
+                                                 + (pollCard.poll.closed ? I18n.t(" · Đã khóa", " · Closed") : ""))
+                                        font.family: Theme.fontFamily
+                                        font.pixelSize: 12
+                                        color: ThemeManager.secondaryTextColor
+                                    }
+                                    Rectangle {
+                                        visible: (pollCard.poll.poll_id || 0) > 0
+                                        implicitWidth: sharePollLbl.implicitWidth + 14
+                                        implicitHeight: 24
+                                        radius: 6
+                                        color: sharePollMouse.containsMouse ? ThemeManager.hoverColor : Theme.zaloBlueLight
+                                        Text {
+                                            id: sharePollLbl
+                                            anchors.centerIn: parent
+                                            text: I18n.t("Chia sẻ", "Share")
+                                            font.family: Theme.fontFamily
+                                            font.pixelSize: 11
+                                            color: Theme.zaloBlueTonalText
+                                        }
+                                        MouseArea {
+                                            id: sharePollMouse
+                                            anchors.fill: parent
+                                            hoverEnabled: true
+                                            cursorShape: Qt.PointingHandCursor
+                                            onClicked: ZaloClient.sharePoll(pollCard.poll.poll_id)
+                                        }
+                                    }
+                                    Rectangle {
+                                        visible: !pollCard.poll.closed && (pollCard.poll.poll_id || 0) > 0
+                                        implicitWidth: lockPollLbl.implicitWidth + 14
+                                        implicitHeight: 24
+                                        radius: 6
+                                        color: lockPollMouse.containsMouse ? ThemeManager.hoverColor : ThemeManager.surfaceColor
+                                        border.color: ThemeManager.borderColor
+                                        border.width: 1
+                                        Text {
+                                            id: lockPollLbl
+                                            anchors.centerIn: parent
+                                            text: I18n.t("Khóa", "Close")
+                                            font.family: Theme.fontFamily
+                                            font.pixelSize: 11
+                                            color: ThemeManager.secondaryTextColor
+                                        }
+                                        MouseArea {
+                                            id: lockPollMouse
+                                            anchors.fill: parent
+                                            hoverEnabled: true
+                                            cursorShape: Qt.PointingHandCursor
+                                            onClicked: ZaloClient.lockPoll(pollCard.poll.poll_id)
+                                        }
+                                    }
                                 }
                             }
                         }

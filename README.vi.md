@@ -47,15 +47,15 @@ hoàn toàn bộ khung Electron/Chromium cồng kềnh:
 - **Hiệu năng cao & Siêu nhẹ** — khởi động tức thì (<0,5s), đồ họa 60 FPS mượt mà, gói `.deb`/`.rpm` chỉ ~6 MB (~22 MB AppImage tự chứa) và chỉ chiếm ~40–65 MB RAM.
 - **Wayland & X11** — chạy trên cả hai, nút điều khiển cửa sổ chuẩn trên GNOME và KDE, kèm tùy chọn bật/tắt tăng tốc phần cứng (GPU) trong Cài đặt.
 - **Tự đổi giao diện sáng/tối** — bám theo màu hệ thống theo thời gian thực.
-- **Nhắn tin** — chat đơn và nhóm, Sticker động, emoji, 54 cảm xúc Zalo, trả lời, chuyển tiếp,
-  ghim tin nhắn, nhãn hội thoại, bộ lọc phân loại hội thoại (Tất cả / Nhóm / Cá nhân), và tìm kiếm toàn bộ lịch sử.
+- **Nhắn tin** — chat đơn và nhóm, Sticker & ảnh GIF động, emoji, 54 cảm xúc Zalo, định dạng chữ (kèm thụt lề), trả lời, chuyển tiếp,
+  bình chọn, thẻ ngân hàng, ghim tin nhắn, nhãn hội thoại, bộ lọc phân loại hội thoại (Tất cả / Nhóm / Cá nhân), và tìm kiếm toàn bộ lịch sử.
 - **Đồng bộ lịch sử điện thoại thông minh** — tự nhận diện khi nhóm chưa có tin nhắn sau đăng nhập để gợi ý đồng bộ mã hóa từ điện thoại.
-- **Gọi thoại và gọi video** — gọi thoại và gọi video 1-1 với mã hóa OpenH264; gọi nhóm đang ở giai đoạn thử nghiệm.
+- **Gọi thoại và gọi video** — gọi thoại/video 1-1 với mã hóa OpenH264, chia sẻ màn hình (X11 & Wayland), thu nhỏ nổi PiP để vừa gọi vừa chat, và chọn Micro/Loa/Camera + âm lượng Micro ngay trong cuộc gọi; gọi nhóm đang ở giai đoạn thử nghiệm.
 - **My Documents** — luồng lưu trữ cá nhân với bộ lọc nhanh ảnh, video, tệp và liên kết.
 - **Tiện ích máy tính** — chụp màn hình (`Ctrl+Alt+S`), trợ lý Kiki (có thể ẩn/hiện) và công cụ zBusiness (hồ sơ, danh mục sản phẩm, tin nhắn tự động).
 - **Danh bạ & nhóm** — 1 cú nhấp gọi thoại, gọi video, nhắn tin trên mỗi liên hệ; quản lý lời mời nhóm, gợi ý kết bạn, xem nhóm chung trong hồ sơ và nâng cấp nhóm lên Cộng đồng.
 - **An toàn & thiết bị** — kiểm tra liên kết an toàn (`scanURL`) trước khi mở link ngoài, báo cáo vi phạm từ tin nhắn/hồ sơ và xem thiết bị liên kết E2EE trong Cài đặt.
-- **Khay hệ thống** — hiển thị số tin chưa đọc và thao tác nhanh.
+- **Khay hệ thống** — hiển thị số tin chưa đọc, huy hiệu trạng thái gọi và menu điều khiển cuộc gọi (tắt mic, loa, camera, chia sẻ màn hình, kết thúc) kèm cơ chế tự thu nhỏ khi desktop không hỗ trợ khay.
 - **Lịch sử ngoại tuyến** — xem lại hội thoại cả khi không có kết nối.
 - **Cập nhật tiện lợi theo bản cài** — kiểm tra phát hành từ GitHub kèm đối chiếu SHA-256 (tự cập nhật AppImage + `gh-releases-zsync`, cài qua `pkexec`/trình cài hệ thống cho `.deb`/`.rpm`).
 - **Giao diện song ngữ** — chuyển đổi tức thì giữa Tiếng Việt và Tiếng Anh.

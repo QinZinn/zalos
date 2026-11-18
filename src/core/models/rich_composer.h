@@ -2,6 +2,7 @@
 
 #include <QtQml/qqmlregistration.h>
 
+#include <QElapsedTimer>
 #include <QObject>
 #include <QPointer>
 #include <QString>
@@ -26,11 +27,14 @@ public:
 
     QVariantMap active() const { return m_active; }
 
-    Q_INVOKABLE void attach(QQuickTextDocument* document);
+    Q_INVOKABLE void attach(QQuickTextDocument* document, QObject* textEditItem = nullptr);
     void attachDocument(QTextDocument* document);
 
+    Q_INVOKABLE void flushPreedit();
+    Q_INVOKABLE void resetPreedit();
     Q_INVOKABLE bool apply(const QString& st, int start, int end);
     Q_INVOKABLE void toggleList(const QString& st, int start, int end);
+    Q_INVOKABLE void changeIndent(int delta, int start, int end);
     Q_INVOKABLE void clearFormatting(int start, int end);
     Q_INVOKABLE void refresh(int start, int end);
     Q_INVOKABLE bool hasFormatting() const;
@@ -39,14 +43,21 @@ public:
     static QVariantList exportStyles(const QTextDocument* document);
     static void applyStyles(QTextDocument* document, const QVariantList& styles);
 
+    bool eventFilter(QObject* watched, QEvent* event) override;
+
 signals:
     void activeChanged();
+    void submitRequested();
 
 private:
     QTextDocument* document() const { return m_document.data(); }
 
     QPointer<QTextDocument> m_document;
+    QPointer<QObject> m_item;
     QVariantMap m_active;
+    QString m_flushedPreedit;
+    QElapsedTimer m_flushedTimer;
+    bool m_inFilter{false};
 };
 
 }

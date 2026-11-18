@@ -50,6 +50,11 @@ ZaloApiClient::ZaloApiClient(QObject* parent)
     m_jar->setParent(this);
     m_session = new ZaloSession(m_netManager, m_jar, this);
     connect(m_netManager, &QNetworkAccessManager::finished, this, &ZaloApiClient::onReplyFinished);
+    m_qrRetryTimer.setSingleShot(true);
+    connect(&m_qrRetryTimer, &QTimer::timeout, this, [this]() {
+        if (m_isPollingScan) pollWaitingScan();
+        else if (m_isPollingConfirm) pollWaitingConfirm();
+    });
 }
 
 QString ZaloApiClient::credentialsPath() {
@@ -83,6 +88,8 @@ void ZaloApiClient::generateQrToken() {
 void ZaloApiClient::cancelQrLogin() {
     m_isPollingScan = false;
     m_isPollingConfirm = false;
+    m_qrPollRetries = 0;
+    m_qrRetryTimer.stop();
 }
 
 void ZaloApiClient::postIdForm(const QString& url, const QList<QPair<QString, QString>>& form, const QString& tag,
@@ -191,7 +198,15 @@ void ZaloApiClient::onReplyFinished(QNetworkReply* reply) {
     }
 
     if (reply->error() != QNetworkReply::NoError) {
-        if (tag == "qr_step5_waiting_scan" || tag == "qr_step6_waiting_confirm") {
+        if ((tag == "qr_step5_waiting_scan" && m_isPollingScan)
+            || (tag == "qr_step6_waiting_confirm" && m_isPollingConfirm)) {
+            const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+            const bool transient = ZaloSession::isFailoverError(reply->error(), status) || status == 429 || status == 0;
+            if (transient && reply->error() != QNetworkReply::OperationCanceledError && m_qrPollRetries < 5) {
+                ++m_qrPollRetries;
+                m_qrRetryTimer.start(1500);
+                return;
+            }
             cancelQrLogin();
         }
         emit qrFailed(reply->errorString());
@@ -253,6 +268,7 @@ void ZaloApiClient::onReplyFinished(QNetworkReply* reply) {
 
     if (tag == "qr_step5_waiting_scan") {
         if (!m_isPollingScan) return;
+        m_qrPollRetries = 0;
         if (errorCode == 8) {
             pollWaitingScan();
             return;
@@ -271,6 +287,7 @@ void ZaloApiClient::onReplyFinished(QNetworkReply* reply) {
 
     if (tag == "qr_step6_waiting_confirm") {
         if (!m_isPollingConfirm) return;
+        m_qrPollRetries = 0;
         if (errorCode == 8) {
             pollWaitingConfirm();
             return;

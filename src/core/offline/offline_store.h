@@ -88,6 +88,7 @@ public:
     bool markRecalled(const QString& msgId, const QString& placeholder);
     bool deleteMessage(const QString& msgId);
     static qint64 expiryOf(const QJsonObject& raw, qint64 ts);
+    static bool isAnimatedImageHref(const QString& msgType, const QString& href);
     QVector<QPair<QString, QString>> purgeExpired(qint64 now);
     qint64 nextExpiry(qint64 now) const;
     QString metaValue(const QString& key) const;

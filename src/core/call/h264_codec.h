@@ -71,6 +71,7 @@ private:
     QSize m_size;
 };
 
+QByteArray imageToI420(const QImage& source, QSize size);
 QByteArray frameToI420(const QVideoFrame& frame, QSize size);
 
 }

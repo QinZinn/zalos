@@ -211,8 +211,14 @@ Rectangle {
                             font.family: Theme.fontFamily
                             font.pixelSize: 12
                             clip: true
-                            onTextChanged: {
-                                if (text.length === 0) {
+                            function effectiveQuery(): string {
+                                if (!searchInput.preeditText || searchInput.preeditText.length === 0) return searchInput.text;
+                                const pos = Math.max(0, Math.min(searchInput.cursorPosition, searchInput.text.length));
+                                return searchInput.text.substring(0, pos) + searchInput.preeditText + searchInput.text.substring(pos);
+                            }
+                            function syncQuery(): void {
+                                const q = searchInput.effectiveQuery();
+                                if (q.length === 0) {
                                     searchDebounce.stop();
                                     ZaloClient.conversationModel.setSearchFilter("");
                                     ZaloClient.messageSearch.setQuery("");
@@ -222,18 +228,23 @@ Rectangle {
                                     searchDebounce.restart();
                                 }
                             }
+                            onTextChanged: syncQuery()
+                            onPreeditTextChanged: syncQuery()
+                            Keys.onReturnPressed: function(event) { event.accepted = true; Qt.inputMethod.commit(); syncQuery(); }
+                            Keys.onEnterPressed: function(event) { event.accepted = true; Qt.inputMethod.commit(); syncQuery(); }
                             Timer {
                                 id: searchDebounce
                                 interval: 150
                                 onTriggered: {
-                                    ZaloClient.conversationModel.setSearchFilter(searchInput.text);
-                                    ZaloClient.messageSearch.setQuery(searchInput.text);
-                                    ZaloClient.peopleSearch.setQuery(searchInput.text);
-                                    ZaloClient.hiddenSearch.setQuery(searchInput.text);
+                                    const q = searchInput.effectiveQuery();
+                                    ZaloClient.conversationModel.setSearchFilter(q);
+                                    ZaloClient.messageSearch.setQuery(q);
+                                    ZaloClient.peopleSearch.setQuery(q);
+                                    ZaloClient.hiddenSearch.setQuery(q);
                                 }
                             }
                             onActiveFocusChanged: if (activeFocus && ZaloClient.hiddenUnread) ZaloClient.dismissHiddenUnread()
-                            Keys.onEscapePressed: { text = ""; focus = false; }
+                            Keys.onEscapePressed: { Qt.inputMethod.reset(); text = ""; focus = false; }
 
                             Text {
                                 anchors.verticalCenter: parent.verticalCenter
@@ -241,7 +252,7 @@ Rectangle {
                                 color: ThemeManager.secondaryTextColor
                                 font.family: Theme.fontFamily
                                 font.pixelSize: 12
-                                visible: !searchInput.text && !searchInput.activeFocus
+                                visible: !searchInput.text && !searchInput.preeditText && !searchInput.activeFocus
                             }
                         }
                     }

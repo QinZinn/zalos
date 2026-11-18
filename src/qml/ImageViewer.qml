@@ -14,6 +14,7 @@ Rectangle {
     readonly property int count: ImageViewerState.count
     readonly property string currentUrl: ImageViewerState.currentUrl
     readonly property bool isVideo: ImageViewerState.currentIsVideo
+    readonly property bool isAnimated: ImageViewerState.currentIsAnimated
     property real zoom: 1.0
     property real angle: 0
     readonly property real minZoom: 0.25
@@ -149,23 +150,47 @@ Rectangle {
         anchors.margins: 16
         clip: true
 
-        Image {
+        Item {
             id: photo
             visible: !root.isVideo
             width: stage.width
             height: stage.height
-            source: !root.isVideo ? root.currentUrl : ""
-            asynchronous: true
-            cache: true
-            fillMode: Image.PreserveAspectFit
-            smooth: true
-            mipmap: true
-            sourceSize.width: 2048
-            sourceSize.height: 2048
+            readonly property bool animReady: !!(animPhotoLoader.item && animPhotoLoader.item.status === Image.Ready)
+            readonly property real paintedWidth: animReady ? animPhotoLoader.item.paintedWidth : stillPhoto.paintedWidth
+            readonly property real paintedHeight: animReady ? animPhotoLoader.item.paintedHeight : stillPhoto.paintedHeight
+            readonly property int status: animReady ? Image.Ready : stillPhoto.status
             scale: root.zoom
             rotation: root.angle
             Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
             Behavior on rotation { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+
+            Image {
+                id: stillPhoto
+                anchors.fill: parent
+                visible: !photo.animReady
+                source: !root.isVideo ? root.currentUrl : ""
+                asynchronous: true
+                cache: true
+                fillMode: Image.PreserveAspectFit
+                smooth: true
+                mipmap: true
+                sourceSize.width: 2048
+                sourceSize.height: 2048
+            }
+
+            Loader {
+                id: animPhotoLoader
+                anchors.fill: parent
+                active: !root.isVideo && root.isAnimated && root.currentUrl.length > 0
+                sourceComponent: AnimatedImage {
+                    source: root.currentUrl
+                    cache: false
+                    smooth: true
+                    fillMode: Image.PreserveAspectFit
+                    playing: status === Image.Ready && root.visible && !root.annotating
+                    visible: status === Image.Ready
+                }
+            }
 
             MouseArea {
                 anchors.centerIn: parent

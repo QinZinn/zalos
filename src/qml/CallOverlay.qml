@@ -5,13 +5,33 @@ import QtQuick.Layouts
 import QtMultimedia
 import Zalos
 
-Rectangle {
+Item {
     id: root
+    objectName: "callOverlayRoot"
+    property bool minimized: false
+    property bool splitView: false
+    property bool deviceMenuOpen: false
+    property real pipX: -1
+    property real pipY: 56
     readonly property string phase: ZaloClient.calls ? ZaloClient.calls.phase : ""
-    readonly property bool peerVideoShown: !!(ZaloClient.calls && ZaloClient.calls.isVideo && ZaloClient.calls.peerVideoActive && !ZaloClient.calls.peerCamOff)
+    readonly property bool screenShareOn: !!(ZaloClient.calls && ZaloClient.calls.screenShareOn)
+    readonly property bool peerVideoShown: !!(ZaloClient.calls && ZaloClient.calls.peerVideoActive
+                                              && (ZaloClient.calls.peerSharing || !ZaloClient.calls.peerCamOff))
+    readonly property bool hasLocalVideo: !!(ZaloClient.calls && (ZaloClient.calls.cameraOn || ZaloClient.calls.screenShareOn))
+    readonly property bool hasAnyVideo: root.peerVideoShown || root.hasLocalVideo
+    readonly property bool isSplitActive: !root.minimized && root.splitView && root.peerVideoShown && root.hasLocalVideo
     visible: phase.length > 0
-    color: "#000000"
     z: 2000
+
+    onPhaseChanged: {
+        if (phase === "incoming" || phase === "ended" || phase === "") {
+            root.minimized = false;
+            root.splitView = false;
+            root.deviceMenuOpen = false;
+        }
+    }
+    onScreenShareOnChanged: if (screenShareOn) root.minimized = true
+    onMinimizedChanged: if (minimized) root.deviceMenuOpen = false
 
     property double now: Date.now()
     Timer {
@@ -106,7 +126,11 @@ Rectangle {
         return "";
     }
 
-    MouseArea { anchors.fill: parent }
+    MouseArea {
+        anchors.fill: parent
+        enabled: !root.minimized
+        visible: !root.minimized
+    }
 
     Timer {
         interval: 2500
@@ -124,58 +148,279 @@ Rectangle {
         }
     }
 
-    Item {
-        id: stage
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.top: parent.top
-        anchors.bottom: parent.bottom
+    component PillButton: Item {
+        id: pbRoot
+        property real pillWidth: Math.min(76, Math.max(44, Math.floor((root.width - 72) / 7)))
+        width: pillWidth
+        height: 56
+        property alias tip: pb.tip
+        property alias icon: pb.icon
+        property alias on: pb.on
+        signal clicked()
+
+        Rectangle {
+            id: pb
+            anchors.centerIn: parent
+            opacity: enabled ? 1.0 : 0.4
+            property string icon: ""
+            property string tip: ""
+            property bool on: false
+            width: pbRoot.pillWidth
+            height: 40
+            radius: 20
+            color: pbMouse.containsMouse ? "#42FFFFFF" : "#29FFFFFF"
+            border.color: "#2EFFFFFF"
+            border.width: 1
+            ZIcon {
+                anchors.centerIn: parent
+                name: pb.icon
+                size: 22
+                color: pb.on ? "#E5383B" : "#FFFFFF"
+            }
+            MouseArea {
+                id: pbMouse
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: pbRoot.clicked()
+            }
+            ToolTip.visible: pbMouse.containsMouse && tip.length > 0
+            ToolTip.delay: 400
+            ToolTip.text: tip
+        }
+    }
+
+    component MiniButton: Rectangle {
+        id: mb
+        property string icon: ""
+        property string tip: ""
+        property bool on: false
+        property bool destructive: false
+        signal clicked()
+        width: 32
+        height: 32
+        radius: 16
+        opacity: enabled ? 1.0 : 0.4
+        color: mb.destructive
+               ? (mbMouse.containsMouse ? "#F25558" : "#E5383B")
+               : (mbMouse.containsMouse ? "#42FFFFFF" : "#24FFFFFF")
+        ZIcon {
+            anchors.centerIn: parent
+            name: mb.icon
+            size: 16
+            color: (!mb.destructive && mb.on) ? "#E5383B" : "#FFFFFF"
+        }
+        MouseArea {
+            id: mbMouse
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: mb.clicked()
+        }
+        ToolTip.visible: mbMouse.containsMouse && mb.tip.length > 0
+        ToolTip.delay: 400
+        ToolTip.text: mb.tip
+    }
+
+    component DeviceOptionRow: Rectangle {
+        id: devRow
+        property string labelText: ""
+        property bool selected: false
+        signal picked()
+        implicitHeight: 32
+        height: 32
+        radius: 6
+        color: devMouse.containsMouse ? "#28FFFFFF" : (devRow.selected ? "#290068FF" : "#00000000")
+
+        RowLayout {
+            anchors.fill: parent
+            anchors.leftMargin: 10
+            anchors.rightMargin: 10
+            spacing: 8
+            Text {
+                Layout.fillWidth: true
+                text: devRow.labelText
+                elide: Text.ElideRight
+                color: "#FFFFFF"
+                font.family: Theme.fontFamily
+                font.pixelSize: 12
+                font.weight: devRow.selected ? Font.DemiBold : Font.Normal
+            }
+            ZIcon {
+                visible: devRow.selected
+                name: "check"
+                size: 14
+                color: "#4DA3FF"
+            }
+        }
+        MouseArea {
+            id: devMouse
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: devRow.picked()
+        }
+    }
+
+    component CircleButton: Rectangle {
+        id: rb
+        property string icon: ""
+        property string tip: ""
+        property color tint: "#E5383B"
+        signal clicked()
+        width: 56
+        height: 56
+        radius: 28
+        color: rbMouse.containsMouse ? Qt.lighter(rb.tint, 1.15) : rb.tint
+        ZIcon {
+            anchors.centerIn: parent
+            name: rb.icon
+            size: 28
+            color: "#FFFFFF"
+        }
+        MouseArea {
+            id: rbMouse
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: rb.clicked()
+        }
+        ToolTip.visible: rbMouse.containsMouse && tip.length > 0
+        ToolTip.delay: 400
+        ToolTip.text: tip
+    }
+
+    Rectangle {
+        id: callCard
+        objectName: "callCard"
+        x: root.minimized ? (root.pipX < 0 ? Math.max(12, root.width - width - 20)
+                                           : Math.max(8, Math.min(root.pipX, root.width - width - 8)))
+                          : 0
+        y: root.minimized ? Math.max(8, Math.min(root.pipY, root.height - height - 8)) : 0
+        width: root.minimized ? 300 : root.width
+        height: root.minimized ? (root.hasAnyVideo ? 200 : 96) : root.height
+        radius: root.minimized ? 14 : 0
+        color: root.minimized ? "#F2181C24" : "#000000"
+        border.width: root.minimized ? 1 : 0
+        border.color: "#45FFFFFF"
         clip: true
 
-        Image {
-            id: bgAvatar
+        MouseArea {
             anchors.fill: parent
-            anchors.margins: -60
-            fillMode: Image.PreserveAspectCrop
-            source: ZaloClient.calls && ZaloClient.calls.peerAvatar.length > 0
-                    ? "image://avatar/" + encodeURIComponent(ZaloClient.calls.peerAvatar) : ""
-            sourceSize.width: 256
-            sourceSize.height: 256
-            visible: false
-        }
-        Loader {
-            id: blurLoader
-            anchors.fill: bgAvatar
-            active: GraphicsInfo.api !== GraphicsInfo.Software
-            visible: bgAvatar.status === Image.Ready
-            source: "ZBlurEffect.qml"
-            onLoaded: blurLoader.item.source = bgAvatar
+            z: 1
+            enabled: root.minimized
+            cursorShape: root.minimized ? (pressed ? Qt.ClosedHandCursor : Qt.OpenHandCursor) : Qt.ArrowCursor
+            property real pressMouseX: 0
+            property real pressMouseY: 0
+            property real startPipX: 0
+            property real startPipY: 0
+            onPressed: function(mouse) {
+                const pt = mapToItem(root, mouse.x, mouse.y);
+                startPipX = callCard.x;
+                startPipY = callCard.y;
+                pressMouseX = pt.x;
+                pressMouseY = pt.y;
+            }
+            onPositionChanged: function(mouse) {
+                if (!pressed || !root.minimized) return;
+                const pt = mapToItem(root, mouse.x, mouse.y);
+                root.pipX = Math.max(8, Math.min(startPipX + (pt.x - pressMouseX), root.width - callCard.width - 8));
+                root.pipY = Math.max(8, Math.min(startPipY + (pt.y - pressMouseY), root.height - callCard.height - 8));
+            }
+            onDoubleClicked: if (root.minimized) root.minimized = false
         }
 
-        VideoOutput {
-            id: peerVideo
-            anchors.fill: parent
-            fillMode: VideoOutput.PreserveAspectFit
-            visible: root.peerVideoShown
-            Component.onCompleted: if (ZaloClient.calls) ZaloClient.calls.setPeerVideoSink(peerVideo.videoSink)
-        }
-
-        Text {
+        Item {
+            id: stage
             anchors.left: parent.left
+            anchors.right: parent.right
             anchors.top: parent.top
-            anchors.leftMargin: 17
-            anchors.topMargin: 8
-            visible: root.phase === "connected"
-            text: root.durationText()
-            color: "#42D58C"
-            font.family: Theme.fontFamily
-            font.pixelSize: 13
-            font.weight: Font.DemiBold
-        }
+            anchors.bottom: parent.bottom
+            anchors.bottomMargin: root.minimized ? 44 : 0
+            clip: true
 
-        ColumnLayout {
-            anchors.centerIn: parent
-            visible: !root.peerVideoShown
+            Image {
+                id: bgAvatar
+                anchors.fill: parent
+                anchors.margins: -60
+                fillMode: Image.PreserveAspectCrop
+                source: ZaloClient.calls && ZaloClient.calls.peerAvatar.length > 0
+                        ? "image://avatar/" + encodeURIComponent(ZaloClient.calls.peerAvatar) : ""
+                sourceSize.width: 256
+                sourceSize.height: 256
+                visible: false
+            }
+            Loader {
+                id: blurLoader
+                anchors.fill: bgAvatar
+                active: !root.minimized && GraphicsInfo.api !== GraphicsInfo.Software
+                visible: !root.minimized && bgAvatar.status === Image.Ready
+                source: "ZBlurEffect.qml"
+                onLoaded: blurLoader.item.source = bgAvatar
+            }
+
+            VideoOutput {
+                id: peerVideo
+                x: 0
+                y: 0
+                width: root.isSplitActive ? stage.width / 2 : stage.width
+                height: stage.height
+                fillMode: VideoOutput.PreserveAspectFit
+                visible: root.peerVideoShown
+                Component.onCompleted: if (ZaloClient.calls) ZaloClient.calls.setPeerVideoSink(peerVideo.videoSink)
+            }
+
+            Text {
+                anchors.left: parent.left
+                anchors.top: parent.top
+                anchors.leftMargin: 17
+                anchors.topMargin: 8
+                visible: !root.minimized && root.phase === "connected"
+                text: root.durationText()
+                color: "#42D58C"
+                font.family: Theme.fontFamily
+                font.pixelSize: 13
+                font.weight: Font.DemiBold
+            }
+
+            RowLayout {
+                anchors.fill: parent
+                anchors.leftMargin: 12
+                anchors.rightMargin: 12
+                spacing: 10
+                visible: root.minimized && !root.hasAnyVideo
+                ZAvatar {
+                    size: 36
+                    avatarUrl: ZaloClient.calls ? ZaloClient.calls.peerAvatar : ""
+                    name: ZaloClient.calls ? ZaloClient.calls.peerName : ""
+                }
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 2
+                    Text {
+                        Layout.fillWidth: true
+                        text: ZaloClient.calls ? ZaloClient.calls.peerName : ""
+                        elide: Text.ElideRight
+                        color: "#FFFFFF"
+                        font.family: Theme.fontFamily
+                        font.pixelSize: 13
+                        font.weight: Font.DemiBold
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        text: root.phase === "connected" ? root.durationText() : root.phaseText()
+                        elide: Text.ElideRight
+                        color: root.phase === "connected" ? "#42D58C" : "#CFD3D8"
+                        font.family: Theme.fontFamily
+                        font.pixelSize: 11
+                        font.weight: Font.Medium
+                    }
+                }
+            }
+
+            ColumnLayout {
+                anchors.centerIn: parent
+                visible: !root.minimized && !root.peerVideoShown
             width: Math.min(parent.width - 32, 420)
             spacing: 10
 
@@ -329,23 +574,155 @@ Rectangle {
 
         Rectangle {
             id: selfView
-            anchors.right: parent.right
-            anchors.bottom: parent.bottom
-            anchors.rightMargin: 16
-            anchors.bottomMargin: 96
-            width: 200
-            height: 112
-            radius: 8
+            x: root.isSplitActive
+               ? stage.width / 2
+               : (parent.width - width - (root.minimized ? (root.peerVideoShown ? 6 : 0) : 16))
+            y: root.isSplitActive
+               ? 0
+               : (parent.height - height - (root.minimized ? (root.peerVideoShown ? 6 : 0) : 96))
+            width: root.isSplitActive
+                   ? stage.width / 2
+                   : (root.minimized ? (root.peerVideoShown ? 84 : stage.width) : 200)
+            height: root.isSplitActive
+                    ? stage.height
+                    : (root.minimized ? (root.peerVideoShown ? 48 : stage.height) : 112)
+            radius: (root.isSplitActive || (root.minimized && !root.peerVideoShown)) ? 0 : 8
             color: "#000000"
+            border.width: (root.isSplitActive || (root.minimized && !root.peerVideoShown)) ? 0 : 1
             border.color: "#40FFFFFF"
-            visible: !!(ZaloClient.calls && ZaloClient.calls.isVideo && ZaloClient.calls.cameraOn && root.phase !== "ended")
+            visible: !!(ZaloClient.calls && (ZaloClient.calls.cameraOn || ZaloClient.calls.screenShareOn) && root.phase !== "ended")
             clip: true
             VideoOutput {
                 id: selfVideo
                 anchors.fill: parent
-                fillMode: VideoOutput.PreserveAspectCrop
-                transform: Scale { origin.x: selfVideo.width / 2; xScale: -1 }
+                fillMode: ZaloClient.calls && ZaloClient.calls.screenShareOn ? VideoOutput.PreserveAspectFit : VideoOutput.PreserveAspectCrop
+                transform: Scale { origin.x: selfVideo.width / 2; xScale: ZaloClient.calls && ZaloClient.calls.screenShareOn ? 1 : -1 }
                 Component.onCompleted: if (ZaloClient.calls) ZaloClient.calls.setLocalVideoSink(selfVideo.videoSink)
+            }
+        }
+
+        Rectangle {
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.top: parent.top
+            anchors.topMargin: 12
+            height: 26
+            width: peerShareLabel.implicitWidth + 24
+            radius: 13
+            color: "#B2000000"
+            visible: !root.minimized && !!(ZaloClient.calls && ZaloClient.calls.peerSharing && root.phase === "connected")
+            Text {
+                id: peerShareLabel
+                anchors.centerIn: parent
+                text: I18n.t("Người kia đang chia sẻ màn hình", "The other person is sharing their screen")
+                color: "#FFFFFF"
+                font.family: Theme.fontFamily
+                font.pixelSize: 12
+                font.weight: Font.Medium
+            }
+        }
+
+        Row {
+            id: topActions
+            z: 5
+            anchors.right: parent.right
+            anchors.top: parent.top
+            anchors.margins: 14
+            spacing: 8
+            visible: !root.minimized && root.phase !== "incoming" && root.phase !== "ended"
+
+            Rectangle {
+                id: callLayoutBtn
+                objectName: "callLayoutBtn"
+                visible: root.peerVideoShown && root.hasLocalVideo
+                height: 34
+                width: layoutRow.implicitWidth + 20
+                radius: 17
+                color: layoutMouse.containsMouse ? "#45FFFFFF" : "#29FFFFFF"
+                border.color: "#35FFFFFF"
+                border.width: 1
+                RowLayout {
+                    id: layoutRow
+                    anchors.centerIn: parent
+                    spacing: 6
+                    ZIcon { name: "sidebar_panel"; size: 16; color: "#FFFFFF" }
+                    Text {
+                        text: root.splitView ? I18n.t("Khung chuẩn", "Standard") : I18n.t("Chia đôi", "Split")
+                        color: "#FFFFFF"
+                        font.family: Theme.fontFamily
+                        font.pixelSize: 12
+                        font.weight: Font.Medium
+                    }
+                }
+                MouseArea {
+                    id: layoutMouse
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: root.splitView = !root.splitView
+                }
+            }
+
+            Rectangle {
+                id: callHideTrayBtn
+                objectName: "callHideTrayBtn"
+                height: 34
+                width: hideTrayRow.implicitWidth + 20
+                radius: 17
+                color: hideTrayMouse.containsMouse ? "#45FFFFFF" : "#29FFFFFF"
+                border.color: "#35FFFFFF"
+                border.width: 1
+                RowLayout {
+                    id: hideTrayRow
+                    anchors.centerIn: parent
+                    spacing: 6
+                    ZIcon { name: "arrow_down"; size: 16; color: "#FFFFFF" }
+                    Text {
+                        text: ZaloClient.trayAvailable ? I18n.t("Ẩn xuống khay", "To tray")
+                                                       : I18n.t("Ẩn xuống tác vụ", "Minimize")
+                        color: "#FFFFFF"
+                        font.family: Theme.fontFamily
+                        font.pixelSize: 12
+                        font.weight: Font.Medium
+                    }
+                }
+                MouseArea {
+                    id: hideTrayMouse
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: ZaloClient.hideWindowToTray()
+                }
+            }
+
+            Rectangle {
+                id: callMinimizeBtn
+                objectName: "callMinimizeBtn"
+                height: 34
+                width: minRow.implicitWidth + 20
+                radius: 17
+                color: minMouse.containsMouse ? "#45FFFFFF" : "#29FFFFFF"
+                border.color: "#35FFFFFF"
+                border.width: 1
+                RowLayout {
+                    id: minRow
+                    anchors.centerIn: parent
+                    spacing: 6
+                    ZIcon { name: "pip"; size: 16; color: "#FFFFFF" }
+                    Text {
+                        text: I18n.t("Thu nhỏ", "Minimize")
+                        color: "#FFFFFF"
+                        font.family: Theme.fontFamily
+                        font.pixelSize: 12
+                        font.weight: Font.Medium
+                    }
+                }
+                MouseArea {
+                    id: minMouse
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: root.minimized = true
+                }
             }
         }
 
@@ -353,11 +730,13 @@ Rectangle {
             anchors.right: parent.right
             anchors.top: parent.top
             anchors.margins: 16
+            anchors.topMargin: topActions.visible ? 56 : 16
             width: 240
             height: videoNote.implicitHeight + 20
             radius: 8
             color: "#B2000000"
-            visible: !!(ZaloClient.calls && ZaloClient.calls.isVideo && root.phase !== "ended" && videoNote.text.length > 0)
+            visible: !root.minimized && !!(ZaloClient.calls && (ZaloClient.calls.isVideo || ZaloClient.calls.screenShareOn || ZaloClient.calls.cameraError.length > 0)
+                        && root.phase !== "ended" && videoNote.text.length > 0)
 
             Text {
                 id: videoNote
@@ -371,91 +750,26 @@ Rectangle {
                     if (!c.videoSupported)
                         return I18n.t("Máy chưa có OpenH264 nên không gửi và xem được hình. Cài gói openh264 (Fedora) hoặc libopenh264 (Ubuntu/Debian) rồi mở lại Zalos. Cuộc gọi này chỉ có âm thanh.",
                                       "OpenH264 is not installed, so no pictures are sent or shown. Install openh264 (Fedora) or libopenh264 (Ubuntu/Debian) and restart Zalos. This call is audio only.");
-                    if (c.cameraError === "no_camera" || (!c.cameraAvailable && !c.cameraOn))
+                    if (c.cameraError === "no_screen")
+                        return I18n.t("Không tìm thấy màn hình để chia sẻ.", "No screen found to share.");
+                    if (c.isVideo && (c.cameraError === "no_camera" || (!c.cameraAvailable && !c.cameraOn && !c.screenShareOn)))
                         return I18n.t("Không tìm thấy camera: người kia chỉ nghe thấy tiếng.", "No camera found: the other person only hears you.");
-                    if (c.cameraError.length > 0 && c.cameraError !== "no_encoder")
+                    if (c.cameraError.length > 0 && c.cameraError !== "no_encoder" && c.cameraError !== "no_camera")
                         return I18n.t("Không mở được camera (", "Couldn't open the camera (") + c.cameraError
                                + I18n.t("). Camera có thể đang được ứng dụng khác dùng.", "). Another app may be using it.");
                     return "";
                 }
-                color: "#CFD3D8"
-                font.family: Theme.fontFamily
-                font.pixelSize: 11
-            }
+            color: "#CFD3D8"
+            font.family: Theme.fontFamily
+            font.pixelSize: 11
         }
     }
-
-    component PillButton: Item {
-        id: pbRoot
-        width: 80
-        height: 56
-        property alias tip: pb.tip
-        property alias icon: pb.icon
-        property alias on: pb.on
-        signal clicked()
-
-        Rectangle {
-            id: pb
-            anchors.centerIn: parent
-            opacity: enabled ? 1.0 : 0.4
-            property string icon: ""
-            property string tip: ""
-            property bool on: false
-            width: 80
-            height: 40
-            radius: 20
-            color: pbMouse.containsMouse ? "#42FFFFFF" : "#29FFFFFF"
-            border.color: "#2EFFFFFF"
-            border.width: 1
-            ZIcon {
-                anchors.centerIn: parent
-                name: pb.icon
-                size: 22
-                color: pb.on ? "#E5383B" : "#FFFFFF"
-            }
-            MouseArea {
-                id: pbMouse
-                anchors.fill: parent
-                hoverEnabled: true
-                cursorShape: Qt.PointingHandCursor
-                onClicked: pbRoot.clicked()
-            }
-            ToolTip.visible: pbMouse.containsMouse && tip.length > 0
-            ToolTip.delay: 400
-            ToolTip.text: tip
-        }
-    }
-
-    component CircleButton: Rectangle {
-        id: rb
-        property string icon: ""
-        property string tip: ""
-        property color tint: "#E5383B"
-        signal clicked()
-        width: 56
-        height: 56
-        radius: 28
-        color: rbMouse.containsMouse ? Qt.lighter(rb.tint, 1.15) : rb.tint
-        ZIcon {
-            anchors.centerIn: parent
-            name: rb.icon
-            size: 28
-            color: "#FFFFFF"
-        }
-        MouseArea {
-            id: rbMouse
-            anchors.fill: parent
-            hoverEnabled: true
-            cursorShape: Qt.PointingHandCursor
-            onClicked: rb.clicked()
-        }
-        ToolTip.visible: rbMouse.containsMouse && tip.length > 0
-        ToolTip.delay: 400
-        ToolTip.text: tip
     }
 
     Rectangle {
         id: bar
+        z: 7
+        visible: !root.minimized
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
@@ -469,7 +783,7 @@ Rectangle {
             anchors.horizontalCenter: parent.horizontalCenter
             anchors.bottom: parent.bottom
             anchors.bottomMargin: 28
-            spacing: 20
+            spacing: root.width < 560 ? 8 : 16
             baselineOffset: 0
 
             CircleButton {
@@ -514,6 +828,22 @@ Rectangle {
                 tip: ZaloClient.calls && ZaloClient.calls.cameraOn ? I18n.t("Tắt camera", "Turn off camera") : I18n.t("Bật camera", "Turn on camera")
                 onClicked: ZaloClient.calls.setCamera(!ZaloClient.calls.cameraOn)
             }
+            PillButton {
+                visible: !!(ZaloClient.calls && !ZaloClient.calls.isGroup && ZaloClient.calls.videoSupported) && root.phase === "connected"
+                enabled: !!(ZaloClient.calls && (ZaloClient.calls.screenShareAvailable || ZaloClient.calls.screenShareOn))
+                icon: ZaloClient.calls && ZaloClient.calls.screenShareOn ? "stop_screen_share" : "screen_share"
+                on: !!(ZaloClient.calls && ZaloClient.calls.screenShareOn)
+                tip: ZaloClient.calls && ZaloClient.calls.screenShareOn ? I18n.t("Dừng chia sẻ màn hình", "Stop sharing screen") : I18n.t("Chia sẻ màn hình", "Share screen")
+                onClicked: ZaloClient.calls.setScreenShare(!ZaloClient.calls.screenShareOn)
+            }
+            PillButton {
+                objectName: "callSettingsBtn"
+                visible: root.phase === "connected" || root.phase === "connecting" || root.phase === "outgoing"
+                icon: "settings"
+                on: root.deviceMenuOpen
+                tip: I18n.t("Thiết bị & âm lượng", "Devices & volume")
+                onClicked: root.deviceMenuOpen = !root.deviceMenuOpen
+            }
             CircleButton {
                 visible: root.phase !== "incoming"
                 icon: root.phase === "ended" ? "close" : "call_end"
@@ -521,5 +851,301 @@ Rectangle {
                 onClicked: ZaloClient.calls.hangup()
             }
         }
+    }
+
+    MouseArea {
+        anchors.fill: parent
+        z: 6
+        enabled: !root.minimized && root.deviceMenuOpen
+        visible: enabled
+        onClicked: root.deviceMenuOpen = false
+    }
+
+    Rectangle {
+        id: deviceMenuCard
+        objectName: "callDeviceMenu"
+        z: 7
+        visible: !root.minimized && root.deviceMenuOpen && root.phase !== "ended" && root.phase !== "incoming"
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottom: bar.top
+        anchors.bottomMargin: 8
+        width: Math.min(340, parent.width - 32)
+        height: Math.min(380, devCol.implicitHeight + 24)
+        radius: 12
+        color: "#EB151A22"
+        border.color: "#45FFFFFF"
+        border.width: 1
+        clip: true
+
+        Flickable {
+            id: devFlick
+            anchors.fill: parent
+            anchors.margins: 12
+            contentHeight: devCol.implicitHeight
+            clip: true
+
+            ColumnLayout {
+                id: devCol
+                width: devFlick.width
+                spacing: 6
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 6
+                    ZIcon { name: "mic"; size: 15; color: "#9DB2CE" }
+                    Text {
+                        Layout.fillWidth: true
+                        text: I18n.t("Micro", "Microphone")
+                        color: "#9DB2CE"
+                        font.family: Theme.fontFamily
+                        font.pixelSize: 12
+                        font.weight: Font.DemiBold
+                    }
+                }
+
+                DeviceOptionRow {
+                    Layout.fillWidth: true
+                    labelText: I18n.t("Mặc định hệ thống", "System default")
+                    selected: ZaloClient.calls ? ZaloClient.calls.selectedMicId.length === 0 : true
+                    onPicked: if (ZaloClient.calls) ZaloClient.calls.selectAudioDevice("mic", "")
+                }
+
+                Repeater {
+                    model: root.deviceMenuOpen && ZaloClient.calls ? ZaloClient.calls.audioInputDevices() : []
+                    delegate: DeviceOptionRow {
+                        id: micOpt
+                        required property var modelData
+                        Layout.fillWidth: true
+                        labelText: String(micOpt.modelData.name || "")
+                        selected: ZaloClient.calls ? ZaloClient.calls.selectedMicId === String(micOpt.modelData.id || "") : false
+                        onPicked: if (ZaloClient.calls) ZaloClient.calls.selectAudioDevice("mic", String(micOpt.modelData.id || ""))
+                    }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    Layout.topMargin: 4
+                    Text {
+                        Layout.fillWidth: true
+                        text: I18n.t("Âm lượng micro", "Microphone volume")
+                        color: "#CFD3D8"
+                        font.family: Theme.fontFamily
+                        font.pixelSize: 11
+                    }
+                    Text {
+                        text: String(ZaloClient.calls ? ZaloClient.calls.micVolume : 100) + "%"
+                        color: "#FFFFFF"
+                        font.family: Theme.fontFamily
+                        font.pixelSize: 11
+                        font.weight: Font.DemiBold
+                    }
+                }
+
+                Item {
+                    id: micVolumeSlider
+                    objectName: "callMicVolumeSlider"
+                    Layout.fillWidth: true
+                    height: 20
+
+                    Rectangle {
+                        id: micTrack
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: parent.width
+                        height: 6
+                        radius: 3
+                        color: "#38FFFFFF"
+
+                        Rectangle {
+                            height: parent.height
+                            width: Math.max(0, Math.min(1, (ZaloClient.calls ? ZaloClient.calls.micVolume : 100) / 100.0)) * parent.width
+                            radius: 3
+                            color: "#0068FF"
+                        }
+                    }
+
+                    Rectangle {
+                        width: 14
+                        height: 14
+                        radius: 7
+                        anchors.verticalCenter: parent.verticalCenter
+                        x: Math.max(0, Math.min(parent.width - width,
+                                                ((ZaloClient.calls ? ZaloClient.calls.micVolume : 100) / 100.0) * (parent.width - width)))
+                        color: "#FFFFFF"
+                        border.color: "#0068FF"
+                        border.width: 2
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        function updateVol(mx: real): void {
+                            if (!ZaloClient.calls || width <= 0) return;
+                            var pct = Math.round(Math.max(0, Math.min(1, mx / width)) * 100);
+                            ZaloClient.calls.setMicVolume(pct);
+                        }
+                        onPressed: function(mouse) { updateVol(mouse.x); }
+                        onPositionChanged: function(mouse) { if (pressed) updateVol(mouse.x); }
+                    }
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    height: 6
+                    radius: 3
+                    color: "#22FFFFFF"
+                    clip: true
+
+                    Rectangle {
+                        id: micMeterFill
+                        objectName: "callMicMeterFill"
+                        height: parent.height
+                        readonly property int dbov: ZaloClient.calls ? Math.max(0, Math.min(60, ZaloClient.calls.micLevel)) : 60
+                        width: Math.max(0, Math.min(1, (60 - micMeterFill.dbov) / 60.0)) * parent.width
+                        radius: 3
+                        color: micMeterFill.dbov <= 9 ? "#EF4444" : "#22C55E"
+                    }
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.topMargin: 4
+                    height: 1
+                    color: "#24FFFFFF"
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    Layout.topMargin: 2
+                    spacing: 6
+                    ZIcon { name: "volume"; size: 15; color: "#9DB2CE" }
+                    Text {
+                        Layout.fillWidth: true
+                        text: I18n.t("Loa", "Speaker")
+                        color: "#9DB2CE"
+                        font.family: Theme.fontFamily
+                        font.pixelSize: 12
+                        font.weight: Font.DemiBold
+                    }
+                }
+
+                DeviceOptionRow {
+                    Layout.fillWidth: true
+                    labelText: I18n.t("Mặc định hệ thống", "System default")
+                    selected: ZaloClient.calls ? ZaloClient.calls.selectedSpeakerId.length === 0 : true
+                    onPicked: if (ZaloClient.calls) ZaloClient.calls.selectAudioDevice("speaker", "")
+                }
+
+                Repeater {
+                    model: root.deviceMenuOpen && ZaloClient.calls ? ZaloClient.calls.audioOutputDevices() : []
+                    delegate: DeviceOptionRow {
+                        id: spkOpt
+                        required property var modelData
+                        Layout.fillWidth: true
+                        labelText: String(spkOpt.modelData.name || "")
+                        selected: ZaloClient.calls ? ZaloClient.calls.selectedSpeakerId === String(spkOpt.modelData.id || "") : false
+                        onPicked: if (ZaloClient.calls) ZaloClient.calls.selectAudioDevice("speaker", String(spkOpt.modelData.id || ""))
+                    }
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.topMargin: 4
+                    height: 1
+                    color: "#24FFFFFF"
+                    visible: !!(ZaloClient.calls && ZaloClient.calls.isVideo && !ZaloClient.calls.screenShareOn)
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    Layout.topMargin: 2
+                    spacing: 6
+                    visible: !!(ZaloClient.calls && ZaloClient.calls.isVideo && !ZaloClient.calls.screenShareOn)
+                    ZIcon { name: "camera"; size: 15; color: "#9DB2CE" }
+                    Text {
+                        Layout.fillWidth: true
+                        text: I18n.t("Camera", "Camera")
+                        color: "#9DB2CE"
+                        font.family: Theme.fontFamily
+                        font.pixelSize: 12
+                        font.weight: Font.DemiBold
+                    }
+                }
+
+                DeviceOptionRow {
+                    Layout.fillWidth: true
+                    visible: !!(ZaloClient.calls && ZaloClient.calls.isVideo && !ZaloClient.calls.screenShareOn)
+                    labelText: I18n.t("Tự động (bỏ camera hồng ngoại)", "Automatic (skip IR camera)")
+                    selected: ZaloClient.calls ? ZaloClient.calls.selectedCameraId.length === 0 : true
+                    onPicked: if (ZaloClient.calls) ZaloClient.calls.selectCameraDevice("")
+                }
+
+                Repeater {
+                    model: (root.deviceMenuOpen && ZaloClient.calls && ZaloClient.calls.isVideo && !ZaloClient.calls.screenShareOn)
+                           ? ZaloClient.calls.cameraDevices() : []
+                    delegate: DeviceOptionRow {
+                        id: camOpt
+                        required property var modelData
+                        Layout.fillWidth: true
+                        labelText: String(camOpt.modelData.name || "")
+                        selected: ZaloClient.calls ? ZaloClient.calls.selectedCameraId === String(camOpt.modelData.id || "") : false
+                        onPicked: if (ZaloClient.calls) ZaloClient.calls.selectCameraDevice(String(camOpt.modelData.id || ""))
+                    }
+                }
+            }
+        }
+    }
+
+    Rectangle {
+        id: miniBar
+        z: 5
+        visible: root.minimized
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        height: 44
+        color: "#D912161E"
+
+        Row {
+            anchors.centerIn: parent
+            spacing: 10
+            baselineOffset: 0
+
+            MiniButton {
+                visible: root.phase === "connected" || root.phase === "connecting" || root.phase === "outgoing"
+                icon: ZaloClient.calls && ZaloClient.calls.muted ? "mic_off" : "mic"
+                on: !!(ZaloClient.calls && ZaloClient.calls.muted)
+                tip: ZaloClient.calls && ZaloClient.calls.muted ? I18n.t("Bật micro", "Unmute") : I18n.t("Tắt micro", "Mute")
+                onClicked: ZaloClient.calls.setMuted(!ZaloClient.calls.muted)
+            }
+            MiniButton {
+                visible: !!(ZaloClient.calls && ZaloClient.calls.isVideo) && (root.phase === "connected" || root.phase === "connecting" || root.phase === "outgoing")
+                enabled: !!(ZaloClient.calls && (ZaloClient.calls.cameraAvailable || ZaloClient.calls.cameraOn))
+                icon: ZaloClient.calls && ZaloClient.calls.cameraOn ? "camera" : "camera_off"
+                on: !(ZaloClient.calls && ZaloClient.calls.cameraOn)
+                tip: ZaloClient.calls && ZaloClient.calls.cameraOn ? I18n.t("Tắt camera", "Turn off camera") : I18n.t("Bật camera", "Turn on camera")
+                onClicked: ZaloClient.calls.setCamera(!ZaloClient.calls.cameraOn)
+            }
+            MiniButton {
+                visible: !!(ZaloClient.calls && !ZaloClient.calls.isGroup && ZaloClient.calls.videoSupported) && root.phase === "connected"
+                enabled: !!(ZaloClient.calls && (ZaloClient.calls.screenShareAvailable || ZaloClient.calls.screenShareOn))
+                icon: ZaloClient.calls && ZaloClient.calls.screenShareOn ? "stop_screen_share" : "screen_share"
+                on: !!(ZaloClient.calls && ZaloClient.calls.screenShareOn)
+                tip: ZaloClient.calls && ZaloClient.calls.screenShareOn ? I18n.t("Dừng chia sẻ màn hình", "Stop sharing screen") : I18n.t("Chia sẻ màn hình", "Share screen")
+                onClicked: ZaloClient.calls.setScreenShare(!ZaloClient.calls.screenShareOn)
+            }
+            MiniButton {
+                objectName: "callExpandBtn"
+                icon: "open_in_full"
+                tip: I18n.t("Phóng to", "Expand")
+                onClicked: root.minimized = false
+            }
+            MiniButton {
+                icon: root.phase === "ended" ? "close" : "call_end"
+                destructive: true
+                tip: root.phase === "ended" ? I18n.t("Đóng", "Close") : I18n.t("Kết thúc", "End call")
+                onClicked: ZaloClient.calls.hangup()
+            }
+        }
+    }
     }
 }

@@ -257,17 +257,32 @@ void MessageModel::mergeMessages(const QString& convId, const QVector<MessageIte
     const int baseSize = base.size();
     QVector<MessageItem> appended;
     auto at = [&](int i) -> MessageItem& { return i < baseSize ? base[i] : appended[i - baseSize]; };
-    QSet<QString> known;
-    known.reserve(baseSize + items.size());
+    QHash<QString, int> byId;
+    byId.reserve(baseSize + items.size());
     QHash<QString, int> byCliId;
     for (int i = 0; i < baseSize; ++i) {
         const MessageItem& m = std::as_const(base)[i];
-        known.insert(m.id);
+        byId.insert(m.id, i);
         if (!m.cliMsgId.isEmpty() && m.cliMsgId != QLatin1String("0")) byCliId.insert(m.cliMsgId, i);
     }
     bool needSort = false;
     for (const auto& m : items) {
-        if (m.id.isEmpty() || known.contains(m.id)) continue;
+        if (m.id.isEmpty()) continue;
+        if (const auto idIt = byId.constFind(m.id); idIt != byId.cend()) {
+            const QString incomingAnim = m.extra.value(QStringLiteral("animatedUrl")).toString();
+            if (!incomingAnim.isEmpty()) {
+                const int idx = idIt.value();
+                MessageItem& existing = at(idx);
+                if (existing.extra.value(QStringLiteral("animatedUrl")).toString().isEmpty()) {
+                    existing.extra.insert(QStringLiteral("animatedUrl"), incomingAnim);
+                    if (isActive && idx < baseSize) {
+                        emit dataChanged(index(idx), index(idx), {ExtraRole, MediaRunRole});
+                        refreshRunsAround(idx);
+                    }
+                }
+            }
+            continue;
+        }
         const int existingIdx = (!m.cliMsgId.isEmpty() && m.cliMsgId != QLatin1String("0") && byCliId.contains(m.cliMsgId))
                                 ? byCliId.value(m.cliMsgId) : -1;
         if (existingIdx >= 0 && (at(existingIdx).id.startsWith(QLatin1String("local-")) || at(existingIdx).senderId == m.senderId)) {
@@ -293,8 +308,12 @@ void MessageModel::mergeMessages(const QString& convId, const QVector<MessageIte
                 merged.isRecalled = true;
                 merged.text = existing.text;
             }
-            known.remove(oldId);
-            known.insert(merged.id);
+            if (merged.extra.value(QStringLiteral("animatedUrl")).toString().isEmpty()) {
+                const QString oldAnim = existing.extra.value(QStringLiteral("animatedUrl")).toString();
+                if (!oldAnim.isEmpty()) merged.extra.insert(QStringLiteral("animatedUrl"), oldAnim);
+            }
+            byId.remove(oldId);
+            byId.insert(merged.id, existingIdx);
             existing = std::move(merged);
             if (isActive && existingIdx < baseSize) {
                 emit dataChanged(index(existingIdx), index(existingIdx));
@@ -302,7 +321,7 @@ void MessageModel::mergeMessages(const QString& convId, const QVector<MessageIte
             }
             continue;
         }
-        known.insert(m.id);
+        byId.insert(m.id, baseSize + appended.size());
         if (!m.cliMsgId.isEmpty() && m.cliMsgId != QLatin1String("0")) {
             byCliId.insert(m.cliMsgId, baseSize + appended.size());
         }
@@ -518,6 +537,15 @@ void MessageModel::setSticker(const QString& convId, const QString& msgId, const
         m.mediaUrl = info.value("url").toString();
         m.extra.insert("sticker", info);
     }, this, {MediaUrlRole, ExtraRole});
+}
+
+void MessageModel::setMessageExtra(const QString& convId, const QString& msgId, const QString& text, const QVariantMap& extra) {
+    updateItem(m_store, m_items, m_currentConvId, convId, msgId, [&](MessageItem& m) {
+        if (!text.isEmpty()) m.text = text;
+        for (auto it = extra.cbegin(); it != extra.cend(); ++it) {
+            m.extra.insert(it.key(), it.value());
+        }
+    }, this, {TextRole, RichTextRole, ExtraRole});
 }
 
 void MessageModel::setStatus(const QString& convId, const QString& msgId, const QString& status) {
@@ -833,7 +861,8 @@ QVariantList MessageModel::mediaItems() const {
     for (const auto& m : m_items) {
         if ((m.messageType != QLatin1String("image") && m.messageType != QLatin1String("video")) || m.isRecalled)
             continue;
-        const QString full = m.href.isEmpty() ? m.mediaUrl : m.href;
+        const QString animUrl = m.extra.value(QStringLiteral("animatedUrl")).toString();
+        const QString full = !animUrl.isEmpty() ? animUrl : (m.href.isEmpty() ? m.mediaUrl : m.href);
         if (full.isEmpty()) continue;
         QString sName = m.senderName;
         if (sName.isEmpty() && !m.isMine && m_senderResolver && !m.senderId.isEmpty()
@@ -842,7 +871,8 @@ QVariantList MessageModel::mediaItems() const {
         }
         out.append(QVariantMap{{"msgId", m.id}, {"url", full}, {"thumb", m.mediaUrl},
                                {"senderName", sName}, {"isMine", m.isMine}, {"ts", m.ts},
-                               {"isVideo", m.messageType == QLatin1String("video")}});
+                               {"isVideo", m.messageType == QLatin1String("video")},
+                               {"animated", !animUrl.isEmpty()}});
     }
     return out;
 }
@@ -918,6 +948,15 @@ QString MessageModel::styledHtml(const QString& text, const QVector<MessageMenti
         if (from >= to) continue;
         const bool lineStart = from == 0 || text.at(from - 1) == QLatin1Char('\n');
         if (lineStart) {
+            const QString ind = active(from, QStringLiteral("ind_"));
+            if (!ind.isEmpty()) {
+                bool ok = false;
+                const int n = ind.mid(4).toInt(&ok);
+                if (ok && n > 0) {
+                    const int level = qBound(1, n >= 10 ? (n + 5) / 10 : n, 5);
+                    out += QString(level * 4, QChar(0x00A0));
+                }
+            }
             const QString list = active(from, QStringLiteral("lst_"));
             if (list == QLatin1String("lst_2")) out += QString::number(++listNumber) + QStringLiteral(". ");
             else {

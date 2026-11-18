@@ -229,6 +229,10 @@ bool H264Encoder::open(QSize size, int fps, int bitrate, bool screenContent) {
     p->uiIntraPeriod = 0;
     p->iEntropyCodingModeFlag = 0;
     p->bEnableFrameSkip = true;
+    if (screenContent) {
+        p->bEnableAdaptiveQuant = false;
+        p->bEnableBackgroundDetection = false;
+    }
     p->iMultipleThreadIdc = 1;
     p->eSpsPpsIdStrategy = CONSTANT_ID;
     p->bPrefixNalAddingCtrl = false;
@@ -240,6 +244,7 @@ bool H264Encoder::open(QSize size, int fps, int bitrate, bool screenContent) {
     layer.iSpatialBitrate = bitrate;
     layer.iMaxSpatialBitrate = bitrate * 3 / 2;
     layer.uiProfileIdc = PRO_BASELINE;
+    layer.uiLevelIdc = qMax(size.width(), size.height()) <= 640 ? LEVEL_3_0 : LEVEL_4_0;
     layer.sSliceArgument.uiSliceMode = SM_SINGLE_SLICE;
     if (m_encoder->InitializeExt(p) != 0) {
         lib.destroyEncoder(m_encoder);
@@ -313,6 +318,54 @@ QByteArray H264Encoder::encodeI420(const QByteArray& i420, qint64 timestampMs, b
     Q_UNUSED(forceKey);
     return {};
 #endif
+}
+
+QByteArray imageToI420(const QImage& source, QSize size) {
+    const int w = size.width() & ~1;
+    const int h = size.height() & ~1;
+    if (w <= 0 || h <= 0 || source.isNull()) return {};
+
+    const int srcW = source.width();
+    const int srcH = source.height();
+    if (srcW <= 0 || srcH <= 0) return {};
+
+    int cropX = 0, cropY = 0, cropW = srcW, cropH = srcH;
+    const qreal target = qreal(w) / h;
+    const qreal aspect = qreal(srcW) / srcH;
+    if (aspect > target + 0.01) {
+        cropW = qMax(2, int(srcH * target) & ~1);
+        cropX = ((srcW - cropW) / 2) & ~1;
+    } else if (aspect < target - 0.01) {
+        cropH = qMax(2, int(srcW / target) & ~1);
+        cropY = ((srcH - cropH) / 2) & ~1;
+    }
+
+    QImage image = source;
+    if (image.format() != QImage::Format_RGB32 && image.format() != QImage::Format_ARGB32
+        && image.format() != QImage::Format_ARGB32_Premultiplied) {
+        image = image.convertToFormat(QImage::Format_RGB32);
+    }
+
+    QByteArray out(w * h * 3 / 2, Qt::Uninitialized);
+    auto* y = reinterpret_cast<uchar*>(out.data());
+    uchar* u = y + w * h;
+    uchar* v = u + (w / 2) * (h / 2);
+    for (int row = 0; row < h; ++row) {
+        const int sy = cropY + (row * cropH) / h;
+        const auto* line = reinterpret_cast<const QRgb*>(image.constScanLine(sy));
+        for (int col = 0; col < w; ++col) {
+            const int sx = cropX + (col * cropW) / w;
+            const QRgb px = line[sx];
+            const int r = qRed(px), g = qGreen(px), b = qBlue(px);
+            y[row * w + col] = uchar(((66 * r + 129 * g + 25 * b + 128) >> 8) + 16);
+            if (!(row & 1) && !(col & 1)) {
+                const int ci = (row / 2) * (w / 2) + col / 2;
+                u[ci] = uchar(((-38 * r - 74 * g + 112 * b + 128) >> 8) + 128);
+                v[ci] = uchar(((112 * r - 94 * g - 18 * b + 128) >> 8) + 128);
+            }
+        }
+    }
+    return out;
 }
 
 QByteArray frameToI420(const QVideoFrame& source, QSize size) {
@@ -444,33 +497,7 @@ QByteArray frameToI420(const QVideoFrame& source, QSize size) {
         }
     }
 
-    QImage image = source.toImage();
-    if (image.isNull()) return {};
-    if (image.format() != QImage::Format_RGB32 && image.format() != QImage::Format_ARGB32
-        && image.format() != QImage::Format_ARGB32_Premultiplied) {
-        image = image.convertToFormat(QImage::Format_RGB32);
-    }
-
-    QByteArray out(w * h * 3 / 2, Qt::Uninitialized);
-    auto* y = reinterpret_cast<uchar*>(out.data());
-    uchar* u = y + w * h;
-    uchar* v = u + (w / 2) * (h / 2);
-    for (int row = 0; row < h; ++row) {
-        const int sy = cropY + (row * cropH) / h;
-        const auto* line = reinterpret_cast<const QRgb*>(image.constScanLine(sy));
-        for (int col = 0; col < w; ++col) {
-            const int sx = cropX + (col * cropW) / w;
-            const QRgb px = line[sx];
-            const int r = qRed(px), g = qGreen(px), b = qBlue(px);
-            y[row * w + col] = uchar(((66 * r + 129 * g + 25 * b + 128) >> 8) + 16);
-            if (!(row & 1) && !(col & 1)) {
-                const int ci = (row / 2) * (w / 2) + col / 2;
-                u[ci] = uchar(((-38 * r - 74 * g + 112 * b + 128) >> 8) + 128);
-                v[ci] = uchar(((112 * r - 94 * g - 18 * b + 128) >> 8) + 128);
-            }
-        }
-    }
-    return out;
+    return imageToI420(source.toImage(), size);
 }
 
 }

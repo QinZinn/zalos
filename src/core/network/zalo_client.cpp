@@ -47,6 +47,7 @@
 #include <QDBusPendingCallWatcher>
 #include <QDBusPendingReply>
 #include <QDBusReply>
+#include <QDBusVariant>
 #include <QJsonDocument>
 #include <QVariantMap>
 #include <QSettings>
@@ -242,6 +243,68 @@ QString parseReactionSnapshot(const QJsonObject& msg) {
     int total = 0;
     for (int n : std::as_const(counts)) total += n;
     return order.mid(0, 3).join(QString()) + (total > 1 ? QLatin1Char(' ') + QString::number(total) : QString());
+}
+
+struct BankCardFields {
+    int binBank{0};
+    QString bankName;
+    QString accountNumber;
+    QString accountHolder;
+};
+
+void scanBankJson(const QJsonValue& v, BankCardFields* out, int depth = 0) {
+    if (!out || depth > 6) return;
+    if (v.isObject()) {
+        const QJsonObject o = v.toObject();
+        if (out->binBank <= 0) {
+            for (const char* k : {"binBank", "bin", "bankBin"}) {
+                const int b = o.value(QLatin1String(k)).toVariant().toInt();
+                if (b >= 100000) { out->binBank = b; break; }
+            }
+        }
+        if (out->bankName.isEmpty()) {
+            for (const char* k : {"bankName", "shortName", "short_name"}) {
+                const QString s = o.value(QLatin1String(k)).toString().trimmed();
+                if (!s.isEmpty()) { out->bankName = s; break; }
+            }
+        }
+        if (out->accountNumber.isEmpty()) {
+            for (const char* k : {"numAccBank", "accountNumber", "bank_number", "accNum", "accountNo"}) {
+                const QString s = o.value(QLatin1String(k)).toVariant().toString().trimmed();
+                if (!s.isEmpty()) { out->accountNumber = s; break; }
+            }
+        }
+        if (out->accountHolder.isEmpty()) {
+            for (const char* k : {"nameAccBank", "accountHolder", "holder_name", "accName", "ownerName"}) {
+                const QString s = o.value(QLatin1String(k)).toString().trimmed();
+                if (!s.isEmpty() && s != QLatin1String("---")) { out->accountHolder = s; break; }
+            }
+        }
+        for (auto it = o.constBegin(); it != o.constEnd(); ++it) {
+            if (it.value().isObject() || it.value().isArray()) {
+                scanBankJson(it.value(), out, depth + 1);
+            } else if (it.key() == QLatin1String("zinstant_data") && it.value().isString()) {
+                const QJsonDocument sub = QJsonDocument::fromJson(it.value().toString().toUtf8());
+                if (!sub.isNull()) scanBankJson(sub.isObject() ? QJsonValue(sub.object()) : QJsonValue(sub.array()), out, depth + 1);
+            }
+        }
+    } else if (v.isArray()) {
+        for (const QJsonValue& item : v.toArray()) scanBankJson(item, out, depth + 1);
+    }
+}
+
+BankCardFields extractBankCardFields(const QJsonValue& root, const QString& fallbackText = QString()) {
+    BankCardFields out;
+    scanBankJson(root, &out);
+    if (out.bankName.isEmpty() && out.binBank > 0) {
+        out.bankName = ZaloClient::bankShortNameForBin(out.binBank);
+    }
+    if (out.accountNumber.isEmpty() && !fallbackText.isEmpty()) {
+        static const QRegularExpression accRe(QStringLiteral(R"(\b\d{6,20}\b)"));
+        const QRegularExpressionMatch m = accRe.match(fallbackText);
+        if (m.hasMatch()) out.accountNumber = m.captured(0);
+    }
+    return out;
 }
 
 }
@@ -539,6 +602,7 @@ ZaloClient::ZaloClient(QObject* parent)
         connect(m_pinBoard, &PinBoard::pinsChanged, this, &ZaloClient::pinnedMessageChanged);
         connect(this, &ZaloClient::currentConversationChanged, this, [this]() { m_pinBoard->setCurrent(m_currentConvId); loadReminders(); });
         connect(this, &ZaloClient::currentConversationChanged, this, &ZaloClient::composerStateChanged);
+        connect(this, &ZaloClient::currentConversationChanged, this, &ZaloClient::conversationStatusChanged);
         connect(this, &ZaloClient::currentConversationChanged, this, &ZaloClient::currentConversationBackgroundChanged);
         connect(this, &ZaloClient::loginStateChanged, this, [this]() {
             if (m_isLoggedIn) m_pinBoard->reload();
@@ -582,15 +646,24 @@ ZaloClient::ZaloClient(QObject* parent)
     connect(session, &ZaloSession::voipControlReceived, m_calls, &Call::CallBridge::handleVoipControl);
     connect(m_calls, &Call::CallBridge::stateChanged, this, [this]() {
         const QString phase = m_calls->phase();
+        const QString prevPhase = m_lastCallPhase;
+        m_lastCallPhase = phase;
         if (phase == "incoming") {
             m_sound->play("ringtone", m_selectedRingtone, true);
+            if (prevPhase != "incoming" && !m_windowVisible) emit windowActivationRequested(QString());
         } else if (phase == "outgoing") {
             m_sound->play("ringtone", "classic", true);
-        } else if (m_sound->isPlaying() && !m_isPreviewPlaying) {
-            m_sound->stop();
+        } else {
+            if (m_sound->isPlaying() && !m_isPreviewPlaying) m_sound->stop();
+            if (phase == "ended" && !prevPhase.isEmpty() && prevPhase != "ended" && prevPhase != "incoming"
+                && m_notifySound) {
+                m_sound->play("notification", "call_end", false);
+            }
         }
         if (phase != "incoming") m_notifications->close(QStringLiteral("call"));
+        syncCallTrayState();
     });
+    connect(m_calls, &Call::CallBridge::cameraStateChanged, this, &ZaloClient::syncCallTrayState);
     connect(m_calls, &Call::CallBridge::incomingCall, this, [this](const QString& name) {
         notifyIncomingCallDbus(name);
     });
@@ -1111,8 +1184,14 @@ void ZaloClient::logout() {
     m_reactedIds.clear();
     m_reactedIdsLoaded = false;
     m_onlineIds.clear();
+    m_blockedIds.clear();
+    m_blockedUsers.clear();
+    m_serverSharedMedia.clear();
+    m_bankCardFetching.clear();
     m_seenSent.clear();
+    m_typingUser.clear();
     m_typingUntil.clear();
+    emit blockedUsersChanged();
     m_friendRequests.clear();
     m_currentLastOnline = 0;
     m_presenceTimer->stop();
@@ -1311,6 +1390,7 @@ void ZaloClient::loadAccountData() {
         m_muteUntil = std::move(nextUntil);
         emit currentConversationChanged();
     });
+    refreshBlockedUsers();
 }
 
 void ZaloClient::loadGroupInfo(const QStringList& groupIds) {
@@ -1649,6 +1729,7 @@ void ZaloClient::refreshPoll(qint64 pollId, bool force) {
             {"closed", d.value("closed").toBool()},
             {"num_vote", d.value("num_vote").toInt()},
             {"allow_multi_choices", d.value("allow_multi_choices").toBool()},
+            {"allow_add_new_option", d.value("allow_add_new_option").toBool(true)},
             {"is_anonymous", d.value("is_anonymous").toBool()},
             {"expired_time", d.value("expired_time").toVariant().toLongLong()},
             {"creator", idOf(d.value("creator"))},
@@ -2213,8 +2294,7 @@ Models::MessageItem ZaloClient::toMessageItem(const QJsonObject& msg, bool isGro
         item.href = obj.value("href").toString();
         if (item.mediaUrl.isEmpty()) item.mediaUrl = item.href;
         item.text = captionOf(obj);
-        const QString hrefPath = QUrl(item.href).path().toLower();
-        if (!item.href.isEmpty() && (type == "chat.gif" || hrefPath.endsWith(".gif")))
+        if (Offline::ZaloOfflineStore::isAnimatedImageHref(type, item.href))
             item.extra.insert("animatedUrl", item.href);
         label = L("[Hình ảnh]", "[Photo]");
     } else if (type == "share.file") {
@@ -2378,8 +2458,20 @@ Models::MessageItem ZaloClient::toMessageItem(const QJsonObject& msg, bool isGro
         if (bankCard) {
             item.messageType = "bankcard";
             item.text = !localized.isEmpty() ? localized : (!title.isEmpty() ? title : L("Thông tin chuyển khoản", "Bank transfer details"));
-            item.extra = {{"desc", L("Mở Zalo trên điện thoại để xem chi tiết và chuyển khoản",
-                                     "Open Zalo on your phone to see the details and transfer")}};
+            const QJsonObject rootObj{{"obj", obj}, {"params", params}};
+            const BankCardFields card = extractBankCardFields(rootObj, item.text);
+            const QString dataUrl = params.value("item").toObject().value("data_url").toString(obj.value("data_url").toString());
+            QString desc = L("Mở Zalo trên điện thoại để xem chi tiết và chuyển khoản",
+                             "Open Zalo on your phone to see the details and transfer");
+            if (!card.accountNumber.isEmpty() && !card.accountHolder.isEmpty()) {
+                desc = card.accountHolder;
+            }
+            item.extra = {{"desc", desc},
+                          {"binBank", card.binBank},
+                          {"bankName", card.bankName},
+                          {"accountNumber", card.accountNumber},
+                          {"accountHolder", card.accountHolder},
+                          {"dataUrl", dataUrl}};
             label = L("[Chuyển khoản] ", "[Bank transfer] ") + item.text;
         } else if (birthday) {
             item.messageType = "ecard";
@@ -2688,11 +2780,16 @@ void ZaloClient::handleIncomingMessages(const QJsonArray& messages, bool isGroup
             m_messageThread.insert(item.id, threadId);
             if (item.messageType == "sticker" && !item.extra.contains("sticker")) {
                 resolveSticker(threadId, item.id, content.toObject().value("id").toVariant().toLongLong());
+            } else if (item.messageType == "bankcard" && item.extra.value("accountNumber").toString().isEmpty()) {
+                const QString dataUrl = item.extra.value("dataUrl").toString();
+                if (!dataUrl.isEmpty()) resolveZInstantBankCard(threadId, item.id, dataUrl);
             }
         }
-        if (!item.isMine) {
-            m_typingUntil.remove(threadId);
+        if (!isOld && !item.isMine) {
+            const bool wasTyping = m_typingUntil.remove(threadId) > 0;
+            m_typingUser.remove(threadId);
             m_conversationModel->setTyping(threadId, false);
+            if (wasTyping && threadId == m_currentConvId) emit conversationStatusChanged();
         }
 
         ensureConversation(threadId, isGroup);
@@ -3590,6 +3687,9 @@ void ZaloClient::mergeCacheRows(const QString& convId, QVector<Models::MessageIt
         if (item.messageType == "sticker" && !item.extra.contains("sticker")) {
             const qint64 stickerId = raws.value(item.id).value("content").toObject().value("id").toVariant().toLongLong();
             if (stickerId > 0) resolveSticker(convId, item.id, stickerId);
+        } else if (item.messageType == "bankcard" && item.extra.value("accountNumber").toString().isEmpty()) {
+            const QString dataUrl = item.extra.value("dataUrl").toString();
+            if (!dataUrl.isEmpty()) resolveZInstantBankCard(convId, item.id, dataUrl);
         }
     }
 }
@@ -3661,6 +3761,8 @@ void ZaloClient::trimMemoryForBackground() {
         evictColdThreads(m_currentConvId.isEmpty() ? 0 : 1);
     }
     m_groupMembersCache.clear();
+    m_serverSharedMedia.clear();
+    m_bankCardFetching.clear();
     if (m_storage) {
         m_storage->cleanAvatarMemory();
         Platform::StorageManager::cleanTemporaryFiles();
@@ -3921,7 +4023,7 @@ bool ZaloClient::isReparsedOnLoad(const QString& msgType) {
         QStringLiteral("chat.recommended"), QStringLiteral("chat.voice"), QStringLiteral("group.poll"),
         QStringLiteral("chat.link"), QStringLiteral("chat.webcontent"), QStringLiteral("chat.webcontent.v2"),
         QStringLiteral("chat.ecard"), QStringLiteral("chat.list.action"), QStringLiteral("chat.location.new"),
-        QStringLiteral("chat.undo"), QStringLiteral("chat.delete.everyone")};
+        QStringLiteral("chat.gif"), QStringLiteral("chat.undo"), QStringLiteral("chat.delete.everyone")};
     return types.contains(msgType);
 }
 
@@ -4896,7 +4998,10 @@ void ZaloClient::blockUser(const QString& userId) {
 
     if (m_isLoggedIn && m_apiClient->session()) {
         m_apiClient->session()->blockUser(userId, [this, userId](bool ok, const QJsonValue&, const QString& err, int) {
-            if (ok) return;
+            if (ok) {
+                refreshBlockedUsers();
+                return;
+            }
             m_blockedIds.remove(userId);
             if (m_activeProfile.userId == userId) m_activeProfile.isBlocked = false;
             emit currentProfileChanged();
@@ -4916,7 +5021,10 @@ void ZaloClient::unblockUser(const QString& userId) {
 
     if (m_isLoggedIn && m_apiClient->session()) {
         m_apiClient->session()->unblockUser(userId, [this, userId](bool ok, const QJsonValue&, const QString& err, int) {
-            if (ok) return;
+            if (ok) {
+                refreshBlockedUsers();
+                return;
+            }
             m_blockedIds.insert(userId);
             if (m_activeProfile.userId == userId) m_activeProfile.isBlocked = true;
             emit currentProfileChanged();
@@ -4924,6 +5032,44 @@ void ZaloClient::unblockUser(const QString& userId) {
             emit notice(L("Không thể bỏ chặn: ", "Failed to unblock: ") + friendlyError(err));
         });
     }
+}
+
+void ZaloClient::refreshBlockedUsers() {
+    if (!m_isLoggedIn || !m_apiClient->session()) return;
+    m_apiClient->session()->fetchBlockedUsers(1, 100, [this](bool ok, const QJsonValue& data, const QString&, int) {
+        if (!ok) return;
+        const QJsonObject obj = data.toObject();
+        const QJsonArray arr = obj.contains("profiles") ? obj.value("profiles").toArray()
+                             : (data.isArray() ? data.toArray() : QJsonArray{});
+        QSet<QString> nextIds;
+        QVariantList nextList;
+        for (const QJsonValue& v : arr) {
+            const QJsonObject u = v.toObject();
+            const QString uid = idOf(u.value("userId"));
+            if (uid.isEmpty()) continue;
+            nextIds.insert(uid);
+            const QString name = pickName(u);
+            const QString avatar = pickAvatar(u);
+            if (!name.isEmpty() || !avatar.isEmpty()) {
+                Profile p = m_users.value(uid);
+                if (!name.isEmpty()) p.name = name;
+                if (!avatar.isEmpty()) p.avatar = avatar;
+                m_users.insert(uid, p);
+            }
+            nextList.append(QVariantMap{
+                {"userId", uid},
+                {"name", !name.isEmpty() ? name : displayNameOf(uid)},
+                {"avatar", !avatar.isEmpty() ? avatar : avatarOf(uid)},
+            });
+        }
+        if (m_blockedIds != nextIds) {
+            m_blockedIds = nextIds;
+            emit composerStateChanged();
+            emit currentProfileChanged();
+        }
+        m_blockedUsers = nextList;
+        emit blockedUsersChanged();
+    });
 }
 
 void ZaloClient::removeFriend(const QString& userId) {
@@ -5136,6 +5282,58 @@ void ZaloClient::votePoll(qint64 pollId, int optionId) {
             return;
         }
         refreshPoll(pollId, true);
+    });
+}
+
+void ZaloClient::addPollOption(qint64 pollId, const QString& content) {
+    const QString trimmed = content.trimmed();
+    if (pollId <= 0 || trimmed.isEmpty()) return;
+    if (!m_isLoggedIn) {
+        emit notice(L("Cần kết nối để thêm lựa chọn", "Adding options needs a connection"));
+        return;
+    }
+    QList<int> votedIds;
+    if (m_messageModel && !m_currentConvId.isEmpty()) {
+        for (const auto& msg : m_messageModel->threadOf(m_currentConvId)) {
+            if (msg.messageType == QLatin1String("poll") && msg.pollData.value("poll_id").toLongLong() == pollId) {
+                for (const QVariant& ov : msg.pollData.value("options").toList()) {
+                    const QVariantMap om = ov.toMap();
+                    if (om.value("voted").toBool()) votedIds.append(om.value("option_id").toInt());
+                }
+                break;
+            }
+        }
+    }
+    const QJsonArray newOpts{QJsonObject{{"voted", true}, {"content", trimmed}}};
+    m_apiClient->session()->addPollOptions(pollId, newOpts, votedIds, [this, pollId](bool ok, const QJsonValue&, const QString& err, int code) {
+        if (!ok) {
+            emit notice(L("Không thêm được lựa chọn: ", "Failed to add option: ") + friendlyError(err, code));
+            return;
+        }
+        refreshPoll(pollId, true);
+    });
+}
+
+void ZaloClient::sharePoll(qint64 pollId) {
+    if (pollId <= 0 || !m_isLoggedIn) return;
+    m_apiClient->session()->sharePoll(pollId, [this](bool ok, const QJsonValue&, const QString& err, int code) {
+        if (!ok) {
+            emit notice(L("Không chia sẻ được bình chọn: ", "Failed to share poll: ") + friendlyError(err, code));
+            return;
+        }
+        emit notice(L("Đã chia sẻ bình chọn vào nhóm", "Poll shared to the group"));
+    });
+}
+
+void ZaloClient::lockPoll(qint64 pollId) {
+    if (pollId <= 0 || !m_isLoggedIn) return;
+    m_apiClient->session()->lockPoll(pollId, [this, pollId](bool ok, const QJsonValue&, const QString& err, int code) {
+        if (!ok) {
+            emit notice(L("Không khóa được bình chọn: ", "Failed to close poll: ") + friendlyError(err, code));
+            return;
+        }
+        refreshPoll(pollId, true);
+        emit notice(L("Đã khóa bình chọn", "Poll closed"));
     });
 }
 
@@ -6070,7 +6268,28 @@ void ZaloClient::setCloseToTray(bool val) {
 }
 
 bool ZaloClient::trayAvailable() const {
-    return QSystemTrayIcon::isSystemTrayAvailable();
+    if (m_trayAvailableOverride >= 0) return m_trayAvailableOverride != 0;
+    if (!QSystemTrayIcon::isSystemTrayAvailable()) return false;
+    const QString desktop = qEnvironmentVariable("XDG_CURRENT_DESKTOP").toLower();
+    const bool isGnome = desktop.contains(QLatin1String("gnome"))
+                         && !desktop.contains(QLatin1String("budgie"))
+                         && !desktop.contains(QLatin1String("cinnamon"))
+                         && !desktop.contains(QLatin1String("mate"))
+                         && !desktop.contains(QLatin1String("unity"));
+    if (isGnome) {
+        QDBusConnection bus = QDBusConnection::sessionBus();
+        if (!bus.isConnected()) return false;
+        QDBusMessage msg = QDBusMessage::createMethodCall(
+            QStringLiteral("org.kde.StatusNotifierWatcher"),
+            QStringLiteral("/StatusNotifierWatcher"),
+            QStringLiteral("org.freedesktop.DBus.Properties"),
+            QStringLiteral("Get"));
+        msg << QStringLiteral("org.kde.StatusNotifierWatcher")
+            << QStringLiteral("IsStatusNotifierHostRegistered");
+        const QDBusReply<QDBusVariant> reply = bus.call(msg, QDBus::Block, 200);
+        if (!reply.isValid() || !reply.value().variant().toBool()) return false;
+    }
+    return true;
 }
 
 QString ZaloClient::autostartFilePath() {
@@ -6587,10 +6806,53 @@ void ZaloClient::saveWindowGeometry(int x, int y, int width, int height, bool ma
     settings.setValue(QStringLiteral("window/maximized"), maximized);
 }
 
+void ZaloClient::syncCallTrayState() {
+    auto* tray = Platform::SystemTrayController::s_instance;
+    if (!tray) return;
+    if (m_boundTray != tray) {
+        m_boundTray = tray;
+        connect(tray, &Platform::SystemTrayController::showCallWindowRequested, this, [this]() {
+            emit windowActivationRequested(QString());
+        });
+        connect(tray, &Platform::SystemTrayController::acceptCallRequested, this, [this](bool noCam) {
+            if (m_calls) m_calls->accept(noCam);
+        });
+        connect(tray, &Platform::SystemTrayController::rejectCallRequested, this, [this]() {
+            if (m_calls) m_calls->reject();
+        });
+        connect(tray, &Platform::SystemTrayController::hangupCallRequested, this, [this]() {
+            if (m_calls) m_calls->hangup();
+        });
+        connect(tray, &Platform::SystemTrayController::toggleCallMuteRequested, this, [this]() {
+            if (m_calls) m_calls->setMuted(!m_calls->muted());
+        });
+        connect(tray, &Platform::SystemTrayController::toggleCallSpeakerRequested, this, [this]() {
+            if (m_calls) m_calls->setSpeakerOff(!m_calls->speakerOff());
+        });
+        connect(tray, &Platform::SystemTrayController::toggleCallCameraRequested, this, [this]() {
+            if (m_calls) m_calls->setCamera(!m_calls->cameraOn());
+        });
+        connect(tray, &Platform::SystemTrayController::toggleCallScreenShareRequested, this, [this]() {
+            if (m_calls) m_calls->setScreenShare(!m_calls->screenShareOn());
+        });
+    }
+    if (m_calls) {
+        tray->setCallState(m_calls->phase(), m_calls->peerName(), m_calls->isVideo(), m_calls->muted(),
+                           m_calls->speakerOff(), m_calls->cameraOn(), m_calls->screenShareOn());
+    }
+}
+
 void ZaloClient::notifyWindowVisibility(bool visible) {
+    setWindowVisible(visible);
     if (Platform::SystemTrayController::s_instance) {
         Platform::SystemTrayController::s_instance->setWindowVisible(visible);
     }
+    syncCallTrayState();
+}
+
+void ZaloClient::hideWindowToTray() {
+    syncCallTrayState();
+    emit hideWindowRequested();
 }
 
 QString ZaloClient::threadOfMessage(const QString& msgId) const {
@@ -6614,7 +6876,8 @@ void ZaloClient::sendFile(const QString& fileUrlOrPath, const QString& caption) 
     const QString convId = m_currentConvId;
     const bool isGroup = currentConversationIsGroup();
     const QString ext = info.suffix().toLower();
-    const bool isImage = ext == "jpg" || ext == "jpeg" || ext == "png" || ext == "webp";
+    const bool isGif = ext == "gif";
+    const bool isImage = isGif || ext == "jpg" || ext == "jpeg" || ext == "png" || ext == "webp";
     const bool isVideo = ext == "mp4" || ext == "mov" || ext == "webm" || ext == "mkv" || ext == "avi";
 
     if (!caption.trimmed().isEmpty() && !isImage) sendMessage(caption);
@@ -6632,6 +6895,7 @@ void ZaloClient::sendFile(const QString& fileUrlOrPath, const QString& caption) 
     local.status = QStringLiteral("sending");
     local.messageType = isImage ? QStringLiteral("image") : (isVideo ? QStringLiteral("video") : QStringLiteral("file"));
     local.mediaUrl = (isImage || isVideo) ? QUrl::fromLocalFile(path).toString() : QString();
+    if (isGif) local.extra.insert(QStringLiteral("animatedUrl"), local.mediaUrl);
     local.text = isImage ? caption.trimmed() : info.fileName();
     m_messageModel->mergeMessages(convId, {local});
     m_conversationModel->recordMessage(convId, isImage ? L("[Hình ảnh]", "[Photo]") : (isVideo ? L("[Video] ", "[Video] ") + info.fileName() : L("[Tệp] ", "[File] ") + info.fileName()),
@@ -7725,6 +7989,11 @@ bool ZaloClient::currentConversationIsOnline() const {
     return m_onlineIds.contains(m_currentConvId);
 }
 
+bool ZaloClient::currentConversationIsTyping() const {
+    if (m_currentConvId.isEmpty() || currentConversationIsCloud()) return false;
+    return m_typingUntil.contains(m_currentConvId);
+}
+
 QString ZaloClient::currentConversationStatus() const {
     if (m_currentConvId.isEmpty() || currentConversationIsCloud()) return {};
     if (m_typingUntil.contains(m_currentConvId)) {
@@ -8048,14 +8317,248 @@ void ZaloClient::createBankAccount(int binBank, const QString& numAccBank, const
 
 void ZaloClient::sendBankCard(int binBank, const QString& numAccBank, const QString& nameAccBank) {
     if (!m_isLoggedIn || !m_apiClient->session() || m_currentConvId.isEmpty() || binBank <= 0 || numAccBank.trimmed().isEmpty()) return;
-    m_apiClient->session()->sendBankCard(m_currentConvId, currentConversationIsGroup(), binBank, numAccBank.trimmed(), nameAccBank.trimmed(),
-        [this](bool ok, const QJsonValue&, const QString& err, int code) {
+    const QString convId = m_currentConvId;
+    const bool isGroup = currentConversationIsGroup();
+    const QString accNum = numAccBank.trimmed();
+    const QString accHolder = nameAccBank.trimmed().toUpper();
+    QString bankName = bankShortNameForBin(binBank);
+    for (const QVariant& bv : std::as_const(m_bankList)) {
+        const QVariantMap bm = bv.toMap();
+        if (bm.value("bin").toInt() == binBank && !bm.value("name").toString().isEmpty()) {
+            bankName = bm.value("name").toString();
+            break;
+        }
+    }
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    m_lastClientId = qMax(now, m_lastClientId + 1);
+    Models::MessageItem local;
+    local.id = QStringLiteral("local-%1-%2").arg(now).arg(++m_localSeq);
+    local.cliMsgId = QString::number(m_lastClientId);
+    local.ts = now;
+    local.timeStr = QDateTime::fromMSecsSinceEpoch(now).toString("HH:mm");
+    local.isMine = true;
+    local.senderId = m_myUid;
+    local.senderName = m_userName;
+    local.status = QStringLiteral("sending");
+    local.messageType = QStringLiteral("bankcard");
+    local.text = !bankName.isEmpty() ? QStringLiteral("%1 · %2").arg(bankName, accNum) : accNum;
+    local.extra = {{"binBank", binBank},
+                   {"bankName", bankName},
+                   {"accountNumber", accNum},
+                   {"accountHolder", accHolder},
+                   {"desc", accHolder}};
+    m_messageModel->mergeMessages(convId, {local});
+    m_conversationModel->recordMessage(convId, L("[Chuyển khoản] ", "[Bank transfer] ") + local.text,
+                                       L("Bạn: ", "You: "), now, false);
+    const QString localId = local.id;
+    m_apiClient->session()->sendBankCard(convId, isGroup, binBank, accNum, nameAccBank.trimmed(),
+        [this, convId, localId](bool ok, const QJsonValue&, const QString& err, int code) {
             if (!ok) {
+                m_messageModel->setStatus(convId, localId, QStringLiteral("failed"));
                 emit notice(L("Gửi thẻ ngân hàng thất bại: ", "Failed to send bank card: ") + friendlyError(err, code));
                 return;
             }
+            m_messageModel->setStatus(convId, localId, QStringLiteral("sent"));
             emit notice(L("Đã gửi thông tin tài khoản ngân hàng", "Bank card sent"));
+        }, local.cliMsgId);
+}
+
+QString ZaloClient::bankShortNameForBin(int bin) {
+    switch (bin) {
+    case 970425: return QStringLiteral("ABBank");
+    case 970416: return QStringLiteral("ACB");
+    case 970405: return QStringLiteral("Agribank");
+    case 970418: return QStringLiteral("BIDV");
+    case 963666: return QStringLiteral("BNP Paribas HCM");
+    case 963668: return QStringLiteral("BNP Paribas HN");
+    case 970454: return QStringLiteral("BVBank");
+    case 970409: return QStringLiteral("Bac A Bank");
+    case 970438: return QStringLiteral("BaoViet Bank");
+    case 546034: return QStringLiteral("CAKE");
+    case 168999: return QStringLiteral("Cathay United");
+    case 970444: return QStringLiteral("VCBNeo");
+    case 422589: return QStringLiteral("CIMB");
+    case 970446: return QStringLiteral("Co-opBank");
+    case 796500: return QStringLiteral("DBS");
+    case 970406: return QStringLiteral("DongA Bank");
+    case 970431: return QStringLiteral("Eximbank");
+    case 533948: return QStringLiteral("Citibank");
+    case 970408: return QStringLiteral("GPBank");
+    case 970437: return QStringLiteral("HDBank");
+    case 458761: return QStringLiteral("HSBC");
+    case 970442: return QStringLiteral("Hong Leong");
+    case 970456: return QStringLiteral("IBK HCM");
+    case 970455: return QStringLiteral("IBK HN");
+    case 970434: return QStringLiteral("Indovina");
+    case 668888: return QStringLiteral("KBank");
+    case 970452: return QStringLiteral("KienlongBank");
+    case 970463: return QStringLiteral("Kookmin HCM");
+    case 970462: return QStringLiteral("Kookmin HN");
+    case 963369: return QStringLiteral("Liobank");
+    case 970449: return QStringLiteral("LPBank");
+    case 970422: return QStringLiteral("MB Bank");
+    case 970426: return QStringLiteral("MSB");
+    case 971025: return QStringLiteral("MoMo");
+    case 970419: return QStringLiteral("NCB");
+    case 970428: return QStringLiteral("Nam A Bank");
+    case 801011: return QStringLiteral("NongHyup");
+    case 970448: return QStringLiteral("OCB");
+    case 970414: return QStringLiteral("OceanBank");
+    case 970430: return QStringLiteral("PGBank");
+    case 970412: return QStringLiteral("PVcomBank");
+    case 970439: return QStringLiteral("Public Bank");
+    case 970429: return QStringLiteral("SCB");
+    case 970443: return QStringLiteral("SHB");
+    case 970403: return QStringLiteral("Sacombank");
+    case 970400: return QStringLiteral("Saigonbank");
+    case 970440: return QStringLiteral("SeABank");
+    case 970424: return QStringLiteral("Shinhan Bank");
+    case 970410: return QStringLiteral("Standard Chartered");
+    case 963326: return QStringLiteral("TNEX");
+    case 970423: return QStringLiteral("TPBank");
+    case 970407: return QStringLiteral("Techcombank");
+    case 963388: return QStringLiteral("Timo");
+    case 546035: return QStringLiteral("UBank");
+    case 970458: return QStringLiteral("UOB Vietnam");
+    case 970441: return QStringLiteral("VIB");
+    case 970432: return QStringLiteral("VPBank");
+    case 970421: return QStringLiteral("VRB");
+    case 970427: return QStringLiteral("VietABank");
+    case 970433: return QStringLiteral("VietBank");
+    case 970436: return QStringLiteral("Vietcombank");
+    case 970415: return QStringLiteral("VietinBank");
+    case 970457: return QStringLiteral("Woori Bank");
+    default: return {};
+    }
+}
+
+void ZaloClient::resolveZInstantBankCard(const QString& convId, const QString& msgId, const QString& dataUrl) {
+    if (!m_isLoggedIn || convId.isEmpty() || msgId.isEmpty() || dataUrl.isEmpty()) return;
+    const QUrl url(dataUrl);
+    if (!url.isValid() || (url.scheme() != QLatin1String("http") && url.scheme() != QLatin1String("https"))) return;
+    const QString key = convId + QLatin1Char(':') + msgId;
+    if (m_bankCardFetching.contains(key)) return;
+    dropOldestIfFull(m_bankCardFetching);
+    m_bankCardFetching.insert(key);
+    QPointer<ZaloClient> guard(this);
+    fetchBytes(dataUrl, [guard, convId, msgId](const QByteArray& bytes, const QString& err) {
+        if (!guard || !err.isEmpty() || bytes.isEmpty()) return;
+        const QJsonDocument doc = QJsonDocument::fromJson(bytes);
+        const QString textFallback = QString::fromUtf8(bytes);
+        const BankCardFields card = extractBankCardFields(
+            doc.isNull() ? QJsonValue() : (doc.isObject() ? QJsonValue(doc.object()) : QJsonValue(doc.array())),
+            textFallback);
+        if (card.binBank <= 0 && card.accountNumber.isEmpty() && card.accountHolder.isEmpty()) return;
+        QString bankName = card.bankName;
+        if (bankName.isEmpty() && card.binBank > 0) bankName = bankShortNameForBin(card.binBank);
+        QVariantMap extra{
+            {"binBank", card.binBank},
+            {"bankName", bankName},
+            {"accountNumber", card.accountNumber},
+            {"accountHolder", card.accountHolder},
+        };
+        if (!card.accountHolder.isEmpty()) extra.insert("desc", card.accountHolder);
+        QString displayText;
+        if (!bankName.isEmpty() && !card.accountNumber.isEmpty()) {
+            displayText = QStringLiteral("%1 · %2").arg(bankName, card.accountNumber);
+        } else if (!card.accountNumber.isEmpty()) {
+            displayText = card.accountNumber;
+        }
+        guard->m_messageModel->setMessageExtra(convId, msgId, displayText, extra);
+    });
+}
+
+void ZaloClient::fetchConversationSharedMedia(const QString& convId) {
+    if (!m_isLoggedIn || !m_apiClient->session() || convId.isEmpty()) return;
+    const bool isSendToMe = (convId == myCloudId());
+    QPointer<ZaloClient> guard(this);
+    m_apiClient->session()->fetchMediaStorePreview(convId, isSendToMe, 50,
+        [guard, convId](bool ok, const QJsonValue& data, const QString&, int) {
+            if (!guard || !ok) return;
+            QJsonArray arr;
+            if (data.isArray()) arr = data.toArray();
+            else if (data.isObject()) {
+                const QJsonObject obj = data.toObject();
+                arr = obj.contains("items") ? obj.value("items").toArray() : obj.value("data").toArray();
+            }
+            QVariantList mediaList;
+            QVariantList fileList;
+            QVariantList linkList;
+            for (const QJsonValue& v : arr) {
+                const QJsonObject item = v.toObject();
+                const QString rawType = item.value("type").toString();
+                const QString msgId = idOf(item.value("global_msg_id").isUndefined() ? item.value("msgId") : item.value("global_msg_id"));
+                const QString ownerId = idOf(item.value("owner_id").isUndefined() ? item.value("fromUid") : item.value("owner_id"));
+                qint64 ts = item.value("created_time").toVariant().toLongLong();
+                if (ts <= 0) ts = item.value("sendDttm").toVariant().toLongLong();
+                if (ts > 0 && ts < 10000000000LL) ts *= 1000;
+                const QString sender = ownerId == guard->m_myUid ? guard->m_userName : guard->displayNameOf(ownerId);
+                const QString srcUrl = item.value("src_url").toString(item.value("href").toString(item.value("url").toString()));
+                const QString thumb = item.value("thumb_url").toString(item.value("thumb").toString(item.value("previewThumb").toString()));
+                const QString title = item.value("file_name").toString(item.value("title").toString());
+                const qint64 fileSize = item.value("file_size").toVariant().toLongLong();
+                QVariantMap entry{{"msgId", msgId}, {"senderName", sender}, {"ts", ts}};
+                if (rawType == QLatin1String("media") || rawType == QLatin1String("image")) {
+                    const int subType = item.value("sub_type").toInt(item.value("subType").toInt(1));
+                    const QString mediaUrl = srcUrl.isEmpty() ? thumb : srcUrl;
+                    if (mediaUrl.isEmpty() && thumb.isEmpty()) continue;
+                    entry["thumb"] = thumb.isEmpty() ? mediaUrl : thumb;
+                    entry["url"] = mediaUrl;
+                    entry["isVideo"] = (subType == 2);
+                    mediaList.append(entry);
+                } else if (rawType == QLatin1String("file")) {
+                    if (srcUrl.isEmpty() && title.isEmpty()) continue;
+                    entry["title"] = title.isEmpty() ? QStringLiteral("Tệp đính kèm") : title;
+                    entry["url"] = srcUrl;
+                    entry["fileSize"] = fileSize;
+                    fileList.append(entry);
+                } else if (rawType == QLatin1String("link")) {
+                    if (srcUrl.isEmpty()) continue;
+                    entry["title"] = title.isEmpty() ? srcUrl : title;
+                    entry["url"] = srcUrl;
+                    linkList.append(entry);
+                }
+            }
+            QHash<QString, QVariantList> store;
+            store.insert(QStringLiteral("media"), mediaList);
+            store.insert(QStringLiteral("file"), fileList);
+            store.insert(QStringLiteral("link"), linkList);
+            guard->m_serverSharedMedia.insert(convId, store);
+            emit guard->sharedMediaUpdated(convId);
         });
+}
+
+QVariantList ZaloClient::sharedItemsForConversation(const QString& convId, const QString& kind, int limit) {
+    QVariantList out = (!convId.isEmpty() && convId == m_currentConvId && m_messageModel)
+                           ? m_messageModel->sharedItems(kind, limit)
+                           : QVariantList{};
+    const QVariantList server = m_serverSharedMedia.value(convId).value(kind);
+    if (server.isEmpty()) return out;
+
+    QSet<QString> seenIds;
+    QSet<QString> seenUrls;
+    for (const QVariant& v : std::as_const(out)) {
+        const QVariantMap m = v.toMap();
+        const QString mid = m.value("msgId").toString();
+        const QString u = m.value("url").toString();
+        if (!mid.isEmpty()) seenIds.insert(mid);
+        if (!u.isEmpty()) seenUrls.insert(u);
+    }
+    for (const QVariant& v : server) {
+        if (out.size() >= limit) break;
+        const QVariantMap m = v.toMap();
+        const QString mid = m.value("msgId").toString();
+        const QString u = m.value("url").toString();
+        if ((!mid.isEmpty() && seenIds.contains(mid)) || (!u.isEmpty() && seenUrls.contains(u))) continue;
+        if (!mid.isEmpty()) seenIds.insert(mid);
+        if (!u.isEmpty()) seenUrls.insert(u);
+        out.append(m);
+    }
+    std::stable_sort(out.begin(), out.end(), [](const QVariant& a, const QVariant& b) {
+        return a.toMap().value("ts").toLongLong() > b.toMap().value("ts").toLongLong();
+    });
+    if (out.size() > limit) out.resize(limit);
+    return out;
 }
 
 }

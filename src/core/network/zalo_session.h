@@ -91,6 +91,9 @@ public:
 
     void sendAttachment(const QString& threadId, bool isGroup, const QString& filePath, const QString& caption,
                         Callback cb, const QString& sendClientId = QString(), qint64 ttl = 0);
+    void sendGif(const QString& threadId, bool isGroup, const QString& filePath, const QString& fileName,
+                 int width, int height, const QString& caption, Callback cb,
+                 const QString& sendClientId = QString(), qint64 ttl = 0);
     void sendVoice(const QString& threadId, bool isGroup, const QString& filePath, const QString& clientId, Callback cb, qint64 ttl = 0);
     void sendSticker(const QString& threadId, bool isGroup, qint64 stickerId, qint64 cateId, int type, Callback cb,
                      const QString& cliMsgId = QString(), qint64 ttl = 0);
@@ -135,6 +138,8 @@ public:
     void createPoll(const QString& groupId, const QString& question, const QStringList& options,
                     bool allowMultiChoices, Callback cb);
     void votePoll(qint64 pollId, const QList<int>& optionIds, Callback cb);
+    void addPollOptions(qint64 pollId, const QJsonArray& newOptions, const QList<int>& votedOptionIds, Callback cb);
+    void sharePoll(qint64 pollId, Callback cb);
     void lockPoll(qint64 pollId, Callback cb);
 
     void changeGroupName(const QString& groupId, const QString& newName, Callback cb);
@@ -165,6 +170,7 @@ public:
     void updateProfileBio(const QString& status, Callback cb);
     void blockUser(const QString& userId, Callback cb);
     void unblockUser(const QString& userId, Callback cb);
+    void fetchBlockedUsers(int page, int count, Callback cb);
     void removeFriend(const QString& userId, Callback cb);
 
     void fetchGroupMembersInfo(const QStringList& memberIds, Callback cb);
@@ -219,7 +225,9 @@ public:
     void fetchBankList(Callback cb);
     void fetchBankAccounts(int page, int limit, Callback cb);
     void createBankAccount(int binBank, const QString& numAccBank, const QString& nameAccBank, Callback cb);
-    void sendBankCard(const QString& threadId, bool isGroup, int binBank, const QString& numAccBank, const QString& nameAccBank, Callback cb);
+    void sendBankCard(const QString& threadId, bool isGroup, int binBank, const QString& numAccBank,
+                      const QString& nameAccBank, Callback cb, const QString& cliMsgId = QString());
+    void fetchMediaStorePreview(const QString& threadId, bool isSendToMe, int limit, Callback cb);
 
     void connectRealtime();
     void probeRealtime();
@@ -256,7 +264,11 @@ public:
         return m_serverSettings.value(QStringLiteral("features")).toObject().value(QStringLiteral("kiki_assistant")).toObject();
     }
     QStringList serviceUrls(const QString& service) const;
-    void setLoginInfoForTesting(const QJsonObject& info) { m_loginInfo = info; }
+    void setLoginInfoForTesting(const QJsonObject& info) {
+        m_loginInfo = info;
+        if (info.contains(QStringLiteral("zpw_enk"))) m_secretKey = info.value(QStringLiteral("zpw_enk")).toString();
+        if (info.contains(QStringLiteral("uid"))) m_uid = info.value(QStringLiteral("uid")).toVariant().toString();
+    }
     QJsonArray splitReactionMessages(const QJsonArray& msgs, bool isGroup);
 
 private:
@@ -272,7 +284,7 @@ private:
     void applyHeaders(QNetworkRequest& req, bool isPost = false) const;
     void handleApiReply(QNetworkReply* reply, Callback cb);
     void postMultipartFile(const QString& url, const QJsonObject& params, const QByteArray& content, Callback cb);
-    void requestServerInfo();
+    void requestServerInfo(int retryCount = 0);
     void sendWs(int cmd, int subCmd, QJsonObject data, const QString& reqIdKey = QStringLiteral("req_id"));
     void scheduleWsReconnect();
     void onWsBinary(const QByteArray& frame);
@@ -302,6 +314,7 @@ private:
     QWebSocket* m_ws{nullptr};
     QTimer m_pingTimer;
     QTimer m_pongWatchdog;
+    QTimer m_wsReconnectTimer;
     QString m_cipherKey;
     bool m_realtimeReady{false};
     int m_wsUrlIndex{0};

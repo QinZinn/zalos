@@ -56,10 +56,18 @@ class CallBridge : public QObject {
     Q_PROPERTY(QVariantList groupMembers READ groupMembers NOTIFY stateChanged FINAL)
     Q_PROPERTY(bool cameraOn READ cameraOn NOTIFY cameraStateChanged FINAL)
     Q_PROPERTY(bool cameraAvailable READ cameraAvailable NOTIFY cameraStateChanged FINAL)
+    Q_PROPERTY(bool screenShareOn READ screenShareOn NOTIFY cameraStateChanged FINAL)
+    Q_PROPERTY(bool screenShareAvailable READ screenShareAvailable NOTIFY cameraStateChanged FINAL)
     Q_PROPERTY(QString cameraError READ cameraError NOTIFY cameraStateChanged FINAL)
     Q_PROPERTY(bool peerCamOff READ peerCamOff NOTIFY stateChanged FINAL)
+    Q_PROPERTY(bool peerSharing READ peerSharing NOTIFY stateChanged FINAL)
     Q_PROPERTY(bool videoSupported READ videoSupported CONSTANT FINAL)
     Q_PROPERTY(bool peerVideoActive READ peerVideoActive NOTIFY peerVideoChanged FINAL)
+    Q_PROPERTY(int micVolume READ micVolume NOTIFY micStateChanged FINAL)
+    Q_PROPERTY(int micLevel READ micLevel NOTIFY micStateChanged FINAL)
+    Q_PROPERTY(QString selectedMicId READ selectedMicId NOTIFY devicesChanged FINAL)
+    Q_PROPERTY(QString selectedSpeakerId READ selectedSpeakerId NOTIFY devicesChanged FINAL)
+    Q_PROPERTY(QString selectedCameraId READ selectedCameraId NOTIFY devicesChanged FINAL)
 
 public:
     explicit CallBridge(Network::ZaloSession* session, QObject* parent = nullptr);
@@ -85,12 +93,27 @@ public:
     QVariantList groupMembers() const { return m_ui.value("members").toArray().toVariantList(); }
     bool cameraOn() const { return m_cameraOn; }
     bool cameraAvailable() const;
+    bool screenShareOn() const { return m_screenShareOn; }
+    bool screenShareAvailable() const;
     QString cameraError() const { return m_cameraError; }
     Q_INVOKABLE void setLocalVideoSink(QVideoSink* sink);
     CameraSender* cameraSenderForTesting() { return cameraSender(); }
     bool peerCamOff() const { return m_ui.value("peerCamOff").toBool(); }
+    bool peerSharing() const { return m_ui.value("peerSharing").toBool(); }
     static bool videoSupported();
     bool peerVideoActive() const { return m_peerVideoActive; }
+    int micVolume() const { return m_micVolume; }
+    int micLevel() const { return m_micLevel; }
+    QString selectedMicId() const { return m_selectedMicId; }
+    QString selectedSpeakerId() const { return m_selectedSpeakerId; }
+    QString selectedCameraId() const { return m_selectedCameraId; }
+
+    Q_INVOKABLE QVariantList audioInputDevices() const;
+    Q_INVOKABLE QVariantList audioOutputDevices() const;
+    Q_INVOKABLE QVariantList cameraDevices() const;
+    Q_INVOKABLE void selectAudioDevice(const QString& kind, const QString& id);
+    Q_INVOKABLE void selectCameraDevice(const QString& id);
+    Q_INVOKABLE void setMicVolume(int pct);
 
     Q_INVOKABLE void setPeerVideoSink(QVideoSink* sink);
 
@@ -102,6 +125,7 @@ public:
     Q_INVOKABLE void startGroupCall(const QString& groupId, const QString& groupName, const QString& groupAvatar,
                                    const QVariantList& members, bool isVideo = false);
     Q_INVOKABLE void setCamera(bool on);
+    Q_INVOKABLE void setScreenShare(bool on);
     Q_INVOKABLE void accept(bool camStartOff = false);
     Q_INVOKABLE void reject();
     Q_INVOKABLE void hangup();
@@ -128,6 +152,8 @@ signals:
     void availabilityChanged();
     void stateChanged();
     void cameraStateChanged();
+    void micStateChanged();
+    void devicesChanged();
     void incomingCall(const QString& peerName);
     void callFinished(const QString& peerId, bool outgoing, int durationSec);
     void videoFrameReceived(bool isKey, const QString& codec, const QByteArray& data, int src);
@@ -175,12 +201,15 @@ private:
     bool m_isVideoMode{false};
     bool m_isGroupMode{false};
     bool m_cameraOn{false};
+    bool m_prevCameraOn{false};
+    bool m_screenShareOn{false};
     bool m_cameraOffAnnounced{false};
     QString m_cameraError;
     CameraSender* m_cameraSender{nullptr};
     QPointer<QVideoSink> m_localSink;
     CameraSender* cameraSender();
     void applyCamera(bool on);
+    void applyScreenShare(bool on);
     QThread* m_videoThread{nullptr};
     PeerVideoDecoder* m_videoDecoder{nullptr};
     QPointer<QVideoSink> m_peerSink;
@@ -195,6 +224,11 @@ private:
     QJsonObject m_ui;
     QString m_activePeer;
     bool m_activeOutgoing{false};
+    int m_micVolume{100};
+    int m_micLevel{60};
+    QString m_selectedMicId;
+    QString m_selectedSpeakerId;
+    QString m_selectedCameraId;
 };
 
 }

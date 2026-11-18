@@ -2,18 +2,23 @@
 
 #include "h264_codec.h"
 #include "peer_video.h"
+#include "core/media/media_utils.h"
 #include "network/zalo_crypto.h"
 #include "network/zalo_session.h"
 
+#include <QAudioDevice>
+#include <QCameraDevice>
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QMediaDevices>
 #include <QProcess>
 #include <QRandomGenerator>
 #include <QRegularExpression>
+#include <QSettings>
 #include <QUrl>
 #include <QVersionNumber>
 #include <QFileInfo>
@@ -25,6 +30,8 @@
 #include <QUuid>
 #include <QVideoFrame>
 #include <QVideoSink>
+
+#include <algorithm>
 
 namespace Zalos::Core::Call {
 
@@ -40,6 +47,11 @@ QString randomToken() {
 
 CallBridge::CallBridge(Network::ZaloSession* session, QObject* parent)
     : QObject(parent), m_session(session) {
+    QSettings settings(QStringLiteral("Zalos"), QStringLiteral("ZalosApp"));
+    m_selectedMicId = settings.value(QStringLiteral("call/micDevice")).toString();
+    m_selectedSpeakerId = settings.value(QStringLiteral("call/speakerDevice")).toString();
+    m_selectedCameraId = settings.value(QStringLiteral("call/cameraDevice")).toString();
+
     m_idleShutdownTimer = new QTimer(this);
     m_idleShutdownTimer->setSingleShot(true);
     m_idleShutdownTimer->setInterval(1500);
@@ -247,7 +259,14 @@ bool CallBridge::ensureEngine() {
                         sock->setProperty("authed", true);
                         if (role == 0) { m_recvSocket = sock; m_recvBuffer = rest; }
                         else if (role == 1) { m_sendSocket = sock; flushPending(); }
-                        else { m_uiSocket = sock; m_uiBuffer = rest; }
+                        else {
+                            m_uiSocket = sock;
+                            m_uiBuffer = rest;
+                            if (!m_selectedMicId.isEmpty())
+                                sendUi({{"action", "device"}, {"kind", "mic"}, {"id", m_selectedMicId}});
+                            if (!m_selectedSpeakerId.isEmpty())
+                                sendUi({{"action", "device"}, {"kind", "speaker"}, {"id", m_selectedSpeakerId}});
+                        }
                     } else if (role == 0) {
                         m_recvBuffer += sock->readAll();
                     } else if (role == 2) {
@@ -451,6 +470,10 @@ void CallBridge::onSendSignal(int command, const QJsonObject& d) {
             params = {{"calleeId", d.value("calleeId")}, {"callId", d.value("callId")}, {"isOnCam", d.value("isOnCam")},
                       {"isOnMic", d.value("isOnMic")}, {"data", d.value("data")}};
             break;
+        case 12064:
+            path = "/api/voicecall/requestsharescreen";
+            params = {{"uidTo", d.value("uidTo")}, {"callId", d.value("callId")}, {"status", d.value("status")}};
+            break;
         case 12433:
             path = "/api/voicecall/group/requestcall";
             params = {{"groupId", d.value("groupId")}, {"callId", d.value("callId")},
@@ -551,7 +574,7 @@ void CallBridge::onSendSignal(int command, const QJsonObject& d) {
         [this, command, callId](bool ok, const QJsonValue& data, const QString& error, int code) {
             if (ok) {
                 sendToEngine({{"type", "recvSignal"}, {"command", command}, {"data", data}});
-            } else if (command == 401) {
+            } else if (command == 401 || command == 12433) {
                 sendToEngine({{"type", "recvSignal"}, {"command", command},
                               {"data", QJsonObject{{"status", code != 0 ? code : -1}, {"msg", error}, {"callId", callId}}}});
             }
@@ -643,18 +666,24 @@ bool CallBridge::cameraAvailable() const {
     return CameraSender::encoderAvailable() && CameraSender::cameraAvailable();
 }
 
+bool CallBridge::screenShareAvailable() const {
+    return CameraSender::encoderAvailable() && CameraSender::screenAvailable();
+}
+
 CameraSender* CallBridge::cameraSender() {
     if (!m_cameraSender) {
         m_cameraSender = new CameraSender(this);
         m_cameraSender->setPreviewSink(m_localSink);
+        m_cameraSender->setPreferredCameraId(m_selectedCameraId);
         connect(m_cameraSender, &CameraSender::frameEncoded, this, [this](bool key, const QByteArray& au, int w, int h) {
-            if (phase() != QLatin1String("connected") || !m_cameraOn) return;
+            if (phase() != QLatin1String("connected") || (!m_cameraOn && !m_screenShareOn)) return;
             sendUi({{"action", "videoFrame"}, {"key", key}, {"data", QString::fromLatin1(au.toBase64())},
-                    {"screen", false}, {"w", w}, {"h", h}});
+                    {"screen", m_screenShareOn}, {"w", w}, {"h", h}});
         });
         connect(m_cameraSender, &CameraSender::failed, this, [this](const QString& reason) {
             m_cameraError = reason;
             if (m_cameraOn) applyCamera(false);
+            if (m_screenShareOn) applyScreenShare(false);
             emit cameraStateChanged();
         });
     }
@@ -668,6 +697,11 @@ void CallBridge::setLocalVideoSink(QVideoSink* sink) {
 
 void CallBridge::applyCamera(bool on) {
     if (on) {
+        if (m_screenShareOn) {
+            m_screenShareOn = false;
+            m_prevCameraOn = false;
+            sendUi({{"action", "screen"}, {"on", false}});
+        }
         startVideoPipeline();
         QString error;
         cameraSender()->setEncodingEnabled(phase() == QLatin1String("connected"));
@@ -678,7 +712,7 @@ void CallBridge::applyCamera(bool on) {
             m_cameraError.clear();
             m_cameraSender->requestKeyFrame();
         }
-    } else if (m_cameraSender) {
+    } else if (m_cameraSender && !m_screenShareOn) {
         m_cameraSender->stop();
     }
     m_cameraOn = on;
@@ -688,6 +722,52 @@ void CallBridge::applyCamera(bool on) {
 
 void CallBridge::setCamera(bool on) {
     applyCamera(on);
+}
+
+void CallBridge::applyScreenShare(bool on) {
+    if (on) {
+        if (phase() != QLatin1String("connected") || isGroup()) return;
+        const bool wasCameraOn = m_cameraOn;
+        if (!m_screenShareOn) m_prevCameraOn = wasCameraOn;
+        m_cameraOn = false;
+        startVideoPipeline();
+        QString error;
+        cameraSender()->setEncodingEnabled(true);
+        if (!cameraSender()->startScreen(&error)) {
+            m_cameraError = error;
+            m_screenShareOn = false;
+            emit cameraStateChanged();
+            if (m_prevCameraOn && isVideo() && cameraAvailable()) {
+                m_prevCameraOn = false;
+                applyCamera(true);
+            }
+            return;
+        }
+        m_cameraError.clear();
+        m_cameraSender->requestKeyFrame();
+        m_screenShareOn = true;
+        emit cameraStateChanged();
+        sendUi({{"action", "screen"}, {"on", true}});
+        sendUi({{"action", "camera"}, {"on", true}});
+        return;
+    }
+
+    if (!m_screenShareOn) return;
+    if (m_cameraSender) m_cameraSender->stop();
+    m_screenShareOn = false;
+    emit cameraStateChanged();
+    sendUi({{"action", "screen"}, {"on", false}});
+    const bool restoreCam = m_prevCameraOn && isVideo() && cameraAvailable() && phase() == QLatin1String("connected");
+    m_prevCameraOn = false;
+    if (restoreCam) {
+        applyCamera(true);
+    } else {
+        sendUi({{"action", "camera"}, {"on", false}});
+    }
+}
+
+void CallBridge::setScreenShare(bool on) {
+    applyScreenShare(on);
 }
 
 void CallBridge::handleVoipControl(const QJsonObject& rawContent) {
@@ -750,7 +830,7 @@ void CallBridge::onUiLine(const QByteArray& line) {
         if (m_cameraSender) {
             const bool connected = phase() == QLatin1String("connected");
             m_cameraSender->setEncodingEnabled(connected);
-            if (connected && previous != QLatin1String("connected") && m_cameraOn) {
+            if (connected && previous != QLatin1String("connected") && (m_cameraOn || m_screenShareOn)) {
                 m_cameraSender->requestKeyFrame();
             }
         }
@@ -766,10 +846,29 @@ void CallBridge::onUiLine(const QByteArray& line) {
             m_cameraSender->setProfile(QSize(enc.value("width").toInt(), enc.value("height").toInt()),
                                        enc.value("fps").toInt(15), enc.value("bitrate").toInt(300000));
         }
+        const QJsonObject scrEnc = msg.value("screenEncode").toObject();
+        if (!scrEnc.isEmpty() && m_cameraSender) {
+            m_cameraSender->setScreenProfile(1280, scrEnc.value("maxShort").toInt(720),
+                                             scrEnc.value("fps").toInt(10),
+                                             scrEnc.value("bitrate").toInt(1500000));
+        }
         if (msg.value("phase").toString() == "incoming" && previous != "incoming") {
             emit incomingCall(msg.value("name").toString());
         }
+        if (msg.contains("micVolume") && msg.value("micVolume").isDouble()) {
+            const int vol = std::clamp(msg.value("micVolume").toInt(100), 0, 100);
+            if (m_micVolume != vol) {
+                m_micVolume = vol;
+                emit micStateChanged();
+            }
+        }
         emit stateChanged();
+    } else if (type == "micLevel") {
+        const int lvl = std::clamp(msg.value("level").toInt(60), 0, 127);
+        if (m_micLevel != lvl) {
+            m_micLevel = lvl;
+            emit micStateChanged();
+        }
     } else if (type == "keyframe") {
         if (m_cameraSender) m_cameraSender->requestKeyFrame();
     } else if (type == "close") {
@@ -779,6 +878,11 @@ void CallBridge::onUiLine(const QByteArray& line) {
         m_isVideoMode = false;
         if (m_cameraSender) m_cameraSender->stop();
         m_cameraOn = false;
+        m_prevCameraOn = false;
+        m_screenShareOn = false;
+        m_micLevel = 60;
+        m_micVolume = 100;
+        emit micStateChanged();
         emit stateChanged();
         emit cameraStateChanged();
         if (m_process && m_idleShutdownTimer) m_idleShutdownTimer->start();
@@ -799,9 +903,86 @@ void CallBridge::resetUi() {
     m_isVideoMode = false;
     if (m_cameraSender) m_cameraSender->stop();
     m_cameraOn = false;
+    m_prevCameraOn = false;
+    m_screenShareOn = false;
+    m_micLevel = 60;
+    m_micVolume = 100;
     m_uiSkipBytes = 0;
+    emit micStateChanged();
     emit stateChanged();
     emit cameraStateChanged();
+}
+
+QVariantList CallBridge::audioInputDevices() const {
+    QVariantList out;
+    for (const QAudioDevice& dev : QMediaDevices::audioInputs()) {
+        const QString id = QString::fromUtf8(dev.id());
+        if (id.isEmpty() || id.endsWith(QLatin1String(".monitor")) || id.startsWith(QLatin1String("zcall_ec_"))
+            || id.startsWith(QLatin1String("raop_sink."))) {
+            continue;
+        }
+        const QString name = dev.description().isEmpty() ? id : dev.description();
+        out.append(QVariantMap{{"id", id}, {"name", name}});
+    }
+    return out;
+}
+
+QVariantList CallBridge::audioOutputDevices() const {
+    QVariantList out;
+    for (const QAudioDevice& dev : QMediaDevices::audioOutputs()) {
+        const QString id = QString::fromUtf8(dev.id());
+        if (id.isEmpty() || id.endsWith(QLatin1String(".monitor")) || id.startsWith(QLatin1String("zcall_ec_"))
+            || id.startsWith(QLatin1String("raop_sink."))) {
+            continue;
+        }
+        const QString name = dev.description().isEmpty() ? id : dev.description();
+        out.append(QVariantMap{{"id", id}, {"name", name}});
+    }
+    return out;
+}
+
+QVariantList CallBridge::cameraDevices() const {
+    QVariantList nonIr;
+    QVariantList all;
+    for (const QCameraDevice& dev : QMediaDevices::videoInputs()) {
+        const QString id = QString::fromUtf8(dev.id());
+        const QString name = dev.description().isEmpty() ? id : dev.description();
+        const QVariantMap item{{"id", id}, {"name", name}};
+        all.append(item);
+        if (!Media::MediaUtils::isIrCamera(name)) nonIr.append(item);
+    }
+    return nonIr.isEmpty() ? all : nonIr;
+}
+
+void CallBridge::selectAudioDevice(const QString& kind, const QString& id) {
+    if (kind != QLatin1String("mic") && kind != QLatin1String("speaker")) return;
+    QSettings settings(QStringLiteral("Zalos"), QStringLiteral("ZalosApp"));
+    if (kind == QLatin1String("mic")) {
+        m_selectedMicId = id;
+        settings.setValue(QStringLiteral("call/micDevice"), id);
+    } else {
+        m_selectedSpeakerId = id;
+        settings.setValue(QStringLiteral("call/speakerDevice"), id);
+    }
+    emit devicesChanged();
+    sendUi({{"action", "device"}, {"kind", kind}, {"id", id}});
+}
+
+void CallBridge::selectCameraDevice(const QString& id) {
+    m_selectedCameraId = id;
+    QSettings settings(QStringLiteral("Zalos"), QStringLiteral("ZalosApp"));
+    settings.setValue(QStringLiteral("call/cameraDevice"), id);
+    emit devicesChanged();
+    if (m_cameraSender) m_cameraSender->setPreferredCameraId(id);
+}
+
+void CallBridge::setMicVolume(int pct) {
+    const int clamped = std::clamp(pct, 0, 100);
+    if (m_micVolume != clamped) {
+        m_micVolume = clamped;
+        emit micStateChanged();
+    }
+    sendUi({{"action", "micVolume"}, {"value", clamped}});
 }
 
 void CallBridge::accept(bool camStartOff) {

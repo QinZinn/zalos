@@ -1,14 +1,19 @@
 #include "rich_composer.h"
 
 #include <QColor>
+#include <QCoreApplication>
 #include <QFont>
+#include <QGuiApplication>
 #include <QHash>
+#include <QInputMethod>
+#include <QInputMethodEvent>
 #include <QQuickTextDocument>
 #include <QTextBlock>
 #include <QTextCursor>
 #include <QTextDocument>
 #include <QTextList>
 
+#include <algorithm>
 #include <functional>
 
 namespace Zalos::Core::Models {
@@ -19,6 +24,21 @@ constexpr int kColorProp = QTextFormat::UserProperty + 1;
 constexpr int kSizeProp = QTextFormat::UserProperty + 2;
 constexpr int kSmallPx = 12;
 constexpr int kBigPx = 18;
+constexpr int kMaxIndentLevel = 5;
+
+int parseIndentLevel(const QString& st) {
+    if (!st.startsWith(QLatin1String("ind_"))) return 0;
+    bool ok = false;
+    const int n = st.mid(4).toInt(&ok);
+    if (!ok || n <= 0) return 0;
+    const int level = n >= 10 ? (n + 5) / 10 : n;
+    return qBound(1, level, kMaxIndentLevel);
+}
+
+int blockIndent(const QTextBlock& b) {
+    if (!b.isValid() || b.textList()) return 0;
+    return qBound(0, b.blockFormat().indent(), kMaxIndentLevel);
+}
 
 QStringList keysOf(const QTextCharFormat& f) {
     QStringList keys;
@@ -93,18 +113,98 @@ const QStringList& RichComposer::colorStyles() {
 
 bool RichComposer::isKnownStyle(const QString& st) {
     static const QStringList simple{"b", "i", "u", "s", "f_13", "f_18", "lst_1", "lst_2"};
-    return simple.contains(st) || colorStyles().contains(st);
+    return simple.contains(st) || colorStyles().contains(st) || parseIndentLevel(st) > 0;
 }
 
 RichComposer::RichComposer(QObject* parent) : QObject(parent) {}
 
-void RichComposer::attach(QQuickTextDocument* document) {
+void RichComposer::attach(QQuickTextDocument* document, QObject* textEditItem) {
+    if (m_item && m_item != textEditItem) {
+        m_item->removeEventFilter(this);
+    }
+    m_item = textEditItem;
+    if (m_item) {
+        m_item->removeEventFilter(this);
+        m_item->installEventFilter(this);
+    }
     attachDocument(document ? document->textDocument() : nullptr);
 }
 
 void RichComposer::attachDocument(QTextDocument* document) {
     m_document = document;
     refresh(0, 0);
+}
+
+void RichComposer::flushPreedit() {
+    const QString preBefore = m_item ? m_item->property("preeditText").toString() : QString();
+    if (auto* im = QGuiApplication::inputMethod()) {
+        im->commit();
+    }
+    const QString preAfter = m_item ? m_item->property("preeditText").toString() : QString();
+    if (m_item && !preAfter.isEmpty()) {
+        m_inFilter = true;
+        QInputMethodEvent ev;
+        ev.setCommitString(preAfter);
+        QCoreApplication::sendEvent(m_item, &ev);
+        m_inFilter = false;
+        m_flushedPreedit = preAfter;
+        m_flushedTimer.start();
+        if (auto* im = QGuiApplication::inputMethod()) im->reset();
+    } else if (!preBefore.isEmpty()) {
+        m_flushedPreedit = preBefore;
+        m_flushedTimer.start();
+    }
+}
+
+void RichComposer::resetPreedit() {
+    if (m_item && !m_item->property("preeditText").toString().isEmpty()) {
+        m_inFilter = true;
+        QInputMethodEvent ev;
+        QCoreApplication::sendEvent(m_item, &ev);
+        m_inFilter = false;
+    }
+    if (auto* im = QGuiApplication::inputMethod()) {
+        im->reset();
+    }
+}
+
+bool RichComposer::eventFilter(QObject* watched, QEvent* event) {
+    if (!m_inFilter && watched == m_item && event && event->type() == QEvent::InputMethod) {
+        auto* imEv = static_cast<QInputMethodEvent*>(event);
+        const QString commit = imEv->commitString();
+        const QString preedit = imEv->preeditString();
+        if (!m_flushedPreedit.isEmpty() && m_flushedTimer.isValid() && m_flushedTimer.elapsed() < 150
+            && (!m_document || m_document->isEmpty()) && preedit.isEmpty()
+            && commit.trimmed() == m_flushedPreedit.trimmed()) {
+            m_flushedPreedit.clear();
+            return true;
+        }
+        const bool shiftHeld = (QGuiApplication::keyboardModifiers() & Qt::ShiftModifier) != 0;
+        if (!shiftHeld && (commit.endsWith(QLatin1Char('\n')) || commit.endsWith(QLatin1Char('\r')))) {
+            QString stripped = commit;
+            while (stripped.endsWith(QLatin1Char('\n')) || stripped.endsWith(QLatin1Char('\r'))) {
+                stripped.chop(1);
+            }
+            if (!stripped.contains(QLatin1Char('\n')) && !stripped.contains(QLatin1Char('\r'))) {
+                if (!stripped.isEmpty() || !preedit.isEmpty()) {
+                    m_inFilter = true;
+                    QInputMethodEvent clean(preedit, imEv->attributes());
+                    if (!stripped.isEmpty()) {
+                        clean.setCommitString(stripped, imEv->replacementStart(), imEv->replacementLength());
+                    }
+                    QCoreApplication::sendEvent(m_item, &clean);
+                    m_inFilter = false;
+                    if (!stripped.isEmpty()) {
+                        m_flushedPreedit = stripped;
+                        m_flushedTimer.start();
+                    }
+                }
+                QMetaObject::invokeMethod(this, [this]() { emit submitRequested(); }, Qt::QueuedConnection);
+                return true;
+            }
+        }
+    }
+    return QObject::eventFilter(watched, event);
 }
 
 bool RichComposer::apply(const QString& st, int start, int end) {
@@ -185,6 +285,31 @@ void RichComposer::toggleList(const QString& st, int start, int end) {
     refresh(start, end);
 }
 
+void RichComposer::changeIndent(int delta, int start, int end) {
+    QTextDocument* doc = document();
+    if (!doc || delta == 0) return;
+    const int max = doc->characterCount() - 1;
+    start = qBound(0, qMin(start, end), max);
+    end = qBound(0, qMax(start, end), max);
+    QList<QTextBlock> blocks;
+    for (QTextBlock b = doc->findBlock(start); b.isValid(); b = b.next()) {
+        blocks << b;
+        if (b.position() + b.length() > end) break;
+    }
+    if (blocks.isEmpty()) return;
+    QTextCursor c(doc);
+    c.beginEditBlock();
+    for (const QTextBlock& b : std::as_const(blocks)) {
+        if (QTextList* l = b.textList()) l->remove(b);
+        QTextCursor bc(b);
+        QTextBlockFormat bf = b.blockFormat();
+        bf.setIndent(qBound(0, bf.indent() + delta, kMaxIndentLevel));
+        bc.setBlockFormat(bf);
+    }
+    c.endEditBlock();
+    refresh(start, end);
+}
+
 void RichComposer::clearFormatting(int start, int end) {
     QTextDocument* doc = document();
     if (!doc) return;
@@ -213,7 +338,7 @@ void RichComposer::clearFormatting(int start, int end) {
 
 void RichComposer::refresh(int start, int end) {
     QVariantMap state{{"b", false}, {"i", false}, {"u", false}, {"s", false},
-                      {"color", QString()}, {"size", QString()}, {"list", QString()}};
+                      {"color", QString()}, {"size", QString()}, {"list", QString()}, {"indent", 0}};
     if (QTextDocument* doc = document()) {
         const int max = doc->characterCount() - 1;
         int s = qBound(0, qMin(start, end), max);
@@ -227,7 +352,9 @@ void RichComposer::refresh(int start, int end) {
             for (const QString& size : {QStringLiteral("f_13"), QStringLiteral("f_18")})
                 if (allHave(doc, s, e, size)) state.insert("size", size);
         }
-        state.insert("list", listKey(doc->findBlock(qBound(0, start, max))));
+        const QTextBlock blk = doc->findBlock(qBound(0, start, max));
+        state.insert("list", listKey(blk));
+        state.insert("indent", blockIndent(blk));
     }
     if (state == m_active) return;
     m_active = state;
@@ -252,6 +379,10 @@ QVariantList RichComposer::exportStyles(const QTextDocument* document) {
     for (QTextBlock b = document->begin(); b.isValid(); b = b.next()) {
         const QString list = listKey(b);
         if (!list.isEmpty() && b.length() > 1) flush(list, {b.position(), b.position() + b.length() - 1});
+        const int indent = blockIndent(b);
+        if (indent > 0 && b.length() > 1) {
+            flush(QStringLiteral("ind_%1").arg(indent * 10), {b.position(), b.position() + b.length() - 1});
+        }
         for (auto it = b.begin(); !it.atEnd(); ++it) {
             const QTextFragment frag = it.fragment();
             const int from = frag.position();
@@ -293,6 +424,15 @@ void RichComposer::applyStyles(QTextDocument* document, const QVariantList& styl
         if (end <= start || !isKnownStyle(st)) continue;
         if (st.startsWith(QLatin1String("lst_"))) {
             helper.toggleList(st, start, end);
+        } else if (const int level = parseIndentLevel(st); level > 0) {
+            for (QTextBlock b = document->findBlock(start); b.isValid(); b = b.next()) {
+                if (QTextList* l = b.textList()) l->remove(b);
+                QTextCursor bc(b);
+                QTextBlockFormat bf = b.blockFormat();
+                bf.setIndent(level);
+                bc.setBlockFormat(bf);
+                if (b.position() + b.length() > end) break;
+            }
         } else {
             QTextCursor c(document);
             QList<std::pair<std::pair<int, int>, QTextCharFormat>> pieces;

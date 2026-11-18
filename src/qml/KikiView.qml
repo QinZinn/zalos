@@ -489,6 +489,8 @@ Rectangle {
                             placeholderText: I18n.t("Nhập yêu cầu hoặc câu hỏi... (Enter để gửi)", "Type a prompt or query... (Enter to send)")
                             placeholderTextColor: ThemeManager.secondaryTextColor
                             onAccepted: sendBtn.send()
+                            Keys.onReturnPressed: function(event) { event.accepted = true; sendBtn.send(); }
+                            Keys.onEnterPressed: function(event) { event.accepted = true; sendBtn.send(); }
                         }
 
                         Rectangle {
@@ -496,12 +498,16 @@ Rectangle {
                             width: 28
                             height: 28
                             radius: 14
-                            color: inputField.text.trim().length > 0 ? Theme.zaloBlue : ThemeManager.hoverClearColor
-                            visible: inputField.text.trim().length > 0
+                            readonly property bool hasDraft: inputField.text.trim().length > 0 || inputField.preeditText.trim().length > 0
+                            color: hasDraft ? Theme.zaloBlue : ThemeManager.hoverClearColor
+                            visible: hasDraft
 
                             function send(): void {
-                                if (inputField.text.trim().length === 0) return;
-                                const t = inputField.text.trim();
+                                Qt.inputMethod.commit();
+                                const raw = inputField.preeditText.length > 0 ? inputField.text + inputField.preeditText : inputField.text;
+                                if (raw.trim().length === 0) return;
+                                const t = raw.trim();
+                                Qt.inputMethod.reset();
                                 inputField.text = "";
                                 root.askKiki(t);
                             }

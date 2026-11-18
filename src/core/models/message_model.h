@@ -109,6 +109,7 @@ public:
     void markRecalled(const QString& convId, const QString& msgId, const QString& placeholder);
     void setMedia(const QString& convId, const QString& msgId, const QString& mediaUrl);
     void setSticker(const QString& convId, const QString& msgId, const QVariantMap& info);
+    void setMessageExtra(const QString& convId, const QString& msgId, const QString& text, const QVariantMap& extra);
     void setStatus(const QString& convId, const QString& msgId, const QString& status);
     void markSeenUpTo(const QString& convId, const QString& msgId);
     void recordGroupSeen(const QString& convId, const QString& msgId, const QString& userId);
