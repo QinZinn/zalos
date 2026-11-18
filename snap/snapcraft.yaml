@@ -62,6 +62,7 @@ parts:
       - liblzma-dev
       - zlib1g-dev
       - libsqlite3-dev
+      - libzstd-dev
       - libopenh264-dev
     stage-packages:
       - libqt6core6t64
@@ -93,5 +94,6 @@ parts:
       - qml6-module-qtcore
       - libopus0
       - libpulse0
+      - libzstd1
     parse-info:
       - usr/share/metainfo/io.github.cpfriend1721994.zalos.metainfo.xml

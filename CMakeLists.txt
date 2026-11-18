@@ -46,9 +46,12 @@ find_package(ZLIB REQUIRED)
 find_package(SQLite3 REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(LZMA REQUIRED liblzma)
-pkg_check_modules(ZSTD QUIET libzstd)
+pkg_check_modules(ZSTD QUIET IMPORTED_TARGET libzstd)
 if(ZSTD_FOUND)
     add_compile_definitions(ZALOS_HAVE_SYSTEM_ZSTD)
+    set(ZALOS_ZSTD_TARGET PkgConfig::ZSTD)
+else()
+    set(ZALOS_ZSTD_TARGET "")
 endif()
 
 # OpenH264 headers only: libopenh264 is dlopen()ed from the user's system at run time and never linked or
@@ -224,7 +227,6 @@ target_include_directories(zalos PRIVATE
     src
     src/core
     ${LZMA_INCLUDE_DIRS}
-    ${ZSTD_INCLUDE_DIRS}
 )
 target_compile_definitions(zalos PRIVATE ZALOS_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
     ZALOS_APP_VERSION="${PROJECT_VERSION}")
@@ -259,7 +261,7 @@ target_link_libraries(zalos PRIVATE
     ZLIB::ZLIB
     SQLite::SQLite3
     ${LZMA_LIBRARIES}
-    ${ZSTD_LIBRARIES}
+    ${ZALOS_ZSTD_TARGET}
     ${CMAKE_DL_LIBS}
 )
 
@@ -311,7 +313,7 @@ if(BUILD_TESTING)
         OpenSSL::Crypto
         SQLite::SQLite3
         ${LZMA_LIBRARIES}
-    ${ZSTD_LIBRARIES}
+        ${ZALOS_ZSTD_TARGET}
         ${CMAKE_DL_LIBS}
     )
     add_test(NAME test_crypto COMMAND test_crypto)
@@ -361,12 +363,12 @@ if(BUILD_TESTING)
         src/core/sync/v2/sync_v2_frames.cpp
     )
     target_compile_definitions(test_sync_v2 PRIVATE ZALOS_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
-    target_include_directories(test_sync_v2 PRIVATE src src/core ${ZSTD_INCLUDE_DIRS})
+    target_include_directories(test_sync_v2 PRIVATE src src/core)
     target_link_libraries(test_sync_v2 PRIVATE
         Qt6::Core
         Qt6::Test
         OpenSSL::Crypto
-        ${ZSTD_LIBRARIES}
+        ${ZALOS_ZSTD_TARGET}
     )
     add_test(NAME test_sync_v2 COMMAND test_sync_v2)
 
@@ -437,7 +439,7 @@ if(BUILD_TESTING)
         ZLIB::ZLIB
         SQLite::SQLite3
         ${LZMA_LIBRARIES}
-    ${ZSTD_LIBRARIES}
+        ${ZALOS_ZSTD_TARGET}
         ${CMAKE_DL_LIBS}
     )
 
