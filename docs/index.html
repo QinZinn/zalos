@@ -1604,9 +1604,9 @@
           <span class="section-eyebrow" data-en="Package distribution">Phân phối gói</span>
           <h2 class="section-title" data-en="Download &amp; install">Tải về &amp; Cài đặt</h2>
           <p class="section-desc"
-            data-en="Every release ships ready-to-install packages for both <code>x86_64</code> and <code>aarch64</code> (ARM64), automatically tested on clean environments in CI.">
+            data-en="Every release ships ready-to-install packages for <code>x86_64</code> and <code>aarch64</code> (ARM64), plus <code>armhf</code> and <code>riscv64</code> on Snap, automatically tested on clean environments in CI.">
             Mỗi bản phát hành cung cấp sẵn gói cài đặt cho cả hai kiến trúc <code>x86_64</code> và <code>aarch64</code>
-            (ARM64), được kiểm thử tự động trên môi trường sạch.
+            (ARM64), cùng <code>armhf</code> và <code>riscv64</code> trên Snap, được kiểm thử tự động trên môi trường sạch.
           </p>
         </div>
 
@@ -1718,8 +1718,8 @@ sudo apt install "./zalos_1.2.7-1~ubuntu24.04_${ARCH}.deb"</code></pre>
 
             <!-- Panel: Snap -->
             <div id="panel-snap" role="tabpanel" aria-labelledby="tab-snap" class="tab-panel" hidden>
-              <p data-en="Install from the <strong>Snap Store</strong> on Ubuntu and any distro with <code>snapd</code> (automatically detects architecture and updates in the background):">
-                Cài đặt từ <strong>Snap Store</strong> trên Ubuntu và các bản phân phối có <code>snapd</code> (tự động nhận kiến trúc và cập nhật nền):
+              <p data-en="Install from the <strong><a href=&quot;https://snapcraft.io/zalos&quot; target=&quot;_blank&quot; rel=&quot;noopener&quot;>Snap Store</a></strong> on Ubuntu and any distro with <code>snapd</code> — supports <code>amd64</code>, <code>arm64</code>, <code>armhf</code>, and <code>riscv64</code> (automatically detects architecture and updates in the background):">
+                Cài đặt từ <strong><a href="https://snapcraft.io/zalos" target="_blank" rel="noopener">Snap Store</a></strong> trên Ubuntu và các bản phân phối có <code>snapd</code> — hỗ trợ <code>amd64</code>, <code>arm64</code>, <code>armhf</code> và <code>riscv64</code> (tự động nhận kiến trúc và cập nhật nền):
               </p>
               <div class="code-block-wrap">
                 <button type="button" class="copy-btn" data-copy-target="code-snap">Sao chép</button>
@@ -1729,8 +1729,8 @@ sudo apt install "./zalos_1.2.7-1~ubuntu24.04_${ARCH}.deb"</code></pre>
                 <li data-en="<strong>Voice calls:</strong> Ready to use right after installing (audio libraries are bundled inside the Snap).">
                   <strong>Gọi thoại:</strong> Dùng được luôn sau khi cài (đã đóng gói sẵn thư viện âm thanh).
                 </li>
-                <li data-en="<strong>Mic &amp; camera permissions:</strong> Allow access in Ubuntu Settings if prompted (or check <code class=&quot;inline-code&quot;>snap connections zalos</code>).">
-                  <strong>Quyền micro &amp; camera:</strong> Nếu hệ thống hỏi, hãy bấm cho phép trong Cài đặt Ubuntu (hoặc kiểm tra bằng <code class="inline-code">snap connections zalos</code>).
+                <li data-en="<strong>Mic &amp; camera permissions:</strong> Allow access in Ubuntu Settings or run <code class=&quot;inline-code&quot;>sudo snap connect zalos:camera &amp;&amp; sudo snap connect zalos:audio-record</code> (check with <code class=&quot;inline-code&quot;>snap connections zalos</code>).">
+                  <strong>Quyền micro &amp; camera:</strong> Bấm cho phép trong Cài đặt Ubuntu hoặc chạy <code class="inline-code">sudo snap connect zalos:camera &amp;&amp; sudo snap connect zalos:audio-record</code> (kiểm tra bằng <code class="inline-code">snap connections zalos</code>).
                 </li>
               </ul>
             </div>

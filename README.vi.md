@@ -10,7 +10,7 @@
 [![GitHub Stars](https://img.shields.io/github/stars/cpfriend1721994/zalos?style=flat&color=yellow)](https://github.com/cpfriend1721994/zalos/stargazers)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Wayland%20%7C%20X11-purple.svg)](#-tính-năng)
-[![Architecture](https://img.shields.io/badge/Arch-x86__64%20%7C%20aarch64-teal.svg)](#-cài-đặt)
+[![Architecture](https://img.shields.io/badge/Arch-x86__64%20%7C%20aarch64%20%7C%20armhf%20%7C%20riscv64-teal.svg)](#-cài-đặt)
 [![Packaging](https://img.shields.io/badge/Packaging-deb%20%7C%20RPM%20%7C%20AppImage%20%7C%20Nix-orange.svg)](#-cài-đặt)
 [![zalos](https://snapcraft.io/zalos/badge.svg)](https://snapcraft.io/zalos)
 
@@ -78,7 +78,7 @@ và được kiểm tra cài đặt trên cả bản cũ nhất lẫn mới nh�
 | [**Kho DNF**](#fedora--kho-dnf-khuyên-dùng) *(khuyên dùng)* | Fedora 43+ | `x86_64` / `aarch64` | ✅ `dnf upgrade` | ✅ Dùng luôn | ➕ `openh264` |
 | [File `.deb` lẻ](#ubuntu-2404-file-deb-lẻ) | Ubuntu 24.04+, Debian & phái sinh | `amd64` / `arm64` | 🔄 Báo trong app | ✅ Dùng luôn | ➕ `libopenh264-7` |
 | [File `.rpm` lẻ](#fedora-43-file-rpm-lẻ) | Fedora 43+ | `x86_64` / `aarch64` | 🔄 Báo trong app | ✅ Dùng luôn | ➕ `openh264` |
-| [**Snap**](#snap) | Ubuntu & distro có `snapd` | `amd64` / `arm64` | ✅ Snap Store | ✅ Dùng luôn | ⚠️ Cấp quyền mic/cam |
+| [**Snap**](#snap) | Ubuntu & distro có `snapd` | `amd64` / `arm64` / `armhf` / `riscv64` | ✅ Snap Store | ✅ Dùng luôn | ⚠️ Cấp quyền mic/cam |
 | [**Flatpak (Testing)**](#flatpak-testing) | Mọi distro có Flatpak | `x86_64` / `aarch64` | ✅ Flatpak | ✅ Dùng luôn | ✅ Đóng gói sẵn (`OpenH264`) |
 | [**Nix Flake**](#nixos--nix) | NixOS / Nix | `x86_64` / `aarch64` | 🔄 `nix profile upgrade` | ✅ Dùng luôn | ✅ Đóng gói sẵn |
 | [**AppImage**](#appimage-di-động-glibc--235) | Ubuntu 22.04+, Debian 12+, Arch, openSUSE (`glibc ≥ 2.35`) | `x86_64` / `aarch64` | ✅ `zsync` / trong app | ✅ Dùng luôn *(desktop)* | ➕ `libopenh264-7` / `openh264` |
@@ -109,8 +109,12 @@ sudo dnf install "https://github.com/cpfriend1721994/zalos/releases/latest/downl
 ```
 
 ### Snap
+Hỗ trợ các kiến trúc `amd64`, `arm64`, `armhf` và `riscv64` ([Snap Store](https://snapcraft.io/zalos)):
 ```bash
 sudo snap install zalos
+# Cấp quyền camera & micro cho cuộc gọi nếu chưa tự kết nối:
+sudo snap connect zalos:camera
+sudo snap connect zalos:audio-record
 ```
 
 ### Flatpak (Testing)

@@ -5,6 +5,12 @@ summary: Lightweight native Qt6 desktop client for Zalo on Linux
 grade: stable
 confinement: strict
 
+platforms:
+  amd64:
+  arm64:
+  armhf:
+  riscv64:
+
 apps:
   zalos:
     command: usr/bin/zalos

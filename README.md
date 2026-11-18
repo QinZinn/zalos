@@ -10,7 +10,7 @@
 [![GitHub Stars](https://img.shields.io/github/stars/cpfriend1721994/zalos?style=flat&color=yellow)](https://github.com/cpfriend1721994/zalos/stargazers)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Wayland%20%7C%20X11-purple.svg)](#-features)
-[![Architecture](https://img.shields.io/badge/Arch-x86__64%20%7C%20aarch64-teal.svg)](#-installation)
+[![Architecture](https://img.shields.io/badge/Arch-x86__64%20%7C%20aarch64%20%7C%20armhf%20%7C%20riscv64-teal.svg)](#-installation)
 [![Packaging](https://img.shields.io/badge/Packaging-deb%20%7C%20RPM%20%7C%20AppImage%20%7C%20Nix-orange.svg)](#-installation)
 [![zalos](https://snapcraft.io/zalos/badge.svg)](https://snapcraft.io/zalos)
 
@@ -78,7 +78,7 @@ installed on the oldest and newest one in CI.
 | [**DNF Repository**](#fedora--dnf-repository-recommended) *(recommended)* | Fedora 43+ | `x86_64` / `aarch64` | ✅ `dnf upgrade` | ✅ Ready | ➕ `openh264` |
 | [`.deb` (single file)](#ubuntu-2404-deb-single-file) | Ubuntu 24.04+, Debian/derivatives | `amd64` / `arm64` | 🔄 In-app prompt | ✅ Ready | ➕ `libopenh264-7` |
 | [`.rpm` (single file)](#fedora-43-rpm-single-file) | Fedora 43+ | `x86_64` / `aarch64` | 🔄 In-app prompt | ✅ Ready | ➕ `openh264` |
-| [**Snap**](#snap) | Ubuntu & distros with `snapd` | `amd64` / `arm64` | ✅ Snap Store | ✅ Ready | ⚠️ Needs OpenH264 / permissions |
+| [**Snap**](#snap) | Ubuntu & distros with `snapd` | `amd64` / `arm64` / `armhf` / `riscv64` | ✅ Snap Store | ✅ Ready | ⚠️ Needs OpenH264 / permissions |
 | [**Flatpak (Testing)**](#flatpak-testing) | Any distro with Flatpak | `x86_64` / `aarch64` | ✅ Flatpak | ✅ Ready | ✅ Bundled (`OpenH264`) |
 | [**Nix Flake**](#nixos--nix) | NixOS / Nix | `x86_64` / `aarch64` | 🔄 `nix profile upgrade` | ✅ Ready | ✅ Bundled |
 | [**AppImage**](#appimage-portable-glibc--235) | Ubuntu 22.04+, Debian 12+, Arch, openSUSE (`glibc ≥ 2.35`) | `x86_64` / `aarch64` | ✅ `zsync` / in-app | ✅ Ready *(desktop)* | ➕ `libopenh264-7` / `openh264` |
@@ -109,8 +109,12 @@ sudo dnf install "https://github.com/cpfriend1721994/zalos/releases/latest/downl
 ```
 
 ### Snap
+Available on `amd64`, `arm64`, `armhf`, and `riscv64` ([Snap Store](https://snapcraft.io/zalos)):
 ```bash
 sudo snap install zalos
+# Allow mic & camera permissions for calls if not auto-connected:
+sudo snap connect zalos:camera
+sudo snap connect zalos:audio-record
 ```
 
 ### Flatpak (Testing)
