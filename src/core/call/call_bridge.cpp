@@ -77,6 +77,7 @@ void CallBridge::startVideoPipeline() {
     m_videoThread = new QThread(this);
     m_videoThread->setObjectName(QStringLiteral("zalos-video"));
     m_videoDecoder = new PeerVideoDecoder;
+    m_videoDecoder->setPendingCounter(&m_pendingVideoFrames);
     m_videoDecoder->moveToThread(m_videoThread);
     connect(this, &CallBridge::videoFrameReceived, m_videoDecoder, &PeerVideoDecoder::decode, Qt::QueuedConnection);
     connect(this, &CallBridge::peerVideoResetRequested, m_videoDecoder, &PeerVideoDecoder::reset, Qt::QueuedConnection);
@@ -169,7 +170,8 @@ QByteArray CallBridge::encodeFrame(const QJsonObject& frame, const QByteArray& k
     if (hex.size() <= kMaxHexPerFrame) return hex + '$';
     QByteArray out;
     const int total = int((hex.size() + kMaxHexPerFrame - 1) / kMaxHexPerFrame);
-    const QByteArray id = QByteArray::number(QDateTime::currentMSecsSinceEpoch());
+    static std::atomic<quint64> nextChunkId{0};
+    const QByteArray id = QByteArray::number(++nextChunkId);
     for (int i = 0; i < total; ++i) {
         out += hex.mid(qint64(i) * kMaxHexPerFrame, kMaxHexPerFrame) + '#' + id + '#' + QByteArray::number(total) + '#'
                + QByteArray::number(i) + "#$";
@@ -192,9 +194,13 @@ QList<QJsonObject> CallBridge::decodeFrames(QByteArray& buffer, const QByteArray
             const QString id = QString::fromLatin1(f.at(1));
             const int total = f.at(2).toInt();
             const int index = f.at(3).toInt();
+            if (total <= 0 || total > 4096 || index < 0 || index >= total) continue;
+            if (!chunks->contains(id) && chunks->size() >= 64) {
+                const auto keys = chunks->keys();
+                chunks->remove(keys.first());
+            }
             QStringList& parts = (*chunks)[id];
             if (parts.size() < total) parts.resize(total);
-            if (index < 0 || index >= total) continue;
             parts[index] = QString::fromLatin1(f.at(0));
             if (parts.contains(QString())) continue;
             hex = parts.join(QString()).toLatin1();
@@ -240,13 +246,21 @@ bool CallBridge::ensureEngine() {
         return false;
     }
 
-    auto acceptOn = [this](QTcpServer* server, int role) {
-        connect(server, &QTcpServer::newConnection, this, [this, server, role]() {
+    const quint64 gen = ++m_engineGen;
+    const QPointer<CallBridge> self(this);
+    auto acceptOn = [this, self, gen](QTcpServer* server, int role) {
+        connect(server, &QTcpServer::newConnection, this, [this, self, gen, server, role]() {
+            if (!self || gen != m_engineGen) return;
             while (QTcpSocket* sock = server->nextPendingConnection()) {
                 auto* pending = new QByteArray;
-                connect(sock, &QTcpSocket::readyRead, this, [this, sock, pending, role]() {
+                connect(sock, &QTcpSocket::readyRead, this, [this, self, gen, sock, pending, role]() {
+                    if (!self || gen != m_engineGen) return;
                     if (!sock->property("authed").toBool()) {
                         pending->append(sock->readAll());
+                        if (pending->size() > 4096) {
+                            sock->abort();
+                            return;
+                        }
                         const int nl = pending->indexOf('\n');
                         if (nl < 0) return;
                         const QByteArray tok = pending->left(nl);
@@ -275,7 +289,10 @@ bool CallBridge::ensureEngine() {
                         sock->readAll();
                     }
                     if (role == 0) {
-                        for (const QJsonObject& f : decodeFrames(m_recvBuffer, m_key, &m_chunks)) onEngineFrame(f);
+                        for (const QJsonObject& f : decodeFrames(m_recvBuffer, m_key, &m_chunks)) {
+                            if (!self || gen != m_engineGen) return;
+                            onEngineFrame(f);
+                        }
                     } else if (role == 2) {
                         drainUiBuffer();
                     }
@@ -296,7 +313,9 @@ bool CallBridge::ensureEngine() {
 
     m_process = new QProcess(this);
     m_process->setProcessChannelMode(QProcess::ForwardedErrorChannel);
-    connect(m_process, &QProcess::finished, this, [this]() {
+    QProcess* proc = m_process;
+    connect(m_process, &QProcess::finished, this, [this, self, gen, proc]() {
+        if (!self || gen != m_engineGen || proc != m_process) return;
         const bool wasInCall = !m_activePeer.isEmpty();
         const bool showing = !phase().isEmpty() && phase() != QLatin1String("ended");
         shutdown();
@@ -306,8 +325,8 @@ bool CallBridge::ensureEngine() {
             emit stateChanged();
         }
     });
-    connect(m_process, &QProcess::errorOccurred, this, [this](QProcess::ProcessError error) {
-        if (error != QProcess::FailedToStart) return;
+    connect(m_process, &QProcess::errorOccurred, this, [this, self, gen, proc](QProcess::ProcessError error) {
+        if (error != QProcess::FailedToStart || !self || gen != m_engineGen || proc != m_process) return;
         shutdown();
         m_ui = QJsonObject{{"phase", "ended"}, {"name", peerName()}, {"avatar", peerAvatar()}, {"statusCode", "disconnected"}};
         emit stateChanged();
@@ -325,7 +344,9 @@ bool CallBridge::ensureEngine() {
 }
 
 void CallBridge::shutdown() {
+    ++m_engineGen;
     if (m_idleShutdownTimer) m_idleShutdownTimer->stop();
+    if (m_peerVideoIdle) m_peerVideoIdle->stop();
     if (m_process) {
         QProcess* p = m_process;
         m_process = nullptr;
@@ -336,6 +357,14 @@ void CallBridge::shutdown() {
         }
         p->deleteLater();
     }
+    for (QPointer<QTcpSocket>* sock : {&m_recvSocket, &m_sendSocket, &m_uiSocket}) {
+        if (*sock) {
+            (*sock)->disconnect(this);
+            (*sock)->abort();
+            (*sock)->deleteLater();
+            *sock = nullptr;
+        }
+    }
     for (QTcpServer** s : {&m_recvServer, &m_sendServer, &m_uiServer}) {
         if (*s) {
             (*s)->close();
@@ -345,13 +374,25 @@ void CallBridge::shutdown() {
     }
     m_engineReady = false;
     m_pending.clear();
+    m_recvBuffer.clear();
+    m_uiBuffer.clear();
+    m_chunks.clear();
     m_activePeer.clear();
     m_isVideoMode = false;
     m_isGroupMode = false;
     if (m_cameraSender) m_cameraSender->stop();
     m_cameraOn = false;
+    m_prevCameraOn = false;
+    m_screenShareOn = false;
     m_cameraOffAnnounced = false;
     m_uiSkipBytes = 0;
+    if (m_peerSink) m_peerSink->setVideoFrame(QVideoFrame());
+    m_pendingVideoFrames.store(0, std::memory_order_relaxed);
+    if (m_peerVideoActive) {
+        m_peerVideoActive = false;
+        emit peerVideoChanged();
+    }
+    emit peerVideoResetRequested();
 }
 
 void CallBridge::sendToEngine(const QJsonObject& frame) {
@@ -503,19 +544,17 @@ void CallBridge::onSendSignal(int command, const QJsonObject& d) {
                       {"session", d.value("session")}};
             break;
         case 12437:
-            path = "/api/voicecall/group/cancel";
-            params = {{"calleeId", d.value("calleeId")}, {"callId", d.value("callId")},
-                      {"callType", d.value("callType")}, {"hostCall", d.value("hostCall")},
-                      {"data", d.value("data")}, {"partners", d.value("partners")},
-                      {"groupId", d.value("groupId")}};
+        case 12438: {
+            auto putPresent = [&](const char* key) {
+                const QJsonValue v = d.value(QLatin1String(key));
+                if (!v.isUndefined()) params.insert(QLatin1String(key), v);
+            };
+            path = command == 12437 ? "/api/voicecall/group/cancel" : "/api/voicecall/group/endcall";
+            for (const char* key : {"calleeId", "callId", "callType", "hostCall", "data", "partners", "groupId"}) {
+                putPresent(key);
+            }
             break;
-        case 12438:
-            path = "/api/voicecall/group/endcall";
-            params = {{"calleeId", d.value("calleeId")}, {"callId", d.value("callId")},
-                      {"callType", d.value("callType")}, {"hostCall", d.value("hostCall")},
-                      {"data", d.value("data")}, {"partners", d.value("partners")},
-                      {"groupId", d.value("groupId")}};
-            break;
+        }
         case 12439:
             path = "/api/voicecall/group/ringring";
             params = {{"calleeId", d.value("calleeId")}, {"callId", d.value("callId")},
@@ -570,8 +609,11 @@ void CallBridge::onSendSignal(int command, const QJsonObject& d) {
     }
 
     const QJsonValue callId = d.value("callId");
+    const QPointer<CallBridge> self(this);
+    const quint64 gen = m_engineGen;
     m_session->apiGet("voice_call", path, params,
-        [this, command, callId](bool ok, const QJsonValue& data, const QString& error, int code) {
+        [this, self, gen, command, callId](bool ok, const QJsonValue& data, const QString& error, int code) {
+            if (!self || gen != m_engineGen) return;
             if (ok) {
                 sendToEngine({{"type", "recvSignal"}, {"command", command}, {"data", data}});
             } else if (command == 401 || command == 12433) {
@@ -677,8 +719,14 @@ CameraSender* CallBridge::cameraSender() {
         m_cameraSender->setPreferredCameraId(m_selectedCameraId);
         connect(m_cameraSender, &CameraSender::frameEncoded, this, [this](bool key, const QByteArray& au, int w, int h) {
             if (phase() != QLatin1String("connected") || (!m_cameraOn && !m_screenShareOn)) return;
-            sendUi({{"action", "videoFrame"}, {"key", key}, {"data", QString::fromLatin1(au.toBase64())},
-                    {"screen", m_screenShareOn}, {"w", w}, {"h", h}});
+            if (!m_uiSocket || m_uiSocket->state() != QAbstractSocket::ConnectedState) return;
+            if (au.isEmpty() || au.size() > 4 * 1024 * 1024) return;
+            const QJsonObject head{{"action", "videoFrame"}, {"key", key}, {"screen", m_screenShareOn},
+                                   {"w", w}, {"h", h}, {"bin", au.size()}};
+            QByteArray pkt = QJsonDocument(head).toJson(QJsonDocument::Compact);
+            pkt.append('\n');
+            pkt.append(au);
+            m_uiSocket->write(pkt);
         });
         connect(m_cameraSender, &CameraSender::failed, this, [this](const QString& reason) {
             m_cameraError = reason;
@@ -796,7 +844,11 @@ void CallBridge::drainUiBuffer() {
             m_uiBuffer.remove(0, m_uiSkipBytes);
             m_uiSkipBytes = 0;
             if (m_lastVideoSrc == 0) {
+                if (!m_lastVideoKey && m_pendingVideoFrames.load(std::memory_order_relaxed) >= 4) {
+                    continue;
+                }
                 startVideoPipeline();
+                if (m_videoDecoder) m_pendingVideoFrames.fetch_add(1, std::memory_order_relaxed);
                 emit videoFrameReceived(m_lastVideoKey, m_lastVideoCodec, payload, m_lastVideoSrc);
             }
         }
@@ -818,7 +870,9 @@ void CallBridge::drainUiBuffer() {
 }
 
 void CallBridge::sendUi(const QJsonObject& action) {
-    if (m_uiSocket) m_uiSocket->write(QJsonDocument(action).toJson(QJsonDocument::Compact) + '\n');
+    if (!m_uiSocket || m_uiSocket->state() != QAbstractSocket::ConnectedState) return;
+    m_uiSocket->write(QJsonDocument(action).toJson(QJsonDocument::Compact) + '\n');
+    m_uiSocket->flush();
 }
 
 void CallBridge::onUiLine(const QByteArray& line) {
@@ -892,6 +946,7 @@ void CallBridge::onUiLine(const QByteArray& line) {
 void CallBridge::resetUi() {
     emit peerVideoResetRequested();
     if (m_peerSink) m_peerSink->setVideoFrame(QVideoFrame());
+    m_pendingVideoFrames.store(0, std::memory_order_relaxed);
     if (m_peerVideoIdle) m_peerVideoIdle->stop();
     if (m_peerVideoActive) {
         m_peerVideoActive = false;
@@ -996,11 +1051,25 @@ void CallBridge::accept(bool camStartOff) {
 void CallBridge::reject() { sendUi({{"action", "reject"}}); }
 
 void CallBridge::hangup() {
-    if (phase() == "ended" || !m_uiSocket) {
+    if (phase() == QLatin1String("ended")) {
         resetUi();
         return;
     }
-    sendUi({{"action", "hangup"}});
+    if (m_uiSocket && m_uiSocket->state() == QAbstractSocket::ConnectedState) {
+        sendUi({{"action", "hangup"}});
+        return;
+    }
+    if (m_process && m_engineReady && m_sendSocket && m_sendSocket->state() == QAbstractSocket::ConnectedState) {
+        sendToEngine({{"type", "request"}, {"command", "endCall"}, {"data", QJsonObject()}});
+        m_sendSocket->flush();
+        m_ui = QJsonObject{{"phase", "ended"}, {"name", peerName()}, {"avatar", peerAvatar()}, {"group", isGroup()},
+                           {"statusCode", "ended"}};
+        emit stateChanged();
+        if (m_idleShutdownTimer) m_idleShutdownTimer->start();
+        return;
+    }
+    if (m_process) shutdown();
+    resetUi();
 }
 
 void CallBridge::setMuted(bool muted) {

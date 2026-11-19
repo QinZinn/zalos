@@ -2,7 +2,7 @@
 
 <div align="center">
 
-**Ứng dụng Zalo native cho Linux — hiệu năng cao & siêu nhẹ**
+**Ứng dụng Zalo Desktop native cho Linux — thuần Qt 6, hiệu năng cao & siêu nhẹ**
 
 [![CI/CD Pipeline](https://github.com/cpfriend1721994/zalos/actions/workflows/ci.yml/badge.svg)](https://github.com/cpfriend1721994/zalos/actions/workflows/ci.yml)
 [![Latest Release](https://img.shields.io/github/v/release/cpfriend1721994/zalos?color=blue)](https://github.com/cpfriend1721994/zalos/releases/latest)
@@ -22,9 +22,7 @@
 
 ## 📖 Giới thiệu
 
-**Zalos** là ứng dụng Zalo native mã nguồn mở dành riêng cho Linux, kết hợp giữa **hiệu năng cao** (high performance)
-và **dung lượng siêu nhẹ** (ultra-lightweight). Được phát triển hoàn toàn bằng C++17 và Qt 6 QML, Zalos loại bỏ
-hoàn toàn bộ khung Electron/Chromium cồng kềnh:
+**Zalos** là ứng dụng mã nguồn mở dành cho Zalo trên Linux, được xây dựng bằng C++17 và Qt 6 QML, kết hợp giữa **hiệu năng cao** (high performance) và **dung lượng siêu nhẹ** (ultra-lightweight):
 
 - **Siêu nhẹ (Ultra-lightweight):** Gói `.deb`/`.rpm` chỉ **~6 MB** (hoặc AppImage tự chứa **~22 MB** kèm Qt 6.4 fallback) và mức tiêu thụ RAM tối giản chỉ **~40–65 MB** (tiết kiệm hơn 90% bộ nhớ so với mức 450–1.800+ MB của bản Electron).
 - **Hiệu năng cao (High performance):** Khởi động tức thì dưới 0,5 giây, giao diện tăng tốc phần cứng 60 FPS mượt mà, giải mã mã hóa đa luồng C++ siêu tốc và phản hồi nhạy bén ngay cả trên máy cấu hình yếu.
@@ -48,7 +46,7 @@ hoàn toàn bộ khung Electron/Chromium cồng kềnh:
 - **Wayland & X11** — chạy trên cả hai, nút điều khiển cửa sổ chuẩn trên GNOME và KDE, kèm tùy chọn bật/tắt tăng tốc phần cứng (GPU) trong Cài đặt.
 - **Tự đổi giao diện sáng/tối** — bám theo màu hệ thống theo thời gian thực.
 - **Nhắn tin** — chat đơn và nhóm, Sticker & ảnh GIF động, emoji, 54 cảm xúc Zalo, định dạng chữ (kèm thụt lề), trả lời, chuyển tiếp,
-  bình chọn, thẻ ngân hàng, ghim tin nhắn, nhãn hội thoại, bộ lọc phân loại hội thoại (Tất cả / Nhóm / Cá nhân), và tìm kiếm toàn bộ lịch sử.
+  bình chọn, thẻ ngân hàng, ghim tin nhắn, nhãn hội thoại, bộ lọc phân loại hội thoại (Tất cả / Nhóm / Cá nhân / Bạn bè / Người lạ), và tìm kiếm toàn bộ lịch sử.
 - **Đồng bộ lịch sử điện thoại thông minh** — tự nhận diện khi nhóm chưa có tin nhắn sau đăng nhập để gợi ý đồng bộ mã hóa từ điện thoại.
 - **Gọi thoại và gọi video** — gọi thoại/video 1-1 với mã hóa OpenH264, chia sẻ màn hình (X11 & Wayland), thu nhỏ nổi PiP để vừa gọi vừa chat, và chọn Micro/Loa/Camera + âm lượng Micro ngay trong cuộc gọi; gọi nhóm đang ở giai đoạn thử nghiệm.
 - **My Documents** — luồng lưu trữ cá nhân với bộ lọc nhanh ảnh, video, tệp và liên kết.
@@ -60,7 +58,7 @@ hoàn toàn bộ khung Electron/Chromium cồng kềnh:
 - **Cập nhật tiện lợi theo bản cài** — kiểm tra phát hành từ GitHub kèm đối chiếu SHA-256 (tự cập nhật AppImage + `gh-releases-zsync`, cài qua `pkexec`/trình cài hệ thống cho `.deb`/`.rpm`).
 - **Giao diện song ngữ** — chuyển đổi tức thì giữa Tiếng Việt và Tiếng Anh.
 
-> **Miễn trừ trách nhiệm:** Zalos là một dự án mã nguồn mở độc lập, **không** liên kết, không được chứng thực hay
+> **Miễn trừ trách nhiệm:** Zalos là một dự án cộng đồng mã nguồn mở, **không** liên kết, không được chứng thực hay
 > tài trợ bởi Công ty VNG hoặc Zalo. Mọi thương hiệu và logo thuộc về chủ sở hữu tương ứng.
 
 ---
@@ -99,13 +97,13 @@ sudo dnf install -y zalos
 ### Ubuntu 24.04+ (file `.deb` lẻ)
 ```bash
 ARCH=$(dpkg --print-architecture)
-wget "https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.2.7-1~ubuntu24.04_${ARCH}.deb"
-sudo apt install "./zalos_1.2.7-1~ubuntu24.04_${ARCH}.deb"
+wget "https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.2.8-1~ubuntu24.04_${ARCH}.deb"
+sudo apt install "./zalos_1.2.8-1~ubuntu24.04_${ARCH}.deb"
 ```
 
 ### Fedora 43+ (file `.rpm` lẻ)
 ```bash
-sudo dnf install "https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.2.7-1.fc43.$(uname -m).rpm"
+sudo dnf install "https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.2.8-1.fc43.$(uname -m).rpm"
 ```
 
 ### Snap
@@ -133,9 +131,9 @@ nix profile install github:cpfriend1721994/zalos
 ### AppImage (di động, glibc ≥ 2.35)
 ```bash
 ARCH=$(uname -m)
-wget "https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.2.7-${ARCH}.AppImage"
-chmod +x "Zalos-1.2.7-${ARCH}.AppImage"
-"./Zalos-1.2.7-${ARCH}.AppImage"
+wget "https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.2.8-${ARCH}.AppImage"
+chmod +x "Zalos-1.2.8-${ARCH}.AppImage"
+"./Zalos-1.2.8-${ARCH}.AppImage"
 ```
 AppImage (~22 MB) ưu tiên dùng Qt 6 sẵn có trên máy và tự chuyển sang runtime Qt 6.4 nhúng sẵn khi hệ thống chưa cài Qt 6 (chỉ cần các thư viện desktop cơ bản và `glibc ≥ 2.35` như Ubuntu 22.04+, Debian 12+, Fedora, openSUSE, Arch).
 
@@ -144,8 +142,8 @@ Dự án không phát hành gói dựng sẵn cho Arch Linux. Bạn có thể d�
 [Build từ mã nguồn](#️-build-từ-mã-nguồn).
 
 ### Tuỳ chọn: cuộc gọi
-Gọi thoại và video chạy trên engine gọi C++ của chính Zalos (`zalos-call` và `zalos-call-audio`, nằm trong `libexec/zalos`),
-theo giao thức gọi của [zalo-for-linux](https://github.com/VN-Linux-Family/zalo-for-linux) (BSD-3-Clause).
+Gọi thoại và video chạy trên engine gọi C++ của chính Zalos (`zalos-call` và `zalos-call-audio`, nằm trong `libexec/zalos`;
+xem `engines/zcall-cpp/LICENSE` cho thông báo giấy phép BSD-3-Clause).
 Zalos không phụ thuộc Python hay Node.js:
 
 - **Gọi thoại hoạt động ngay** trên `.deb`, `.rpm`, `Nix` và **AppImage** (AppImage đã đóng gói sẵn `libopus.so.0` dự phòng và kết nối trực tiếp tới PulseAudio / PipeWire qua `libpulse-simple.so.0`, thư viện vốn có sẵn trên hầu hết các bản Linux desktop; chỉ các hệ thống tối giản chưa cài PulseAudio/PipeWire client mới cần thêm `libpulse0` trên Ubuntu/Debian hoặc `pulseaudio-libs` trên Fedora).
@@ -171,7 +169,7 @@ docker compose run --rm package-rpm      # dist/*.x86_64.rpm
 docker compose run --rm package-nix      # dist/*-nixos.tar.gz
 ```
 
-Đẩy một tag theo chuẩn semantic (`git tag v1.2.6 && git push origin v1.2.6`) sẽ build toàn bộ gói và phát hành
+Đẩy một tag theo chuẩn semantic (`git tag v1.2.8 && git push origin v1.2.8`) sẽ build toàn bộ gói và phát hành
 một GitHub Release.
 
 Xem [CONTRIBUTING.md](CONTRIBUTING.md) để biết quy trình đóng góp.

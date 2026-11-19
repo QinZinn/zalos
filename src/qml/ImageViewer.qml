@@ -3,11 +3,14 @@ import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Dialogs
 import QtQuick.Layouts
+import QtQuick.Window
 import QtMultimedia
 import Zalos
+import "MediaSource.js" as MediaSource
 
 Rectangle {
     id: root
+    objectName: "imageViewerRoot"
     color: "#EB000000"
     focus: true
 
@@ -28,9 +31,8 @@ Rectangle {
     function copyCurrentImage(): void {
         if (root.strokes.length > 0 && !root.isVideo) {
             photo.grabToImage(function(result) {
-                var tempPath = "/tmp/zalos_annotated_" + Date.now() + ".png"
-                result.saveToFile(tempPath)
-                ZaloClient.copyImage("file://" + tempPath)
+                const tempPath = ZaloClient.annotatedImageTempPath()
+                if (result.saveToFile(tempPath)) ZaloClient.copyImage("file://" + tempPath)
             })
         } else {
             ZaloClient.copyImage(root.currentUrl)
@@ -155,9 +157,9 @@ Rectangle {
             visible: !root.isVideo
             width: stage.width
             height: stage.height
-            readonly property bool animReady: !!(animPhotoLoader.item && animPhotoLoader.item.status === Image.Ready)
-            readonly property real paintedWidth: animReady ? animPhotoLoader.item.paintedWidth : stillPhoto.paintedWidth
-            readonly property real paintedHeight: animReady ? animPhotoLoader.item.paintedHeight : stillPhoto.paintedHeight
+            readonly property bool animReady: animPhoto.source.toString().length > 0 && animPhoto.status === Image.Ready
+            readonly property real paintedWidth: animReady ? animPhoto.paintedWidth : stillPhoto.paintedWidth
+            readonly property real paintedHeight: animReady ? animPhoto.paintedHeight : stillPhoto.paintedHeight
             readonly property int status: animReady ? Image.Ready : stillPhoto.status
             scale: root.zoom
             rotation: root.angle
@@ -168,7 +170,7 @@ Rectangle {
                 id: stillPhoto
                 anchors.fill: parent
                 visible: !photo.animReady
-                source: !root.isVideo ? root.currentUrl : ""
+                source: !root.isVideo ? MediaSource.toSource(root.currentUrl) : ""
                 asynchronous: true
                 cache: true
                 fillMode: Image.PreserveAspectFit
@@ -178,18 +180,15 @@ Rectangle {
                 sourceSize.height: 2048
             }
 
-            Loader {
-                id: animPhotoLoader
+            AnimatedImage {
+                id: animPhoto
                 anchors.fill: parent
-                active: !root.isVideo && root.isAnimated && root.currentUrl.length > 0
-                sourceComponent: AnimatedImage {
-                    source: root.currentUrl
-                    cache: false
-                    smooth: true
-                    fillMode: Image.PreserveAspectFit
-                    playing: status === Image.Ready && root.visible && !root.annotating
-                    visible: status === Image.Ready
-                }
+                source: (!root.isVideo && root.isAnimated && root.currentUrl.length > 0) ? root.currentUrl : ""
+                cache: false
+                smooth: true
+                fillMode: Image.PreserveAspectFit
+                playing: status === Image.Ready && root.visible && !root.annotating
+                visible: status === Image.Ready
             }
 
             MouseArea {
@@ -293,7 +292,10 @@ Rectangle {
                         onPositionChanged: function(mouse) {
                             if (!root.currentStroke) return
                             if (root.currentDrawTool === "pen") {
-                                root.currentStroke.points.push({x: mouse.x, y: mouse.y})
+                                const pts = root.currentStroke.points
+                                const last = pts[pts.length - 1]
+                                if (Math.abs(last.x - mouse.x) + Math.abs(last.y - mouse.y) < 2) return
+                                pts.push({x: mouse.x, y: mouse.y})
                             } else if (root.currentDrawTool === "rect") {
                                 root.currentStroke.x = Math.min(root.currentStroke.startX, mouse.x)
                                 root.currentStroke.y = Math.min(root.currentStroke.startY, mouse.y)
@@ -347,8 +349,8 @@ Rectangle {
 
         BusyIndicator {
             anchors.centerIn: parent
-            running: (!root.isVideo && photo.status === Image.Loading) || (root.isVideo && root.videoLoading)
-            visible: running
+            visible: (!root.isVideo && photo.status === Image.Loading) || (root.isVideo && root.videoLoading)
+            running: visible && (Window.window ? (Window.window.visible && Window.window.visibility !== Window.Minimized) : true)
         }
         ColumnLayout {
             anchors.centerIn: parent
@@ -643,7 +645,7 @@ Rectangle {
             Image {
                 anchors.fill: parent
                 anchors.margins: 2
-                source: thumbTile.modelData.thumb || thumbTile.modelData.url
+                source: MediaSource.toSource(thumbTile.modelData.thumb || thumbTile.modelData.url)
                 fillMode: Image.PreserveAspectCrop
                 asynchronous: true
                 sourceSize.width: 112
@@ -670,7 +672,7 @@ Rectangle {
         id: saveDialog
         title: root.isVideo ? I18n.t("Lưu video", "Save video") : I18n.t("Lưu ảnh", "Save picture")
         fileMode: FileDialog.SaveFile
-        currentFile: "file:///" + ZaloClient.suggestedMediaFileName(root.currentUrl)
+        currentFile: ZaloClient.suggestedMediaSaveUrl(root.currentUrl)
         nameFilters: root.isVideo
             ? [I18n.t("Video (*.mp4 *.mov *.webm *.mkv)", "Videos (*.mp4 *.mov *.webm *.mkv)"),
                I18n.t("Tất cả tệp (*)", "All files (*)")]
@@ -794,19 +796,19 @@ Rectangle {
             }
         }
 
-    Dialog {
+    ZConfirmDialog {
         id: textInputDialog
         property real targetX: 0
         property real targetY: 0
+        width: 300
         title: I18n.t("Nhập ghi chú", "Enter note")
-        anchors.centerIn: parent
-        modal: true
-        standardButtons: Dialog.Ok | Dialog.Cancel
+        okText: I18n.t("Thêm", "Add")
+        onOpened: annotationField.forceActiveFocus()
         ZTextField {
             id: annotationField
-            width: 260
+            Layout.fillWidth: true
             placeholderText: I18n.t("Nội dung ghi chú...", "Note text...")
-            focus: true
+            onAccepted: textInputDialog.accept()
         }
         onAccepted: {
             if (annotationField.text.trim().length > 0) {
@@ -814,12 +816,13 @@ Rectangle {
                     type: "text",
                     color: root.drawColor.toString(),
                     text: annotationField.text.trim(),
-                    x: targetX,
-                    y: targetY
+                    x: textInputDialog.targetX,
+                    y: textInputDialog.targetY
                 })
-                annotationField.text = ""
                 root.requestCanvasRepaint()
             }
+            annotationField.text = ""
         }
+        onRejected: annotationField.text = ""
     }
 }

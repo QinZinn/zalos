@@ -136,6 +136,8 @@ private:
     mutable QString m_ownerUid;
     mutable bool m_ownerUidLoaded{false};
     bool m_ftsAvailable{false};
+    int m_batchDepth{0};
+    void resetCachedQueries();
     void indexMessage(const QString& msgId, const Models::MessageItem& item);
 };
 

@@ -3,9 +3,11 @@
 
 #include "wire/bytes.h"
 
+#include <openssl/core_names.h>
 #include <openssl/crypto.h>
 #include <openssl/evp.h>
 #include <openssl/hmac.h>
+#include <openssl/params.h>
 
 #include <memory>
 
@@ -37,11 +39,56 @@ QByteArray kdf(const QByteArray& masterKey, const QByteArray& masterSalt, int la
     return aesCmExpand(masterKey, x, outLen);
 }
 
+struct MacDeleter {
+    void operator()(EVP_MAC* m) const { EVP_MAC_free(m); }
+};
+
+struct MacCtxDeleter {
+    void operator()(EVP_MAC_CTX* c) const { EVP_MAC_CTX_free(c); }
+};
+
+struct HmacState {
+    std::unique_ptr<EVP_MAC, MacDeleter> mac;
+    std::unique_ptr<EVP_MAC_CTX, MacCtxDeleter> ctx;
+    QByteArray lastKey;
+    bool initialized{false};
+    HmacState() {
+        mac.reset(EVP_MAC_fetch(nullptr, "HMAC", nullptr));
+        if (mac) ctx.reset(EVP_MAC_CTX_new(mac.get()));
+    }
+};
+
 QByteArray hmac10(const QByteArray& key, const char* data, int len) {
+    thread_local HmacState st;
+    if (!st.ctx) {
+        unsigned char md[EVP_MAX_MD_SIZE];
+        unsigned int mdLen = 0;
+        HMAC(EVP_sha1(), key.constData(), int(key.size()), reinterpret_cast<const unsigned char*>(data), size_t(len),
+             md, &mdLen);
+        return QByteArray(reinterpret_cast<const char*>(md), 10);
+    }
+    int initOk = 0;
+    if (!st.initialized || st.lastKey != key) {
+        char sha1[] = "SHA1";
+        const OSSL_PARAM params[] = {
+            OSSL_PARAM_construct_utf8_string(OSSL_MAC_PARAM_DIGEST, sha1, 0),
+            OSSL_PARAM_construct_end(),
+        };
+        initOk = EVP_MAC_init(st.ctx.get(), reinterpret_cast<const unsigned char*>(key.constData()),
+                              size_t(key.size()), params);
+        st.initialized = (initOk == 1);
+        st.lastKey = st.initialized ? key : QByteArray();
+    } else {
+        initOk = EVP_MAC_init(st.ctx.get(), nullptr, 0, nullptr);
+    }
     unsigned char md[EVP_MAX_MD_SIZE];
-    unsigned int mdLen = 0;
-    HMAC(EVP_sha1(), key.constData(), int(key.size()), reinterpret_cast<const unsigned char*>(data), size_t(len), md,
-         &mdLen);
+    size_t mdLen = 0;
+    if (initOk != 1 || EVP_MAC_update(st.ctx.get(), reinterpret_cast<const unsigned char*>(data), size_t(len)) != 1
+        || EVP_MAC_final(st.ctx.get(), md, &mdLen, sizeof(md)) != 1 || mdLen < 10) {
+        st.initialized = false;
+        st.lastKey.clear();
+        return QByteArray();
+    }
     return QByteArray(reinterpret_cast<const char*>(md), 10);
 }
 

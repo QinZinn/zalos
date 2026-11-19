@@ -43,8 +43,14 @@ AppLock::AppLock(QObject* parent) : QObject(parent) {
         if (retryAfterSeconds() == 0) m_retryTick.stop();
         emit retryChanged();
     });
-    if (QCoreApplication::instance()) QCoreApplication::instance()->installEventFilter(this);
     restartIdle();
+}
+
+AppLock::~AppLock() {
+    if (m_filterInstalled && QCoreApplication::instance()) {
+        QCoreApplication::instance()->removeEventFilter(this);
+        m_filterInstalled = false;
+    }
 }
 
 void AppLock::setAutoLockMinutes(int minutes) {
@@ -95,6 +101,7 @@ bool AppLock::removePasscode(const QString& current) {
         emit lockedChanged();
     }
     m_idle.stop();
+    syncEventFilter();
     emit passcodeChanged();
     return true;
 }
@@ -103,6 +110,7 @@ void AppLock::lock() {
     if (!hasPasscode() || m_locked) return;
     m_locked = true;
     m_idle.stop();
+    syncEventFilter();
     emit lockedChanged();
 }
 
@@ -127,12 +135,27 @@ bool AppLock::unlock(const QString& passcode) {
 }
 
 void AppLock::noteActivity() {
-    if (!m_locked && m_idle.isActive()) m_idle.start();
+    if (m_locked || !m_idle.isActive()) return;
+    if (m_lastActivity.isValid() && m_lastActivity.elapsed() < 1000) return;
+    m_lastActivity.restart();
+    m_idle.start();
+}
+
+void AppLock::syncEventFilter() {
+    const bool want = hasPasscode() && m_autoLockMinutes > 0 && !m_locked;
+    if (want == m_filterInstalled) return;
+    if (QCoreApplication* app = QCoreApplication::instance()) {
+        if (want) app->installEventFilter(this);
+        else app->removeEventFilter(this);
+    }
+    m_filterInstalled = want;
 }
 
 void AppLock::restartIdle() {
+    m_lastActivity.invalidate();
     if (hasPasscode() && m_autoLockMinutes > 0 && !m_locked) m_idle.start(m_autoLockMinutes * 60 * 1000);
     else m_idle.stop();
+    syncEventFilter();
 }
 
 bool AppLock::eventFilter(QObject* watched, QEvent* event) {

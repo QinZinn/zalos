@@ -57,7 +57,10 @@ void DesktopNotifications::show(const QString& key, const Request& request) {
         hints["x-kde-reply-placeholder-text"] = request.replyPlaceholder;
     }
     const uint replaces = m_ids.value(key, 0);
-    msg << QStringLiteral("Zalos") << replaces << request.icon << request.title << request.body << actionList(request)
+    const QString body = m_capabilities.contains(QStringLiteral("body-markup"))
+        ? request.body.toHtmlEscaped()
+        : request.body;
+    msg << QStringLiteral("Zalos") << replaces << request.icon << request.title << body << actionList(request)
         << hints << request.timeoutMs;
     auto* watcher = new QDBusPendingCallWatcher(bus.asyncCall(msg), this);
     connect(watcher, &QDBusPendingCallWatcher::finished, this, [this, key](QDBusPendingCallWatcher* w) {

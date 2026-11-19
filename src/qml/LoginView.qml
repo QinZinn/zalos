@@ -799,15 +799,14 @@ Rectangle {
         padding: 20
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
         onClosed: root.qrZoomOpen = false
+        onOpened: qrZoomCanvas.requestPaint()
         background: Rectangle {
             radius: 16
             color: ThemeManager.surfaceColor
             border.color: ThemeManager.borderColor
             border.width: 1
         }
-        contentItem: Loader {
-            active: root.qrZoomOpen
-            sourceComponent: ColumnLayout {
+        contentItem: ColumnLayout {
                 spacing: 12
 
                 RowLayout {
@@ -897,6 +896,5 @@ Rectangle {
                     color: ZaloClient.qrSecondsRemaining > 0 ? ThemeManager.secondaryTextColor : Theme.badgeRed
                 }
             }
-        }
     }
 }

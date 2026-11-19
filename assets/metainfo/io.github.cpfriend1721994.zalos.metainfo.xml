@@ -4,10 +4,10 @@
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>MIT</project_license>
   <name>Zalos</name>
-  <summary>High-performance, ultra-lightweight native Qt6 desktop client for Zalo on Linux</summary>
+  <summary>Ultra-lightweight native Qt6 desktop client for Zalo on Linux</summary>
   <description>
     <p>
-      Zalos is a high-performance, ultra-lightweight native Linux messaging client for Zalo built with Qt6 (C++ and QML).
+      Zalos is an open-source, ultra-lightweight native Linux messaging client for Zalo built with Qt6 (C++17 and QML).
       It delivers a tiny memory footprint (~40-65MB RAM), sub-second cold startup, hardware-accelerated 60 FPS graphics,
       native Wayland and X11 support, adaptive system theming, and local End-to-End Encryption (E2EE) database synchronization.
     </p>
@@ -39,9 +39,14 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="1.2.8" date="2026-11-19">
+      <description>
+        <p>Fixed call hangup signaling so ending accepted 1-1 or group calls cleanly terminates the remote peer, fixed group chat sidebar previews and notifications missing sender names, fixed photo clicks not opening the image viewer, and added performance, media-engine, and packaging hardening.</p>
+      </description>
+    </release>
     <release version="1.2.7" date="2026-11-18">
       <description>
-        <p>Phone history sync v2 fallback (clean-room OpenSSL 3 implementation), flexible system/runtime libzstd support, Qt 6.4 QML compatibility fixes, and thread-safe avatar loading.</p>
+        <p>Phone history sync v2 fallback (native OpenSSL 3 implementation), flexible system/runtime libzstd support, Qt 6.4 QML compatibility fixes, and thread-safe avatar loading.</p>
       </description>
     </release>
     <release version="1.2.3" date="2026-11-15">
@@ -91,7 +96,7 @@
     </release>
     <release version="1.0.5" date="2026-11-06">
       <description>
-        <p>Memory optimizations inspired by Telegram Desktop, complete mobile history sync with 64-bit znoise resolution, in-app video playback, avatar/background viewer, and ARM64 Nix build fixes.</p>
+        <p>Idle memory trimming and cache optimizations, complete mobile history sync with 64-bit znoise resolution, in-app video playback, avatar/background viewer, and ARM64 Nix build fixes.</p>
       </description>
     </release>
     <release version="1.0.4" date="2026-11-06">

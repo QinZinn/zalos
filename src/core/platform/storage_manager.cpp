@@ -1,5 +1,6 @@
 #include "storage_manager.h"
 
+#include <QCoreApplication>
 #include <QDateTime>
 #include <QDesktopServices>
 #include <QDir>
@@ -157,8 +158,11 @@ void StorageManager::pruneAsync() {
         cleanTemporaryFiles();
         qint64 freed = pruneDirectory(directory("avatars"), qint64(limitMb) * kMb, qint64(maxAgeDays) * kDayMs);
         freed += pruneDirectory(directory("voice"), -1, kDayMs);
-        if (freed > 0 && self) {
-            QMetaObject::invokeMethod(self, &StorageManager::usageChanged, Qt::QueuedConnection);
+        QObject* app = QCoreApplication::instance();
+        if (freed > 0 && app && self) {
+            QMetaObject::invokeMethod(app, [self]() {
+                if (self) emit self->usageChanged();
+            }, Qt::QueuedConnection);
         }
     });
 }
@@ -167,13 +171,20 @@ void StorageManager::cleanTemporaryFiles() {
     const QString tempDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
     if (tempDir.isEmpty()) return;
     QDir dir(tempDir);
-    const QStringList filters = {"zalos_paste_*", "zalos_fwd_*", "zalos_annotated_*", "zalos_print_*"};
+    const QStringList filters = {"zalos_paste_*", "zalos_annotated_*", "zalos_print_*"};
     const QFileInfoList list = dir.entryInfoList(filters, QDir::Files | QDir::NoSymLinks);
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
     constexpr qint64 kMaxAgeMs = 15 * 60 * 1000;
     for (const QFileInfo& fi : list) {
         if (now - fi.lastModified().toMSecsSinceEpoch() > kMaxAgeMs) {
             QFile::remove(fi.absoluteFilePath());
+        }
+    }
+    const QFileInfoList dirs = dir.entryInfoList({QStringLiteral("zalos_fwd_*")},
+                                                 QDir::Dirs | QDir::NoDotAndDotDot | QDir::NoSymLinks);
+    for (const QFileInfo& fi : dirs) {
+        if (now - fi.lastModified().toMSecsSinceEpoch() > kMaxAgeMs) {
+            QDir(fi.absoluteFilePath()).removeRecursively();
         }
     }
 }

@@ -105,6 +105,7 @@ private:
     QString m_cacheFile;
     QTimer m_saveTimer;
     quint64 m_searchSeq{0};
+    quint64 m_resetGen{0};
     QVariantList m_birthday;
     bool m_birthdayLoading{false};
 };

@@ -52,6 +52,11 @@ CRYPTO_LIB=$(ldd "${APP_DIR}/usr/bin/zalos" | awk '/libcrypto\.so\.3/ {print $3}
 if [ -n "${CRYPTO_LIB}" ]; then
     cp -L "${CRYPTO_LIB}" "${APP_DIR}/usr/lib/openssl3-fallback/"
     echo "==> Bundled $(basename "${CRYPTO_LIB}")"
+    SSL_LIB="$(dirname "${CRYPTO_LIB}")/libssl.so.3"
+    if [ -f "${SSL_LIB}" ]; then
+        cp -L "${SSL_LIB}" "${APP_DIR}/usr/lib/openssl3-fallback/"
+        echo "==> Bundled $(basename "${SSL_LIB}")"
+    fi
 fi
 
 OPUS_LIB=""
@@ -111,7 +116,7 @@ copy_plugin() {
     fi
 }
 
-for p in libqxcb.so libqoffscreen.so libqwayland-generic.so; do
+for p in libqxcb.so libqoffscreen.so libqwayland-generic.so libqwayland-egl.so; do
     copy_plugin platforms "$p"
 done
 for d in xcbglintegrations wayland-shell-integration wayland-graphics-integration-client platforminputcontexts; do
@@ -128,6 +133,10 @@ for p in libqjpeg.so libqgif.so libqwebp.so libqsvg.so libqico.so; do
     copy_plugin imageformats "$p"
 done
 copy_plugin iconengines libqsvgicon.so
+copy_plugin multimedia libgstreamermediaplugin.so
+if [ -f "${WEBP_DIR}/imageformats/libqwebp.so" ] && [ -f "${QT_FALLBACK}/plugins/imageformats/libqwebp.so" ]; then
+    ln -sfn "../../../webp-fallback/imageformats/libqwebp.so" "${QT_FALLBACK}/plugins/imageformats/libqwebp.so"
+fi
 
 # Copy minimal QML runtime (Basic style only — exclude Material/Universal/Imagine/Fusion & designer/qmltypes)
 for mod in QtCore QtQml QtMultimedia; do
@@ -164,7 +173,7 @@ is_excluded_lib() {
         libz.so*|libzstd.so*|liblzma.so*|liblz4.so*|libbz2.so*|libbrotli*.so*|libpng16.so*|libxkbcommon.so*|\
         libgssapi_krb5.so*|libkrb5*.so*|libk5crypto.so*|libcom_err.so*|libkeyutils.so*|libssl.so*|libcrypto.so*|\
         libpulse*.so*|libasound.so*|libsndfile.so*|libFLAC.so*|libvorbis*.so*|libogg.so*|libopus.so*|\
-        libmp3lame.so*|libmpg123.so*|libasyncns.so*|libpipewire-*.so*|libjack*.so*|\
+        libmp3lame.so*|libmpg123.so*|libasyncns.so*|libpipewire-*.so*|libjack*.so*|libgst*.so*|liborc-*.so*|\
         libicu*.so*|libproxy.so*|libpxbackend-*.so*|libcurl*.so*|libduktape.so*|libunistring.so*|\
         libidn2.so*|libpsl.so*|libssh.so*|librtmp.so*|libnghttp2.so*|libldap*.so*|liblber*.so*|\
         libsasl2.so*|libgnutls.so*|libnettle.so*|libhogweed.so*|libtasn1.so*|libp11-kit.so*|\
@@ -347,12 +356,17 @@ static const char *const kHostDirs[] = {
 };
 
 static void icu_init(void) {
-    char p1[256], p2[256];
+    char p0[256], p1[256], p2[256];
     for (int v = 90; v >= 58; --v) {
         for (size_t i = 0; i < sizeof(kHostDirs) / sizeof(kHostDirs[0]); ++i) {
+            snprintf(p0, sizeof(p0), "%s/libicudata.so.%d", kHostDirs[i], v);
+            void *data = dlopen(p0, RTLD_NOW | RTLD_GLOBAL);
             snprintf(p1, sizeof(p1), "%s/libicuuc.so.%d", kHostDirs[i], v);
             void *uc = dlopen(p1, RTLD_NOW | RTLD_GLOBAL);
-            if (!uc) continue;
+            if (!uc) {
+                if (data) dlclose(data);
+                continue;
+            }
             snprintf(p2, sizeof(p2), "%s/libicui18n.so.%d", kHostDirs[i], v);
             void *i18n = dlopen(p2, RTLD_NOW | RTLD_GLOBAL);
             if (i18n) {
@@ -361,13 +375,20 @@ static void icu_init(void) {
                 g_host_ver = v;
                 return;
             }
+            dlclose(uc);
+            if (data) dlclose(data);
         }
     }
     for (int v = 90; v >= 58; --v) {
         if (v == ICU_SHIM_VER) continue;
+        snprintf(p0, sizeof(p0), "libicudata.so.%d", v);
+        void *data = dlopen(p0, RTLD_NOW | RTLD_GLOBAL);
         snprintf(p1, sizeof(p1), "libicuuc.so.%d", v);
         void *uc = dlopen(p1, RTLD_NOW | RTLD_GLOBAL);
-        if (!uc) continue;
+        if (!uc) {
+            if (data) dlclose(data);
+            continue;
+        }
         snprintf(p2, sizeof(p2), "libicui18n.so.%d", v);
         void *i18n = dlopen(p2, RTLD_NOW | RTLD_GLOBAL);
         if (i18n) {
@@ -376,6 +397,8 @@ static void icu_init(void) {
             g_host_ver = v;
             return;
         }
+        dlclose(uc);
+        if (data) dlclose(data);
     }
 }
 
@@ -422,8 +445,6 @@ PY
         -Wl,-soname,"libicuuc.so.${ICU_VER}" -ldl -lpthread -o "${QT_FALLBACK}/lib/libicuuc.so.${ICU_VER}"
     gcc -O2 -shared -fPIC "${SHIM_TMP}/icui18n_shim.c" \
         -Wl,-soname,"libicui18n.so.${ICU_VER}" -ldl -lpthread -o "${QT_FALLBACK}/lib/libicui18n.so.${ICU_VER}"
-    gcc -O2 -shared -fPIC -x c - -Wl,-soname,"libicudata.so.${ICU_VER}" \
-        -o "${QT_FALLBACK}/lib/libicudata.so.${ICU_VER}" </dev/null
 fi
 
 # Lightweight libproxy.so.1 shim (avoids pulling 5+ MB of libpxbackend/curl/duktape/unistring/ldap)
@@ -762,6 +783,9 @@ for root_dir, _, files in os.walk(app_dir):
         elif p.startswith(os.path.join(usr_lib, "webp-fallback") + "/"):
             rel_webp = os.path.relpath(os.path.join(usr_lib, "webp-fallback"), root_dir)
             rpath = ("$ORIGIN" if rel_webp == "." else "$ORIGIN/" + rel_webp) + f":{rpath_usr}"
+        elif p.startswith(os.path.join(usr_lib, "openssl3-fallback") + "/"):
+            rel_ssl = os.path.relpath(os.path.join(usr_lib, "openssl3-fallback"), root_dir)
+            rpath = ("$ORIGIN" if rel_ssl == "." else "$ORIGIN/" + rel_ssl) + f":{rpath_usr}"
         else:
             rpath = rpath_usr
 

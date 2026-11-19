@@ -183,15 +183,16 @@ void StickerStore::load() {
     m_loaded = true;
     setStickers(kRecentId, recent());
     QPointer<StickerStore> self(this);
+    const quint64 gen = m_resetGen;
     busy(1);
-    s->fetchPersonalStickerList([self](bool ok, const QJsonValue& data, const QString&, int) {
-        if (!self) return;
+    s->fetchPersonalStickerList([self, gen](bool ok, const QJsonValue& data, const QString&, int) {
+        if (!self || gen != self->m_resetGen) return;
         self->busy(-1);
         if (ok) self->applyPersonal(data.toObject());
     });
     busy(1);
-    s->fetchStickerCategories([self](bool ok, const QJsonValue& data, const QString&, int) {
-        if (!self) return;
+    s->fetchStickerCategories([self, gen](bool ok, const QJsonValue& data, const QString&, int) {
+        if (!self || gen != self->m_resetGen) return;
         if (!ok) {
             self->busy(-1);
             return;
@@ -213,8 +214,8 @@ void StickerStore::load() {
             self->busy(-1);
             return;
         }
-        self->m_hooks.fetchBytes(url, [self, fallback](const QByteArray& bytes, const QString& error) {
-            if (!self) return;
+        self->m_hooks.fetchBytes(url, [self, gen, fallback](const QByteArray& bytes, const QString& error) {
+            if (!self || gen != self->m_resetGen) return;
             const QJsonArray cates = error.isEmpty() ? QJsonDocument::fromJson(bytes).array() : QJsonArray();
             self->applyCatalog(cates.isEmpty() ? fallback : cates);
             self->busy(-1);
@@ -364,31 +365,34 @@ void StickerStore::search(const QString& keyword) {
         return;
     }
     const quint64 seq = ++m_searchSeq;
+    const quint64 gen = m_resetGen;
     setStickers(m_current, {}, q);
     if (!session()) return;
     busy(1);
     QPointer<StickerStore> self(this);
-    lookup(q, kMaxSearch, [self, seq, q](const QVariantList& list) {
-        if (!self || seq != self->m_searchSeq) return;
-        self->setStickers(self->m_current, list, q);
+    lookup(q, kMaxSearch, [self, seq, gen, q](const QVariantList& list) {
+        if (!self || gen != self->m_resetGen) return;
         self->busy(-1);
+        if (seq != self->m_searchSeq) return;
+        self->setStickers(self->m_current, list, q);
     });
 }
 
 void StickerStore::loadBirthdayStickers() {
     if (!m_birthday.isEmpty() || m_birthdayLoading || !session()) return;
     m_birthdayLoading = true;
+    const quint64 gen = m_resetGen;
     QPointer<StickerStore> self(this);
-    lookup(QStringLiteral("sinh nhật"), kBirthdaySuggestions, [self](const QVariantList& list) {
-        if (!self) return;
+    lookup(QStringLiteral("sinh nhật"), kBirthdaySuggestions, [self, gen](const QVariantList& list) {
+        if (!self || gen != self->m_resetGen) return;
         if (!list.isEmpty()) {
             self->m_birthdayLoading = false;
             self->m_birthday = list;
             emit self->birthdayStickersChanged();
             return;
         }
-        self->lookup(QStringLiteral("birthday"), kBirthdaySuggestions, [self](const QVariantList& fallback) {
-            if (!self) return;
+        self->lookup(QStringLiteral("birthday"), kBirthdaySuggestions, [self, gen](const QVariantList& fallback) {
+            if (!self || gen != self->m_resetGen) return;
             self->m_birthdayLoading = false;
             self->m_birthday = fallback;
             emit self->birthdayStickersChanged();
@@ -415,6 +419,10 @@ void StickerStore::send(const QVariantMap& sticker) {
 }
 
 void StickerStore::reset() {
+    ++m_resetGen;
+    ++m_searchSeq;
+    const bool wasLoading = loading();
+    m_loading = 0;
     m_personal.clear();
     m_catalogOrder.clear();
     m_excludedCates.clear();
@@ -424,6 +432,7 @@ void StickerStore::reset() {
     m_birthday.clear();
     m_birthdayLoading = false;
     setStickers(kRecentId, {});
+    if (wasLoading) emit loadingChanged();
     emit categoriesChanged();
     emit birthdayStickersChanged();
 }

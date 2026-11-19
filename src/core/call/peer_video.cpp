@@ -10,6 +10,18 @@ PeerVideoDecoder::~PeerVideoDecoder() = default;
 
 void PeerVideoDecoder::decode(bool isKey, const QString& codec, const QByteArray& data, int src) {
     Q_UNUSED(codec);
+    struct PendingGuard {
+        std::atomic<int>* counter{nullptr};
+        ~PendingGuard() {
+            if (counter) {
+                int cur = counter->load(std::memory_order_relaxed);
+                while (cur > 0 && !counter->compare_exchange_weak(cur, cur - 1, std::memory_order_relaxed)) {}
+            }
+        }
+    } guard{m_pendingCounter};
+    if (m_streams.size() >= 16 && m_streams.find(src) == m_streams.end()) {
+        m_streams.erase(m_streams.begin());
+    }
     Stream& stream = m_streams[src];
     if (!stream.decoder) {
         if (!isKey) {
@@ -32,6 +44,9 @@ void PeerVideoDecoder::decode(bool isKey, const QString& codec, const QByteArray
     if (frame.isValid()) emit frameDecoded(frame, src);
 }
 
-void PeerVideoDecoder::reset() { m_streams.clear(); }
+void PeerVideoDecoder::reset() {
+    m_streams.clear();
+    if (m_pendingCounter) m_pendingCounter->store(0, std::memory_order_relaxed);
+}
 
 }

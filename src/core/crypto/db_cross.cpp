@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstring>
+#include <memory>
 #include <stdexcept>
 #include <iostream>
 #include <fstream>
@@ -21,7 +22,8 @@ namespace Zalos::Core::Crypto {
 namespace {
 
 static uint32_t read_u32_be(const uint8_t* p) {
-    return (p[0] << 24) | (p[1] << 16) | (p[2] << 8) | p[3];
+    return (static_cast<uint32_t>(p[0]) << 24) | (static_cast<uint32_t>(p[1]) << 16)
+         | (static_cast<uint32_t>(p[2]) << 8) | static_cast<uint32_t>(p[3]);
 }
 
 static uint32_t read_u32_le(const uint8_t* p) {
@@ -283,16 +285,25 @@ static void ParseMentionLite(const uint8_t* buf, size_t n, MentionData& out) {
     if (tlv.GetIntValue(0x68, i)) out.type = i;
 }
 
+struct EvpCipherCtxDeleter {
+    void operator()(EVP_CIPHER_CTX* c) const { EVP_CIPHER_CTX_free(c); }
+};
+
+EVP_CIPHER_CTX* threadLocalCipherCtx() {
+    thread_local std::unique_ptr<EVP_CIPHER_CTX, EvpCipherCtxDeleter> ctx(EVP_CIPHER_CTX_new());
+    if (ctx) EVP_CIPHER_CTX_reset(ctx.get());
+    return ctx.get();
+}
+
 static bool aes256cbc_decrypt_nopad(
     const std::vector<uint8_t>& ct,
     const std::vector<uint8_t>& key32,
     const uint8_t iv[16],
     std::vector<uint8_t>& pt_out
 ) {
-    EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+    EVP_CIPHER_CTX* ctx = threadLocalCipherCtx();
     if (!ctx) return false;
     if (1 != EVP_DecryptInit_ex(ctx, EVP_aes_256_cbc(), nullptr, key32.data(), iv)) {
-        EVP_CIPHER_CTX_free(ctx);
         return false;
     }
     EVP_CIPHER_CTX_set_padding(ctx, 0);
@@ -300,14 +311,11 @@ static bool aes256cbc_decrypt_nopad(
     std::vector<uint8_t> pt(ct.size() + AES_BLOCK_SIZE);
     int len1 = 0, len2 = 0;
     if (1 != EVP_DecryptUpdate(ctx, pt.data(), &len1, ct.data(), (int)ct.size())) {
-        EVP_CIPHER_CTX_free(ctx);
         return false;
     }
     if (1 != EVP_DecryptFinal_ex(ctx, pt.data() + len1, &len2)) {
-        EVP_CIPHER_CTX_free(ctx);
         return false;
     }
-    EVP_CIPHER_CTX_free(ctx);
     pt.resize((size_t)len1 + (size_t)len2);
     pt_out = std::move(pt);
     return true;
@@ -337,28 +345,24 @@ std::vector<uint8_t> DbCross::decryptAes256Cbc(
     }
     if (ciphertext.empty()) return {};
 
-    EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+    EVP_CIPHER_CTX* ctx = threadLocalCipherCtx();
     if (!ctx) throw std::runtime_error("Failed to allocate EVP_CIPHER_CTX");
 
     if (EVP_DecryptInit_ex(ctx, EVP_aes_256_cbc(), nullptr, key.data(), iv.data()) != 1) {
-        EVP_CIPHER_CTX_free(ctx);
         throw std::runtime_error("Failed to initialize AES-256-CBC decryption");
     }
 
     std::vector<uint8_t> plaintext(ciphertext.size() + AES_BLOCK_SIZE);
     int outLen1 = 0;
     if (EVP_DecryptUpdate(ctx, plaintext.data(), &outLen1, ciphertext.data(), static_cast<int>(ciphertext.size())) != 1) {
-        EVP_CIPHER_CTX_free(ctx);
         throw std::runtime_error("EVP_DecryptUpdate failed");
     }
 
     int outLen2 = 0;
     if (EVP_DecryptFinal_ex(ctx, plaintext.data() + outLen1, &outLen2) != 1) {
-        EVP_CIPHER_CTX_free(ctx);
         throw std::runtime_error("EVP_DecryptFinal_ex failed (bad padding or corrupted key)");
     }
 
-    EVP_CIPHER_CTX_free(ctx);
     plaintext.resize(outLen1 + outLen2);
     return plaintext;
 }
@@ -388,8 +392,10 @@ bool DbCross::decryptAes256CbcChunkedResetIv(
 std::vector<uint8_t> DbCross::decompressLzma(const std::vector<uint8_t>& compressedData) {
     if (compressedData.empty()) return {};
 
+    constexpr uint64_t kMaxLzmaMem = 256ULL * 1024 * 1024;
+    constexpr size_t kMaxLzmaOut = 256ULL * 1024 * 1024;
     lzma_stream strm = LZMA_STREAM_INIT;
-    lzma_ret ret = lzma_auto_decoder(&strm, UINT64_MAX, 0);
+    lzma_ret ret = lzma_auto_decoder(&strm, kMaxLzmaMem, 0);
     if (ret != LZMA_OK) throw std::runtime_error("Failed to init LZMA auto decoder");
 
     std::vector<uint8_t> decompressed;
@@ -410,6 +416,10 @@ std::vector<uint8_t> DbCross::decompressLzma(const std::vector<uint8_t>& compres
         }
 
         size_t written = outBuf.size() - strm.avail_out;
+        if (decompressed.size() + written > kMaxLzmaOut) {
+            lzma_end(&strm);
+            throw std::runtime_error("LZMA output exceeds limit");
+        }
         decompressed.insert(decompressed.end(), outBuf.data(), outBuf.data() + written);
     } while (ret != LZMA_STREAM_END);
 
@@ -516,7 +526,7 @@ bool DbCross::decompressAndDecryptZdb4(
     }
 
     lzma_stream strm = LZMA_STREAM_INIT;
-    if (lzma_auto_decoder(&strm, UINT64_MAX, 0) != LZMA_OK) return fail("cannot init LZMA decoder");
+    if (lzma_auto_decoder(&strm, 256ULL * 1024 * 1024, 0) != LZMA_OK) return fail("cannot init LZMA decoder");
 
     std::error_code ec;
     fs::create_directories(outputDir, ec);
@@ -564,10 +574,19 @@ bool DbCross::decompressAndDecryptZdb4(
         while (pos < produced && idx < files.size()) {
             const size_t take = std::min<size_t>(files[idx].size - written, produced - pos);
             out.write(reinterpret_cast<const char*>(buf.data() + pos), static_cast<std::streamsize>(take));
+            if (!out.good()) {
+                out.close();
+                lzma_end(&strm);
+                return fail("cannot write extracted file");
+            }
             written += take;
             pos += take;
             if (written == files[idx].size) {
                 out.close();
+                if (out.fail()) {
+                    lzma_end(&strm);
+                    return fail("cannot write extracted file");
+                }
                 idx++;
                 written = 0;
                 if (idx < files.size() && !openNext()) { lzma_end(&strm); return fail("cannot write extracted file"); }

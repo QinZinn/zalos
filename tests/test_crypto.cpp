@@ -94,7 +94,7 @@ private slots:
         auto key = DbCross::deriveAes256Key(privateKey);
         QCOMPARE(key.size(), 32UL);
 
-        // Verifies uppercase derivation as per Zalo's reverse-engineered protocol
+        // Verifies uppercase derivation for the session key protocol
         QCOMPARE(static_cast<char>(key[10]), 'A');
         QCOMPARE(static_cast<char>(key[15]), 'F');
     }

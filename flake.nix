@@ -1,5 +1,5 @@
 {
-  description = "Zalos - Native Qt6 (C++/QML) desktop client for Zalo on Linux";
+  description = "Zalos - Native Qt6 (C++/QML) messaging client for Zalo on Linux";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";

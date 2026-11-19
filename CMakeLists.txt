@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(zalos VERSION 1.2.7 LANGUAGES CXX)
+project(zalos VERSION 1.2.8 LANGUAGES CXX)
 option(BUILD_TESTING "Build unit tests" ON)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -11,7 +11,10 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    add_compile_options(-ffunction-sections -fdata-sections)
+    add_compile_options(-ffunction-sections -fdata-sections -fstack-protector-strong)
+    if(CMAKE_BUILD_TYPE MATCHES "^(Release|RelWithDebInfo)$")
+        add_compile_options(-U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=2)
+    endif()
     add_link_options(-Wl,--gc-sections)
 endif()
 
@@ -175,7 +178,7 @@ qt_add_qml_module(zalos
         src/qml/LoginView.qml
         src/qml/SettingsModal.qml
         src/qml/UserProfileModal.qml
-        src/qml/IncomingCallPopup.qml
+        src/qml/ZConfirmDialog.qml
         src/qml/AddFriendModal.qml
         src/qml/CreateGroupModal.qml
         src/qml/ConversationInfoPanel.qml
@@ -266,7 +269,7 @@ target_link_libraries(zalos PRIVATE
 )
 
 if(UNIX AND NOT APPLE)
-    target_link_options(zalos PRIVATE -Wl,--as-needed -Wl,-z,lazy)
+    target_link_options(zalos PRIVATE -Wl,--as-needed -Wl,-z,relro,-z,now)
 endif()
 
 # Installation targets for packaging (RPM, Flatpak, AppImage)

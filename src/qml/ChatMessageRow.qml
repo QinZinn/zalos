@@ -14,7 +14,7 @@ Item {
     signal openMessageMenuRequested(Item item, var msg, real mx, real my)
     signal openReactionDetailsRequested(string msgId, Item anchor)
     signal openSeenDetailsRequested(var uids)
-    signal openViewerRequested(string url, string sender, bool isMine, real ts)
+    signal openViewerRequested(string msgId)
     signal jumpToMessageRequested(string msgId, string cliMsgId)
 
     function dateLabel(ts: real): string {
@@ -438,6 +438,7 @@ Item {
                         }
                         MouseArea {
                             id: mediaMouse
+                            objectName: "mediaClickArea"
                             anchors.fill: parent
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor

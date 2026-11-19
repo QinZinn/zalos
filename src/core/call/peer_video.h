@@ -3,6 +3,7 @@
 #include <QByteArray>
 #include <QObject>
 #include <QVideoFrame>
+#include <atomic>
 #include <map>
 #include <memory>
 
@@ -15,6 +16,7 @@ class PeerVideoDecoder : public QObject {
 public:
     explicit PeerVideoDecoder(QObject* parent = nullptr);
     ~PeerVideoDecoder() override;
+    void setPendingCounter(std::atomic<int>* counter) { m_pendingCounter = counter; }
 
 public slots:
     void decode(bool isKey, const QString& codec, const QByteArray& data, int src);
@@ -30,6 +32,7 @@ private:
         bool waitingForKey{false};
     };
     std::map<int, Stream> m_streams;
+    std::atomic<int>* m_pendingCounter{nullptr};
 };
 
 }

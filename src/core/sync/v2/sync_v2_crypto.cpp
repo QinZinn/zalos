@@ -95,8 +95,14 @@ void appendU64Le(QByteArray* out, quint64 v) {
     for (int i = 0; i < 8; ++i) out->append(static_cast<char>((v >> (8 * i)) & 0xff));
 }
 
-quint32 rotl32(quint32 v, int n) { return (v << n) | (v >> (32 - n)); }
-quint32 rotr32(quint32 v, int n) { return (v >> n) | (v << (32 - n)); }
+quint32 rotl32(quint32 v, int n) {
+    const unsigned s = static_cast<unsigned>(n) & 31u;
+    return s ? ((v << s) | (v >> (32u - s))) : v;
+}
+quint32 rotr32(quint32 v, int n) {
+    const unsigned s = static_cast<unsigned>(n) & 31u;
+    return s ? ((v >> s) | (v << (32u - s))) : v;
+}
 
 void chachaQuarterRound(quint32* s, int a, int b, int c, int d) {
     s[a] += s[b]; s[d] = rotl32(s[d] ^ s[a], 16);

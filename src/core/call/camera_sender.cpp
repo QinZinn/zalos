@@ -261,9 +261,9 @@ void CameraSender::startWaylandGrab() {
 
     auto* proc = new QProcess(this);
     m_grabProcess = proc;
+    const QPointer<CameraSender> self(this);
     connect(proc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this,
-            [this, proc, tool, outFile](int exitCode, QProcess::ExitStatus) {
-        if (m_grabProcess == proc) m_grabProcess = nullptr;
+            [this, self, proc, tool, outFile](int exitCode, QProcess::ExitStatus) {
         QImage captured;
         if (exitCode == 0) {
             if (tool == QLatin1String("grim")) {
@@ -274,11 +274,20 @@ void CameraSender::startWaylandGrab() {
             }
         }
         proc->deleteLater();
+        if (!self) return;
+        if (m_grabProcess == proc) m_grabProcess = nullptr;
         if (!captured.isNull()) {
             m_lastCapturedDesktop = captured;
         } else {
             ++m_grabToolIndex;
         }
+    });
+    connect(proc, &QProcess::errorOccurred, this, [this, self, proc, outFile](QProcess::ProcessError) {
+        if (!outFile.isEmpty()) QFile::remove(outFile);
+        proc->deleteLater();
+        if (!self) return;
+        if (m_grabProcess == proc) m_grabProcess = nullptr;
+        ++m_grabToolIndex;
     });
     proc->start(tool, args);
 }
@@ -428,6 +437,7 @@ void CameraSender::stop() {
         m_camera->stop();
     }
     stopEncodeThread();
+    m_i420Buf.clear();
     if (m_capture) m_capture->deleteLater();
     m_capture = nullptr;
     if (m_camera) m_camera->deleteLater();
@@ -569,7 +579,9 @@ void CameraSender::encodeFrame(const QVideoFrame& frame, qint64 now) {
         needReopen = m_reopen;
         m_reopen = false;
     }
-    encodeI420Buffer(frameToI420(frame, targetSize), targetSize, fps, bitrate, needReopen, false, now);
+    if (frameToI420Into(frame, targetSize, m_i420Buf)) {
+        encodeI420Buffer(m_i420Buf, targetSize, fps, bitrate, needReopen, false, now);
+    }
 }
 
 void CameraSender::encodeImage(const QImage& image, qint64 now) {
@@ -601,7 +613,9 @@ void CameraSender::encodeImage(const QImage& image, qint64 now) {
         m_bitrate = bitrate;
         m_reopen = false;
     }
-    encodeI420Buffer(imageToI420(image, targetSize), targetSize, fps, bitrate, needReopen, true, now);
+    if (imageToI420Into(image, targetSize, m_i420Buf)) {
+        encodeI420Buffer(m_i420Buf, targetSize, fps, bitrate, needReopen, true, now);
+    }
 }
 
 }

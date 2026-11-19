@@ -188,7 +188,7 @@ ApplicationWindow {
                 mipmap: true
 
                 SequentialAnimation on scale {
-                    running: startupSplash.visible
+                    running: startupSplash.visible && mainWindow.visible && mainWindow.visibility !== Window.Minimized
                     loops: Animation.Infinite
                     PropertyAnimation { to: 1.05; duration: 800; easing.type: Easing.InOutQuad }
                     PropertyAnimation { to: 1.0; duration: 800; easing.type: Easing.InOutQuad }
@@ -220,7 +220,7 @@ ApplicationWindow {
                             radius: 3
                             color: Theme.zaloBlue
                             SequentialAnimation on y {
-                                running: startupSplash.visible
+                                running: startupSplash.visible && mainWindow.visible && mainWindow.visibility !== Window.Minimized
                                 loops: Animation.Infinite
                                 PauseAnimation { duration: splashDot.index * 140 }
                                 PropertyAnimation { to: -5; duration: 280; easing.type: Easing.OutQuad }

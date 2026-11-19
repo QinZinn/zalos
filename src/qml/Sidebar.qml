@@ -1279,19 +1279,20 @@ Rectangle {
         }
     }
 
-    Dialog {
+    ZConfirmDialog {
         id: deleteConfirm
-        anchors.centerIn: T.Overlay.overlay
-        modal: true
         width: 340
+        danger: true
         title: I18n.t("Xoá hội thoại", "Delete conversation")
-        standardButtons: Dialog.Cancel | Dialog.Ok
-        Label {
-            width: parent.width
+        okText: I18n.t("Xoá", "Delete")
+        Text {
+            Layout.fillWidth: true
             wrapMode: Text.Wrap
             text: I18n.t("Toàn bộ tin nhắn của hội thoại này sẽ bị xoá ở phía bạn trên mọi thiết bị. Người kia vẫn giữ tin nhắn.",
                          "All messages of this conversation will be deleted for you on every device. The other side keeps them.")
             font.family: Theme.fontFamily
+            font.pixelSize: 13
+            color: ThemeManager.textColor
         }
         onAccepted: ZaloClient.deleteConversation(root.menuConv.id)
     }

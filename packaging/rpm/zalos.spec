@@ -1,12 +1,12 @@
 %global debug_package %{nil}
 %undefine _include_minidebuginfo
-%undefine _Include_gdb_index
+%undefine _include_gdb_index
 %global _find_debuginfo_dwz_opts %{nil}
 
 Name:           zalos
-Version:        1.2.7
+Version:        1.2.8
 Release:        1%{?dist}
-Summary:        Zalo desktop client ported to Qt6 (C++/QML) for Linux
+Summary:        Native Qt6 (C++/QML) messaging client for Zalo on Linux
 License:        MIT AND BSD-3-Clause
 URL:            https://github.com/cpfriend1721994/zalos
 Source0:        %{name}-%{version}.tar.gz
@@ -14,12 +14,15 @@ Source0:        %{name}-%{version}.tar.gz
 BuildRequires:  cmake >= 3.22
 BuildRequires:  gcc-c++
 BuildRequires:  ninja-build
+BuildRequires:  pkgconf-pkg-config
 BuildRequires:  qt6-qtbase-devel >= 6.4
 BuildRequires:  qt6-qtdeclarative-devel >= 6.4
+BuildRequires:  qt6-qtshadertools-devel
 BuildRequires:  qt6-qtsvg-devel
 BuildRequires:  qt6-qtwayland-devel
 BuildRequires:  qt6-qtwebsockets-devel
 BuildRequires:  qt6-qtmultimedia-devel
+BuildRequires:  openh264-devel
 BuildRequires:  zlib-devel
 BuildRequires:  openssl-devel
 BuildRequires:  xz-devel
@@ -43,10 +46,10 @@ Requires:       sqlite
 Recommends:     openh264
 
 %description
-Zalos is a high-performance native desktop client for Zalo built with Qt6
-(C++ and QML). It supports Wayland and Xorg seamlessly, integrates with GTK
-and Qt desktop environments, and includes native cryptographic verification
-for E2EE message synchronization.
+Zalos is an open-source, high-performance native messaging client
+for Zalo on Linux built with Qt6 (C++ and QML). It supports Wayland
+and Xorg seamlessly, integrates with GTK and Qt desktop environments, and
+includes native cryptographic verification for E2EE message synchronization.
 
 %prep
 %setup -q
@@ -79,6 +82,15 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/%{name}.desktop
 %{_datadir}/metainfo/io.github.cpfriend1721994.zalos.metainfo.xml
 
 %changelog
+* Thu Nov 19 2026 Zalos Team <dev@zalos.local> - 1.2.8-1
+- Fix call hangup not ending remote calls (clear both incoming callbacks on accept/reject/non-incoming state, pre-UI-socket hangup cancellation, sendUi flush, >4 MiB video guard, UDP EndCall on pre-answer cancel, and omitted undefined fields on group end/cancel).
+- Fix group chat sidebar previews (plus desktop notifications, birthday ecards, and offline SQLite startup backfill) missing sender names with incremental updates on async profile or alias resolution.
+- Fix image clicks in chat and Info Panel not opening ImageViewer; cap fetchBytes at 64 MiB and keep static WebP images non-animated.
+- Optimize CPU, RAM, and I/O across Qt/QML and zcall-cpp (batched SQLite writes, off-thread >32 KiB API decrypt, P2P verification, thread_local SRTP HMAC, native YUV/NV12/YUYV camera paths, paused hidden spinners, and single-session PulseAudio probe).
+
+* Wed Nov 18 2026 Zalos Team <dev@zalos.local> - 1.2.7-1
+- Add phone history sync v2 fallback (beta, OpenSSL 3 + Protobuf + cmd 590/591), flexible libzstd linking, Qt 6.4 QML fixes, 1-1 screen sharing, PiP/tray call controls, animated GIF playback, and Wayland IME/retry hardening.
+
 * Mon Nov 16 2026 Zalos Team <dev@zalos.local> - 1.2.6-1
 - Add group invite box, friend recommendations, mutual groups, E2EE linked devices, safe link scanning, abuse reporting, Community upgrade, bank card REST APIs, and memory/image decoder hardening.
 
@@ -126,7 +138,7 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/%{name}.desktop
 - Kiki Assistant and zBusiness tools destinations (profile, product catalog, auto reply, package).
 - Official and system accounts no longer offer call, add-group or share-contact actions.
 - Contacts list quick actions for voice call, video call and chat.
-- Call engine is always the bundled zcall-native copy; the Settings engine picker was removed.
+- Call engine always uses the bundled C++ call engine; the Settings engine picker was removed.
 - Harden mobile history sync with checksum/size verification and a download stall timeout.
 - Larger, anti-aliased system tray unread badge; refreshed documentation and screenshots.
 
@@ -135,7 +147,7 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/%{name}.desktop
 - High-res cover/avatar photos and layered chat background blur effect with proper layout clipping.
 - Speed up aarch64 packaging on CI runners using precompiled headers, DWARF suppression, and increased concurrency.
 - Fix AppImage AppStream packaging warnings and self-extract type2 runtime to protect against 504 gateway timeouts.
-- Sync upstream zcall-native (callee status code 160) and scope session cookies to Zalo domains.
+- Sync call engine (callee status code 160) and scope session cookies to Zalo domains.
 
 * Sat Nov 07 2026 Zalos Team <dev@zalos.local> - 1.0.7-1
 - Interactive draft attachments bar for pasted clipboard images (Ctrl+V) and multi-file queueing.
@@ -157,7 +169,7 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/%{name}.desktop
 
 * Fri Nov 06 2026 Zalos Team <dev@zalos.local> - 1.0.4-1
 - First published release: bind-mount-free CI packaging, Nix sandbox fix for emulated aarch64.
-- Fix outgoing 1-1 video call camera state (zcall-native 2b93852), early file_done race, attachment extensions, and mute sync.
+- Fix outgoing 1-1 video call camera state, early file_done race, attachment extensions, and mute sync.
 - Optimize build speed and binary size across x86_64 and aarch64.
 - Repoint all metadata/homepage to cpfriend1721994 and AppStream id to io.github.cpfriend1721994.zalos.
 

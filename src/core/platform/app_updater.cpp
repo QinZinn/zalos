@@ -186,7 +186,12 @@ bool replaceAppImageFile(const QString& targetPath, const QString& downloadedPat
             return false;
         }
     }
-    dst.flush();
+    if (!dst.flush() || dst.error() != QFileDevice::NoError) {
+        if (errorOut) *errorOut = dst.errorString();
+        dst.close();
+        QFile::remove(stagedPath);
+        return false;
+    }
     dst.close();
     src.close();
 

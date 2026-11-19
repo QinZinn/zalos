@@ -41,21 +41,20 @@
 
 namespace {
 
-bool isProcessRunning(const QString& commName) {
+void scanRunningInputMethods(bool& fcitxRunning, bool& ibusRunning) {
     const QDir procDir("/proc");
     const QStringList pids = procDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
     for (const QString& pid : pids) {
         bool isNumeric = false;
         pid.toInt(&isNumeric);
-        if (!isNumeric) {
-            continue;
-        }
+        if (!isNumeric) continue;
         QFile commFile("/proc/" + pid + "/comm");
-        if (commFile.open(QIODevice::ReadOnly) && QString::fromUtf8(commFile.readAll()).trimmed() == commName) {
-            return true;
-        }
+        if (!commFile.open(QIODevice::ReadOnly)) continue;
+        const QByteArray comm = commFile.readAll().trimmed();
+        if (comm == "fcitx5" || comm == "fcitx") fcitxRunning = true;
+        else if (comm == "ibus-daemon") ibusRunning = true;
+        if (fcitxRunning && ibusRunning) break;
     }
-    return false;
 }
 
 bool hasInputContextPlugin(const QString& key) {
@@ -103,9 +102,12 @@ void configureInputMethod() {
     }
 
     const QString current = qEnvironmentVariable("QT_IM_MODULE").toLower();
-    const bool fcitxRunning = isProcessRunning("fcitx5") || isProcessRunning("fcitx")
+    bool procFcitx = false;
+    bool procIbus = false;
+    scanRunningInputMethods(procFcitx, procIbus);
+    const bool fcitxRunning = procFcitx
                               || sessionBusHasName("org.fcitx.Fcitx5") || sessionBusHasName("org.freedesktop.portal.Fcitx");
-    const bool ibusRunning = isProcessRunning("ibus-daemon") || sessionBusHasName("org.freedesktop.IBus")
+    const bool ibusRunning = procIbus || sessionBusHasName("org.freedesktop.IBus")
                              || sessionBusHasName("org.freedesktop.portal.IBus");
     const bool hasFcitxPlugin = hasInputContextPlugin("fcitx");
     const bool hasIbusPlugin = hasInputContextPlugin("ibus");
@@ -172,11 +174,14 @@ void setupMinimalPluginPath() {
     if (srcDirs.isEmpty()) return;
 
     QString runtimeBase = qEnvironmentVariable("XDG_RUNTIME_DIR");
+    bool usingTempFallback = false;
     if (runtimeBase.isEmpty() || !QFileInfo::exists(runtimeBase)) {
         runtimeBase = QDir::tempPath();
+        usingTempFallback = true;
     }
 #ifdef __linux__
-    const QString uidStr = QString::number(quint64(::getuid()));
+    const quint64 selfUid = quint64(::getuid());
+    const QString uidStr = QString::number(selfUid);
 #else
     const QString uidStr = QStringLiteral("0");
 #endif
@@ -184,6 +189,13 @@ void setupMinimalPluginPath() {
                                                  .arg(uidStr, QString::fromLatin1(qVersion()));
     QDir root(runtimeDir);
     if (!root.exists() && !root.mkpath(QStringLiteral("."))) return;
+    if (usingTempFallback) {
+#ifdef __linux__
+        const QFileInfo rtInfo(runtimeDir);
+        if (!rtInfo.isDir() || rtInfo.isSymLink() || quint64(rtInfo.ownerId()) != selfUid) return;
+#endif
+        QFile::setPermissions(runtimeDir, QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner);
+    }
 
     const QSet<QString> allowedImagePlugins{
         QStringLiteral("libqjpeg.so"),
@@ -308,9 +320,16 @@ int main(int argc, char* argv[]) {
     if (!foregroundRun) {
         const QString logDir = QDir(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)).filePath("logs");
         QDir().mkpath(logDir);
-        const QByteArray logPath = QDir(logDir).filePath("zalos.log").toLocal8Bit();
+        const QString logFile = QDir(logDir).filePath("zalos.log");
+        if (QFileInfo(logFile).size() > 2 * 1024 * 1024) {
+            const QString backup = logFile + QStringLiteral(".1");
+            QFile::remove(backup);
+            QFile::rename(logFile, backup);
+        }
+        const QByteArray logPath = logFile.toLocal8Bit();
         if (std::freopen(logPath.constData(), "a", stdout)) std::setvbuf(stdout, nullptr, _IOLBF, 0);
         if (std::freopen(logPath.constData(), "a", stderr)) std::setvbuf(stderr, nullptr, _IOLBF, 0);
+        QFile::setPermissions(logFile, QFileDevice::ReadOwner | QFileDevice::WriteOwner);
     }
 
     if (qEnvironmentVariableIsEmpty("QT_MESSAGE_PATTERN")) {
@@ -347,11 +366,14 @@ int main(int argc, char* argv[]) {
     app.setApplicationName("Zalos");
     app.setOrganizationName("Zalos");
     app.setApplicationVersion(QStringLiteral(ZALOS_APP_VERSION));
+    app.setDesktopFileName(QFile::exists(QStringLiteral("/.flatpak-info"))
+                               ? QStringLiteral("io.github.cpfriend1721994.zalos")
+                               : QStringLiteral("zalos"));
     app.setWindowIcon(QIcon(":/Zalos/assets/icons/zalos.svg"));
     QPixmapCache::setCacheLimit(4096);
 
     QCommandLineParser parser;
-    parser.setApplicationDescription("Zalos - Zalo desktop client ported to Qt6 (C++/QML) for Linux");
+    parser.setApplicationDescription("Zalos - Native Qt6 (C++/QML) messaging client for Zalo on Linux");
     parser.addHelpOption();
     parser.addVersionOption();
     QCommandLineOption testGuiOption("test-gui", "Run headless GUI sanity check and exit automatically.");
@@ -521,21 +543,28 @@ int main(int argc, char* argv[]) {
             else bgTrimTimer->start();
         });
         if (!window->isVisible()) bgTrimTimer->start();
+        auto restartArgs = []() {
+            QStringList args;
+            for (const QString& a : QCoreApplication::arguments().mid(1)) {
+                if (a != QLatin1String("--hidden") && a != QLatin1String("--autostart")) args << a;
+            }
+            return args;
+        };
         QObject::connect(window, &QQuickWindow::sceneGraphError, &app,
-                         [renderProfile, &singleInstance](QQuickWindow::SceneGraphError, const QString& message) {
+                         [renderProfile, &singleInstance, restartArgs](QQuickWindow::SceneGraphError, const QString& message) {
             std::cerr << "[zalos] scene graph error: " << message.toStdString() << std::endl;
             if (renderProfile.backend != RenderProfile::Backend::Vulkan) return;
             Zalos::Core::Platform::RenderGuard::vulkanFailedBefore();
             const QString exe = qEnvironmentVariable("APPIMAGE", QCoreApplication::applicationFilePath());
             singleInstance.release();
-            QProcess::startDetached(exe, QCoreApplication::arguments().mid(1));
+            QProcess::startDetached(exe, restartArgs());
             QCoreApplication::exit(0);
         });
         QObject::connect(zaloClient, &Zalos::Core::Network::ZaloClient::restartRequested, &app,
-                         [&singleInstance]() {
+                         [&singleInstance, restartArgs]() {
             const QString exe = qEnvironmentVariable("APPIMAGE", QCoreApplication::applicationFilePath());
             singleInstance.release();
-            QProcess::startDetached(exe, QCoreApplication::arguments().mid(1));
+            QProcess::startDetached(exe, restartArgs());
             QCoreApplication::quit();
         });
     }

@@ -30,6 +30,8 @@ SystemTrayController::~SystemTrayController() {
     if (m_trayIcon) {
         m_trayIcon->hide();
     }
+    delete m_trayMenu;
+    m_trayMenu = nullptr;
 }
 
 void SystemTrayController::setupMenu() {
@@ -169,7 +171,10 @@ void SystemTrayController::retranslate() {
     }
     if (m_callSeparator) m_callSeparator->setVisible(active);
 
-    if (m_openAction) m_openAction->setText(L(QStringLiteral("Mở Zalos"), QStringLiteral("Open Zalos")));
+    if (m_openAction) {
+        m_openAction->setText(m_windowVisible ? L(QStringLiteral("Ẩn Zalos"), QStringLiteral("Hide Zalos"))
+                                              : L(QStringLiteral("Mở Zalos"), QStringLiteral("Open Zalos")));
+    }
     if (m_themeAction) m_themeAction->setText(L(QStringLiteral("Chuyển chế độ Sáng / Tối"), QStringLiteral("Toggle light / dark mode")));
     if (m_antiPeekAction) m_antiPeekAction->setText(L(QStringLiteral("Chống nhìn lén"), QStringLiteral("Anti-peeking")));
     if (m_quitAction) m_quitAction->setText(L(QStringLiteral("Thoát hoàn toàn"), QStringLiteral("Quit")));
@@ -177,6 +182,7 @@ void SystemTrayController::retranslate() {
 }
 
 void SystemTrayController::setWindowVisible(bool visible) {
+    m_windowVisible = visible;
     if (m_openAction) {
         m_openAction->setText(visible ? L(QStringLiteral("Ẩn Zalos"), QStringLiteral("Hide Zalos"))
                                       : L(QStringLiteral("Mở Zalos"), QStringLiteral("Open Zalos")));
@@ -218,7 +224,17 @@ void SystemTrayController::setAntiPeeking(bool on) {
 }
 
 void SystemTrayController::refreshIconAndTooltip() {
-    m_trayIcon->setIcon(createBadgeIcon(m_unreadCount, m_hasMentions));
+    const QString callKey = (!m_callPhase.isEmpty() && m_callPhase != QLatin1String("ended"))
+        ? (m_callPhase == QLatin1String("connected") ? QStringLiteral("connected") : QStringLiteral("active"))
+        : QString();
+    if (m_unreadCount != m_lastBadgeCount || m_hasMentions != m_lastBadgeMentions
+        || m_antiPeeking != m_lastBadgeAntiPeeking || callKey != m_lastBadgeCallPhase) {
+        m_lastBadgeCount = m_unreadCount;
+        m_lastBadgeMentions = m_hasMentions;
+        m_lastBadgeAntiPeeking = m_antiPeeking;
+        m_lastBadgeCallPhase = callKey;
+        m_trayIcon->setIcon(createBadgeIcon(m_unreadCount, m_hasMentions));
+    }
     QString tip;
     if (!m_callPhase.isEmpty() && m_callPhase != QLatin1String("ended")) {
         const QString peer = m_callPeerName.isEmpty() ? QStringLiteral("Zalo") : m_callPeerName;
@@ -260,23 +276,27 @@ void SystemTrayController::onTrayActivated(QSystemTrayIcon::ActivationReason rea
 }
 
 QIcon SystemTrayController::createBadgeIcon(int count, bool hasMentions) {
-    QIcon baseIcon(":/Zalos/assets/icons/zalos.svg");
-    QPixmap pixmap = baseIcon.pixmap(64, 64);
-    if (pixmap.isNull()) {
-        pixmap = QPixmap(64, 64);
-        pixmap.fill(Qt::transparent);
-        QPainter p(&pixmap);
-        p.setRenderHint(QPainter::Antialiasing);
-        p.setBrush(QColor("#0068FF"));
-        p.setPen(Qt::NoPen);
-        p.drawEllipse(4, 4, 56, 56);
-        p.setPen(Qt::white);
-        QFont f = p.font();
-        f.setPixelSize(34);
-        f.setBold(true);
-        p.setFont(f);
-        p.drawText(QRect(4, 4, 56, 56), Qt::AlignCenter, "Z");
+    if (m_basePixmap.isNull()) {
+        QIcon baseIcon(":/Zalos/assets/icons/zalos.svg");
+        QPixmap base = baseIcon.pixmap(64, 64);
+        if (base.isNull()) {
+            base = QPixmap(64, 64);
+            base.fill(Qt::transparent);
+            QPainter p(&base);
+            p.setRenderHint(QPainter::Antialiasing);
+            p.setBrush(QColor("#0068FF"));
+            p.setPen(Qt::NoPen);
+            p.drawEllipse(4, 4, 56, 56);
+            p.setPen(Qt::white);
+            QFont f = p.font();
+            f.setPixelSize(34);
+            f.setBold(true);
+            p.setFont(f);
+            p.drawText(QRect(4, 4, 56, 56), Qt::AlignCenter, "Z");
+        }
+        m_basePixmap = base;
     }
+    QPixmap pixmap = m_basePixmap;
 
     QPainter painter(&pixmap);
     painter.setRenderHint(QPainter::Antialiasing);

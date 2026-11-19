@@ -19,6 +19,7 @@ class SoundEngine : public QObject {
 
 public:
     explicit SoundEngine(QObject* parent = nullptr);
+    ~SoundEngine() override;
 
     static QStringList notificationKeys();
     static QStringList ringtoneKeys();

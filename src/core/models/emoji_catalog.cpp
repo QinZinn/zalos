@@ -116,7 +116,7 @@ constexpr EmojiDef kEmojis[] = {
     {CatZalo, "🤩", "$-)",        "lap lanh excited zalo"},
     {CatZalo, "🤕", ";-!",        "dau thuong bandage zalo"},
     {CatZalo, "🤟", "/-showlove", "yeu thuong love you zalo"},
-    {CatZalo, "🍺", "/-beer",     "bia dzô beer cheers zalo"},
+    {CatZalo, "🍺", "/-beer",     "bia dzo beer cheers zalo"},
     {CatZalo, "☕", "/-coffee",   "ca phe coffee zalo"},
     {CatZalo, "🌹", "/-rose",     "hoa hong rose flower zalo"},
     {CatZalo, "🥀", "/-fade",     "hoa heo wilted zalo"},
@@ -891,6 +891,19 @@ QVariantMap makeItem(const EmojiDef& e) {
     };
 }
 
+const QVector<QVariantList>& categoryItemsCache() {
+    static const QVector<QVariantList> cache = []() {
+        const int catCount = static_cast<int>(sizeof(kCategories) / sizeof(kCategories[0]));
+        QVector<QVariantList> buckets(qMax(0, catCount - 1));
+        for (const EmojiDef& e : kEmojis) {
+            const int idx = static_cast<int>(e.cat);
+            if (idx >= 0 && idx < buckets.size()) buckets[idx].append(makeItem(e));
+        }
+        return buckets;
+    }();
+    return cache;
+}
+
 QString findCodeForGlyph(const QString& glyph) {
     for (const EmojiDef& e : kEmojis) {
         if (e.code[0] != '\0' && QString::fromUtf8(e.glyph) == glyph)
@@ -993,14 +1006,9 @@ QVariantList EmojiCatalog::items() const {
         return buildRecentItems(m_recent);
     }
 
-    QVariantList out;
     const int pos = findCategoryPos(m_currentCategory);
-    if (pos <= 0) return out;
-    const auto targetCat = static_cast<CategoryIndex>(pos - 1);
-    for (const EmojiDef& e : kEmojis) {
-        if (e.cat == targetCat) out.append(makeItem(e));
-    }
-    return out;
+    if (pos <= 0) return {};
+    return categoryItemsCache().value(pos - 1);
 }
 
 QVariantList EmojiCatalog::sections() const {
@@ -1016,13 +1024,10 @@ QVariantList EmojiCatalog::sections() const {
     if (!m_recent.isEmpty())
         out.append(makeSection(kCategories[0].id, kCategories[0].nameVi, kCategories[0].nameEn, buildRecentItems(m_recent)));
 
+    const auto& cached = categoryItemsCache();
     const int catCount = categoryCount();
     for (int i = 1; i < catCount; ++i) {
-        const auto targetCat = static_cast<CategoryIndex>(i - 1);
-        QVariantList catItems;
-        for (const EmojiDef& e : kEmojis) {
-            if (e.cat == targetCat) catItems.append(makeItem(e));
-        }
+        const QVariantList& catItems = cached.value(i - 1);
         if (!catItems.isEmpty())
             out.append(makeSection(kCategories[i].id, kCategories[i].nameVi, kCategories[i].nameEn, catItems));
     }

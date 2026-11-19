@@ -111,6 +111,7 @@ public:
     QString adjacentId(const QString& convId, int delta) const;
     QStringList pinnedIds() const;
     void updateProfile(const QString& convId, const QString& name, const QString& avatarUrl, int memberCount = -1);
+    void setSenderPrefix(const QString& convId, const QString& senderPrefix);
     void recordMessage(const QString& convId, const QString& preview, const QString& senderPrefix, qint64 ts, bool incrementUnread, bool hasMention = false);
     void setPinned(const QString& convId, bool pinned);
     void setMuted(const QString& convId, bool muted);
@@ -122,7 +123,8 @@ public:
     void clearDrafts();
     void setMemberAvatars(const QString& convId, const QVariantList& members);
     QVariantList memberAvatars(const QString& convId) const { return m_memberAvatars.value(convId); }
-    void updateLastMessage(const QString& convId, const QString& message, const QString& timeStr);
+    void updateLastMessage(const QString& convId, const QString& message, const QString& timeStr,
+                           const QString& senderPrefix = QString(), bool updatePrefix = false);
     void clearUnread(const QString& convId);
     void setUnreadCount(const QString& convId, int count);
     void removeConversation(const QString& convId);

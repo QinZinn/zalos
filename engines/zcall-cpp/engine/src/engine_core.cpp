@@ -757,6 +757,7 @@ void EngineCore::onRecvSignal(const QString& command, const QJsonObject& data) {
         return;
     }
     if (command == QLatin1String("409") || command == QLatin1String("405")) {
+        if (js::truthy(data.value("callId")) && c && str(data.value("callId")) != fmtNum(c->callId)) return;
         if (c && c->state != QLatin1String("ended")) {
             if (c->state == QLatin1String("incoming")) finish(0, QString(), false);
             else peerEnded(QStringLiteral("recvSignal %1").arg(command));
@@ -1008,7 +1009,13 @@ void EngineCore::groupRequestAnswered(const QJsonObject& data) {
         const QString msg = strOr(p.value("msg"));
         if (!msg.isEmpty()) m_ui->status(QStringLiteral("groupCallFailedReason"), 0, QJsonObject{{"message", msg}});
         else m_ui->status(QStringLiteral("groupCallFailed"));
-        later(3000, [this] { groupFinish(0, QStringLiteral("groupCallFailed"), false); });
+        std::weak_ptr<Call> weak = c;
+        later(3000, [this, weak] {
+            const CallPtr cur = weak.lock();
+            if (cur && m_call == cur && cur->state != QLatin1String("ended")) {
+                groupFinish(0, QStringLiteral("groupCallFailed"), false);
+            }
+        });
         return;
     }
     c->state = QStringLiteral("connecting");
@@ -1033,7 +1040,13 @@ void EngineCore::groupRequestAnswered(const QJsonObject& data) {
         if (!best && m_media->sendUdp()) {
             c->state = QStringLiteral("failed");
             m_ui->status(QStringLiteral("groupJoinRejected"));
-            later(3000, [this] { groupFinish(0, QStringLiteral("groupJoinRejected"), false); });
+            std::weak_ptr<Call> weak = c;
+            later(3000, [this, weak] {
+                const CallPtr cur = weak.lock();
+                if (cur && m_call == cur && cur->state != QLatin1String("ended")) {
+                    groupFinish(0, QStringLiteral("groupJoinRejected"), false);
+                }
+            });
             return;
         }
         m_media->start(QStringLiteral("caller"), QString());
@@ -1175,7 +1188,13 @@ void EngineCore::groupAnswer(bool camStartOff) {
             c->state = QStringLiteral("failed");
             m_ui->status(QStringLiteral("groupJoinRejected"));
             groupSendAnswer(*c, 3);
-            later(3000, [this] { groupFinish(0, QStringLiteral("groupJoinRejected"), false); });
+            std::weak_ptr<Call> weak = c;
+            later(3000, [this, weak] {
+                const CallPtr cur = weak.lock();
+                if (cur && m_call == cur && cur->state != QLatin1String("ended")) {
+                    groupFinish(0, QStringLiteral("groupJoinRejected"), false);
+                }
+            });
             return;
         }
         m_media->start(QStringLiteral("callee"), QString());

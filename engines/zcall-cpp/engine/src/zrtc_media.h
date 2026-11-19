@@ -10,6 +10,7 @@
 #include <QHash>
 #include <QJsonObject>
 #include <QObject>
+#include <QPointer>
 #include <QProcess>
 #include <QSet>
 #include <QTimer>
@@ -116,8 +117,8 @@ private:
     void sendAudioFrame(const QByteArray& opus, int level);
     void noteAudioTx();
     void noteVideoTx(bool key);
-    void onAudio(const QByteArray& rtp);
-    void onVideo(const QByteArray& rtp);
+    bool onAudio(const QByteArray& rtp);
+    bool onVideo(const QByteArray& rtp);
     void onVideoRtcp(const QByteArray& buf);
     void onP2p(const QByteArray& msg, const QHostAddress& addr, quint16 port);
     void p2pUp(const Server& from);
@@ -222,6 +223,7 @@ private:
     uint32_t m_vTxKeys{0};
     uint64_t m_vTxBytes{0};
     uint32_t m_vTxPkts{0};
+    QPointer<QTimer> m_initRetry;
 };
 
 }

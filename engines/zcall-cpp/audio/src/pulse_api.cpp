@@ -5,6 +5,7 @@
 #include <chrono>
 #include <cmath>
 #include <dlfcn.h>
+#include <mutex>
 
 namespace zcall::audio {
 
@@ -13,7 +14,7 @@ namespace {
 constexpr int kPaContextReady = 4;
 constexpr int kPaContextFailed = 5;
 constexpr int kPaContextTerminated = 6;
-constexpr int kPaContextNoAutospawn = 2;
+constexpr int kPaContextNoAutospawn = 1;
 constexpr int kPaOperationRunning = 0;
 constexpr uint32_t kPaVolumeNorm = 65536u;
 
@@ -60,7 +61,9 @@ struct PaLib {
     void* (*mainloopNew)(){nullptr};
     void (*mainloopFree)(void*){nullptr};
     void* (*mainloopGetApi)(void*){nullptr};
-    int (*mainloopIterate)(void*, int, int*){nullptr};
+    int (*mainloopPrepare)(void*, int){nullptr};
+    int (*mainloopPoll)(void*){nullptr};
+    int (*mainloopDispatch)(void*){nullptr};
     void* (*contextNew)(void*, const char*){nullptr};
     void (*contextUnref)(void*){nullptr};
     int (*contextConnect)(void*, const char*, int, const void*){nullptr};
@@ -92,7 +95,10 @@ private:
         void* h = ::dlopen("libpulse.so.0", RTLD_NOW | RTLD_LOCAL);
         if (!h) return l;
         const bool ok = bind(h, "pa_mainloop_new", l.mainloopNew) && bind(h, "pa_mainloop_free", l.mainloopFree)
-            && bind(h, "pa_mainloop_get_api", l.mainloopGetApi) && bind(h, "pa_mainloop_iterate", l.mainloopIterate)
+            && bind(h, "pa_mainloop_get_api", l.mainloopGetApi)
+            && bind(h, "pa_mainloop_prepare", l.mainloopPrepare)
+            && bind(h, "pa_mainloop_poll", l.mainloopPoll)
+            && bind(h, "pa_mainloop_dispatch", l.mainloopDispatch)
             && bind(h, "pa_context_new", l.contextNew) && bind(h, "pa_context_unref", l.contextUnref)
             && bind(h, "pa_context_connect", l.contextConnect) && bind(h, "pa_context_disconnect", l.contextDisconnect)
             && bind(h, "pa_context_get_state", l.contextGetState)
@@ -103,7 +109,10 @@ private:
             && bind(h, "pa_context_set_source_volume_by_name", l.contextSetSourceVolumeByName)
             && bind(h, "pa_operation_unref", l.operationUnref)
             && bind(h, "pa_operation_get_state", l.operationGetState);
-        if (!ok) return PaLib{};
+        if (!ok) {
+            ::dlclose(h);
+            return PaLib{};
+        }
         l.handle = h;
         return l;
     }
@@ -123,6 +132,16 @@ struct PaSession {
         if (ml) lib->mainloopFree(ml);
     }
 
+    bool stepUntil(std::chrono::steady_clock::time_point deadline) {
+        const auto now = std::chrono::steady_clock::now();
+        if (now >= deadline) return false;
+        const auto remUs = std::chrono::duration_cast<std::chrono::microseconds>(deadline - now).count();
+        const int sliceUs = static_cast<int>(std::min<int64_t>(50000, std::max<int64_t>(1, remUs)));
+        if (lib->mainloopPrepare(ml, sliceUs) < 0) return false;
+        if (lib->mainloopPoll(ml) < 0) return false;
+        return lib->mainloopDispatch(ml) >= 0;
+    }
+
     bool connect(int timeoutMs = 1500) {
         lib = PaLib::get();
         if (!lib) return false;
@@ -138,7 +157,7 @@ struct PaSession {
             const int st = lib->contextGetState(ctx);
             if (st == kPaContextReady) return true;
             if (st == kPaContextFailed || st == kPaContextTerminated) return false;
-            if (lib->mainloopIterate(ml, 1, nullptr) < 0) return false;
+            if (!stepUntil(deadline)) return false;
         }
         return false;
     }
@@ -154,7 +173,7 @@ struct PaSession {
             }
             const int st = lib->contextGetState(ctx);
             if (st == kPaContextFailed || st == kPaContextTerminated) break;
-            if (lib->mainloopIterate(ml, 1, nullptr) < 0) break;
+            if (!stepUntil(deadline)) break;
         }
         lib->operationUnref(op);
         return ok;
@@ -164,13 +183,22 @@ struct PaSession {
 } // namespace
 
 std::shared_ptr<PulseSimpleApi> PulseSimpleApi::load(std::string* error) {
+    static std::mutex s_mutex;
+    static std::weak_ptr<PulseSimpleApi> s_cached;
+    std::lock_guard<std::mutex> lock(s_mutex);
+    if (auto existing = s_cached.lock()) return existing;
+
     void* h = ::dlopen("libpulse-simple.so.0", RTLD_NOW | RTLD_LOCAL);
     if (!h) {
         const char* e = ::dlerror();
         if (error) *error = e ? e : "libpulse-simple.so.0: cannot open shared object file";
         return nullptr;
     }
-    auto api = std::make_shared<PulseSimpleApi>();
+    auto deleter = [](PulseSimpleApi* p) {
+        if (p->handle) ::dlclose(p->handle);
+        delete p;
+    };
+    std::shared_ptr<PulseSimpleApi> api(new PulseSimpleApi, deleter);
     api->handle = h;
     api->simpleNew = reinterpret_cast<decltype(api->simpleNew)>(::dlsym(h, "pa_simple_new"));
     api->simpleWrite = reinterpret_cast<decltype(api->simpleWrite)>(::dlsym(h, "pa_simple_write"));
@@ -181,6 +209,7 @@ std::shared_ptr<PulseSimpleApi> PulseSimpleApi::load(std::string* error) {
         if (error) *error = "libpulse-simple.so.0 lacks pa_simple_*";
         return nullptr;
     }
+    s_cached = api;
     return api;
 }
 
@@ -228,6 +257,30 @@ std::vector<std::string> PulseApi::listNames(bool sources) {
                        : s.lib->contextGetSinkInfoList(s.ctx, cb, &state);
     s.waitOp(op, state.done);
     return state.names;
+}
+
+bool PulseApi::hasSourceAndSink(const std::string& source, const std::string& sink) {
+    PaSession s;
+    if (!s.connect()) return false;
+    struct MatchState {
+        std::string target;
+        bool found{false};
+        bool done{false};
+    };
+    auto matchCb = [](void*, const PaDeviceInfoPrefix* info, int eol, void* ud) {
+        auto* st = static_cast<MatchState*>(ud);
+        if (eol) {
+            st->done = true;
+            return;
+        }
+        if (info && info->name && st->target == info->name) st->found = true;
+    };
+    MatchState src{source};
+    s.waitOp(s.lib->contextGetSourceInfoList(s.ctx, matchCb, &src), src.done);
+    if (!src.found) return false;
+    MatchState snk{sink};
+    s.waitOp(s.lib->contextGetSinkInfoList(s.ctx, matchCb, &snk), snk.done);
+    return snk.found;
 }
 
 std::optional<int> PulseApi::getSourceVolumePercent(const std::string& source) {

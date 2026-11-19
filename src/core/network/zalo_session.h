@@ -317,6 +317,8 @@ private:
     QTimer m_wsReconnectTimer;
     QString m_cipherKey;
     bool m_realtimeReady{false};
+    bool m_replacedByOtherClient{false};
+    quint64 m_sessionGen{0};
     int m_wsUrlIndex{0};
     int m_wsReconnectAttempts{0};
     int m_wsRequestId{0};

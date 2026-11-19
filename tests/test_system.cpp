@@ -29,10 +29,12 @@
 #include <QFileInfo>
 #include <QDir>
 #include <QUrl>
+#include <QUrlQuery>
 #include <QVideoSink>
 #include "platform/app_updater.h"
 
 #include "core/network/zalo_client.h"
+#include "core/network/zalo_crypto.h"
 #include "core/platform/theme_manager.h"
 #include "core/platform/system_tray.h"
 #include "core/crypto/db_cross.h"
@@ -623,6 +625,10 @@ private slots:
         QCOMPARE(store->searchMessages("fixture short lived").size(), 0);
         QVERIFY(!store->rawMessage("9803").isEmpty());
         QCOMPARE(store->loadMessages("u-ttl-peer").size(), 1);
+        QCOMPARE(store->loadMessages("u-ttl-peer", nullptr, 10, 0).size(), 1);
+        const auto exactMsgs = store->loadMessages("u-ttl-peer", nullptr, 10, now - 500);
+        QCOMPARE(exactMsgs.size(), 1);
+        QCOMPARE(exactMsgs.first().id, QStringLiteral("9803"));
         QCOMPARE(store->nextExpiry(QDateTime::currentMSecsSinceEpoch()), qint64(0));
     }
 
@@ -2771,7 +2777,7 @@ private slots:
         QCOMPARE(frames.first().value("command").toString(), QString("native-ready"));
     }
 
-    // Logic learned from ctdozlite (06-upstream-sync §5b), reimplemented and checked with neutral fixtures.
+    // Verified with neutral synthetic fixtures.
     void testSocketQueuesAndFailoverRules() {
         const QJsonObject auth{{"error_code", 0},
             {"data", QJsonObject{
@@ -3152,6 +3158,11 @@ private slots:
         QCOMPARE(RichComposer::exportStyles(&doc).size(), 1);
         QVERIFY(RichComposer::isKnownStyle("c_f7b503"));
         QVERIFY(!RichComposer::isKnownStyle("c_123456"));
+        doc.setPlainText("hello world");
+        QVERIFY(composer.apply("b", 5, 1));
+        QCOMPARE(composer.styles().size(), 1);
+        QCOMPARE(composer.styles().first().toMap().value("start").toInt(), 1);
+        QCOMPARE(composer.styles().first().toMap().value("len").toInt(), 4);
 
         // 2. Wire format and styled rendering.
         const QString props = ZaloSession::textPropertiesJson(QJsonArray{QJsonObject{{"start", 0}, {"len", 5}, {"st", "b"}},
@@ -4567,12 +4578,17 @@ private slots:
         {
             AppLock lock;
             if (lock.hasPasscode()) QSKIP("a passcode from another run is set in this profile");
+            QVERIFY(!lock.isEventFilterInstalledForTesting());
             QVERIFY(!lock.locked());
             QVERIFY(!lock.setPasscode("", "12")); // too short
             QVERIFY(lock.setPasscode("", "2468"));
+            QVERIFY(!lock.isEventFilterInstalledForTesting());
+            lock.setAutoLockMinutes(5);
+            QVERIFY(lock.isEventFilterInstalledForTesting());
             QVERIFY(!lock.setPasscode("0000", "1357")); // wrong current one
             lock.lock();
             QVERIFY(lock.locked());
+            QVERIFY(!lock.isEventFilterInstalledForTesting());
             for (int i = 0; i < AppLock::kFreeAttempts; ++i) QVERIFY(!lock.unlock("0000"));
             QVERIFY(lock.retryAfterSeconds() > 0);
             QVERIFY(!lock.unlock("2468")); // even the right one waits out the penalty
@@ -4582,9 +4598,12 @@ private slots:
             QVERIFY(lock.hasPasscode());
             QVERIFY(lock.locked());
             QVERIFY(lock.unlock("2468"));
+            QVERIFY(lock.isEventFilterInstalledForTesting());
             QVERIFY(!lock.removePasscode("0000"));
             QVERIFY(lock.removePasscode("2468"));
             QVERIFY(!lock.hasPasscode());
+            QVERIFY(!lock.isEventFilterInstalledForTesting());
+            lock.setAutoLockMinutes(0);
         }
         QSettings settings;
         QVERIFY(!settings.contains("lock/hash")); // only salt+hash were ever stored, and they are gone
@@ -6003,6 +6022,7 @@ private slots:
         client.setTrayAvailableForTesting(1);
         window->hide();
         QTRY_VERIFY_WITH_TIMEOUT(!window->isVisible(), 1000);
+        QCoreApplication::processEvents();
         calls->injectUiLineForTesting(R"({"type":"state","phase":"incoming","video":false,"name":"Incoming Friend"})");
         QTRY_VERIFY_WITH_TIMEOUT(window->isVisible(), 1000);
         QCOMPARE(trayCtrl.callPhase(), QStringLiteral("incoming"));
@@ -6057,6 +6077,271 @@ private slots:
         QCOMPARE(apiOk, true);
         QCOMPARE(hits, 2);
         QCOMPARE(apiData.toObject().value("ok").toBool(), true);
+    }
+
+    void testImageClickOpensPreview() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString p1 = dir.filePath(QStringLiteral("p1.png"));
+        const QString p2 = dir.filePath(QStringLiteral("p2.png"));
+        QImage img1(16, 16, QImage::Format_RGBA8888);
+        img1.fill(Qt::red);
+        QVERIFY(img1.save(p1, "PNG"));
+        QImage img2(16, 16, QImage::Format_RGBA8888);
+        img2.fill(Qt::blue);
+        QVERIFY(img2.save(p2, "PNG"));
+
+        ZaloClient client;
+        ThemeManager themeMgr;
+        client.setLoggedInForTesting(true);
+        client.setMyUidForTesting(QStringLiteral("u-me"));
+
+        ConversationItem conv;
+        conv.id = QStringLiteral("u-img-chat");
+        conv.name = QStringLiteral("Photo Friend");
+        client.conversationModel()->setConversations({conv});
+        client.selectConversation(conv.id, conv.name, QString());
+
+        const QString u1 = QUrl::fromLocalFile(p1).toString();
+        const QString u2 = QUrl::fromLocalFile(p2).toString();
+        MessageItem m1;
+        m1.id = QStringLiteral("m-img-1");
+        m1.messageType = QStringLiteral("image");
+        m1.senderId = conv.id;
+        m1.senderName = conv.name;
+        m1.mediaUrl = u1;
+        m1.href = u1;
+        m1.ts = 1700000000000LL;
+        MessageItem m2;
+        m2.id = QStringLiteral("m-img-2");
+        m2.messageType = QStringLiteral("image");
+        m2.senderId = conv.id;
+        m2.senderName = conv.name;
+        m2.mediaUrl = u2;
+        m2.href = u2;
+        m2.ts = 1700001000000LL;
+        client.messageModel()->mergeMessages(conv.id, {m1, m2});
+
+        QQmlApplicationEngine engine;
+        engine.addImageProvider(QStringLiteral("avatar"), new AvatarImageProvider);
+        engine.addImageProvider(QStringLiteral("cover"), new AvatarImageProvider(false));
+        engine.addImageProvider(QStringLiteral("media"), new AvatarImageProvider(false));
+        engine.addImageProvider(QStringLiteral("icon"), new Zalos::Core::Platform::IconImageProvider);
+        engine.addImportPath(QStringLiteral("qrc:/"));
+        engine.addImportPath(QStringLiteral("qrc:/qt/qml"));
+        loadMainWindow(engine);
+        auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().value(0));
+        QVERIFY(window != nullptr);
+        window->resize(1280, 800);
+        window->show();
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+
+        auto findItems = [&](const QString& name) {
+            QList<QQuickItem*> out;
+            std::function<void(QQuickItem*)> walk = [&](QQuickItem* item) {
+                if (!item) return;
+                if (item->objectName() == name) out.append(item);
+                for (QQuickItem* c : item->childItems()) walk(c);
+            };
+            walk(window->contentItem());
+            return out;
+        };
+        QTRY_VERIFY_WITH_TIMEOUT(findItems(QStringLiteral("mediaClickArea")).size() >= 2, 2000);
+        const auto areas = findItems(QStringLiteral("mediaClickArea"));
+        QQuickItem* target = areas.last();
+        QTRY_VERIFY_WITH_TIMEOUT(target->isVisible() && target->width() > 0 && target->height() > 0, 1000);
+        const QPoint center = target->mapToScene(QPointF(target->width() / 2.0, target->height() / 2.0)).toPoint();
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, center);
+
+        QTRY_VERIFY_WITH_TIMEOUT(!findItems(QStringLiteral("imageViewerRoot")).isEmpty(), 2000);
+        QQuickItem* viewer = findItems(QStringLiteral("imageViewerRoot")).first();
+        QTRY_VERIFY_WITH_TIMEOUT(viewer->isVisible(), 1000);
+        QCOMPARE(viewer->property("count").toInt(), 2);
+        QCOMPARE(viewer->property("currentUrl").toString(), u2);
+
+        QTest::keyClick(window, Qt::Key_Escape);
+        QTRY_VERIFY_WITH_TIMEOUT(findItems(QStringLiteral("imageViewerRoot")).isEmpty(), 1000);
+    }
+
+    void testGroupSidebarSenderPrefix() {
+        ZaloClient client;
+        client.setLoggedInForTesting(true);
+        client.setMyUidForTesting(QStringLiteral("u-me"));
+        client.setUserForTesting(QStringLiteral("u-friend"), QStringLiteral("Minh Anh"), QString());
+        client.setGroupForTesting(QStringLiteral("g-team"), QStringLiteral("Project Team"), QString());
+
+        auto* session = client.apiClient()->session();
+        emit session->messagesReceived(QJsonArray{QJsonObject{
+            {"msgId", "70001"},
+            {"cliMsgId", "70001"},
+            {"uidFrom", "u-friend"},
+            {"idTo", "g-team"},
+            {"dName", "Minh Anh"},
+            {"msgType", "webchat"},
+            {"content", "Chao moi nguoi"},
+            {"ts", QString::number(1700000100000LL)}
+        }}, true, false);
+
+        QCOMPARE(client.conversationModel()->conversation(QStringLiteral("g-team")).senderPrefix,
+                 QStringLiteral("Minh Anh: "));
+
+        QTcpServer server;
+        QVERIFY(server.listen(QHostAddress::LocalHost, 0));
+        connect(&server, &QTcpServer::newConnection, this, [&server]() {
+            while (QTcpSocket* sock = server.nextPendingConnection()) {
+                connect(sock, &QTcpSocket::readyRead, sock, [sock]() {
+                    sock->readAll();
+                    const QJsonObject payload{
+                        {"changed_profiles", QJsonObject{
+                            {"u-unknown_0", QJsonObject{{"userId", "u-unknown"}, {"displayName", "Hai Dang"}, {"avatar", ""}}}
+                        }}
+                    };
+                    const QByteArray body = QJsonDocument(QJsonObject{{"error_code", 0}, {"data", payload}})
+                                                .toJson(QJsonDocument::Compact);
+                    sock->write("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: "
+                                + QByteArray::number(body.size()) + "\r\nConnection: close\r\n\r\n" + body);
+                    sock->disconnectFromHost();
+                });
+                connect(sock, &QTcpSocket::disconnected, sock, &QObject::deleteLater);
+            }
+        });
+        const QString baseUrl = QStringLiteral("http://127.0.0.1:%1").arg(server.serverPort());
+        session->setLoginInfoForTesting(QJsonObject{
+            {"uid", "u-me"},
+            {"zpw_enk", QString::fromLatin1(QByteArray(32, 'A').toBase64())},
+            {"zpw_service_map_v3", QJsonObject{{"profile", QJsonArray{baseUrl}}}}
+        });
+
+        emit session->messagesReceived(QJsonArray{QJsonObject{
+            {"msgId", "70002"},
+            {"cliMsgId", "70002"},
+            {"uidFrom", "u-unknown"},
+            {"idTo", "g-team"},
+            {"msgType", "webchat"},
+            {"content", "Cap nhat tien do"},
+            {"ts", QString::number(1700000200000LL)}
+        }}, true, false);
+
+        QVERIFY(client.isUserLookupPendingForTesting(QStringLiteral("u-unknown")));
+        QCOMPARE(client.conversationModel()->conversation(QStringLiteral("g-team")).senderPrefix, QString());
+
+        client.resolveUnknownUsersForTesting();
+        QTRY_COMPARE_WITH_TIMEOUT(client.conversationModel()->conversation(QStringLiteral("g-team")).senderPrefix,
+                                  QStringLiteral("Hai Dang: "), 3000);
+
+        client.applyAliasesForTesting(QHash<QString, QString>{{QStringLiteral("u-unknown"), QStringLiteral("Anh Dang")}});
+        QCOMPARE(client.conversationModel()->conversation(QStringLiteral("g-team")).senderPrefix,
+                 QStringLiteral("Anh Dang: "));
+
+        emit session->messagesReceived(QJsonArray{QJsonObject{
+            {"msgId", "70003"},
+            {"cliMsgId", "70003"},
+            {"uidFrom", "u-friend"},
+            {"idTo", "g-team"},
+            {"msgType", "chat.list.action"},
+            {"content", QJsonObject{{"title", "Minh Anh joined the group"}}},
+            {"ts", QString::number(1700000300000LL)}
+        }}, true, false);
+        QCOMPARE(client.conversationModel()->conversation(QStringLiteral("g-team")).senderPrefix, QString());
+
+        {
+            ZaloOfflineStore store;
+            store.bindOwner(QStringLiteral("u-prefix-backfill"));
+            store.clearCache();
+            store.bindOwner(QStringLiteral("u-prefix-backfill"));
+            store.saveProfile({QStringLiteral("u-friend"), QStringLiteral("Minh Anh"), QString(), false, 0, true, false});
+            store.saveProfile({QStringLiteral("g-backfill"), QStringLiteral("Backfill Group"), QString(), true, 5, false, false});
+            ConversationItem conv;
+            conv.id = QStringLiteral("g-backfill");
+            conv.name = QStringLiteral("Backfill Group");
+            conv.isGroup = true;
+            conv.lastMessage = QStringLiteral("Tin cuoi trong nhom");
+            conv.senderPrefix = QString();
+            conv.lastTs = 1700000400000LL;
+            store.saveConversation(conv);
+            MessageItem msg;
+            msg.id = QStringLiteral("70004");
+            msg.senderId = QStringLiteral("u-friend");
+            msg.senderName = QString();
+            msg.text = QStringLiteral("Tin cuoi trong nhom");
+            msg.messageType = QStringLiteral("text");
+            msg.ts = 1700000400000LL;
+            store.saveMessage(QStringLiteral("g-backfill"), msg, QJsonObject(), true);
+        }
+
+        ZaloClient client2;
+        QVERIFY(client2.openOfflineCacheForTesting(QStringLiteral("u-prefix-backfill")));
+        QCOMPARE(client2.conversationModel()->conversation(QStringLiteral("g-backfill")).senderPrefix,
+                 QStringLiteral("Minh Anh: "));
+        client2.offlineStore()->clearCache();
+    }
+
+    void testCallHangupPreUiSocketAndGroupSignalParams() {
+        ZaloClient client;
+        client.setLoggedInForTesting(true);
+        client.setMyUidForTesting(QStringLiteral("u-me"));
+
+        QTcpServer server;
+        QVERIFY(server.listen(QHostAddress::LocalHost, 0));
+        QByteArray capturedUrl;
+        bool requestDone = false;
+        connect(&server, &QTcpServer::newConnection, this, [&]() {
+            while (QTcpSocket* sock = server.nextPendingConnection()) {
+                connect(sock, &QTcpSocket::readyRead, sock, [&, sock]() {
+                    const QByteArray raw = sock->readAll();
+                    const int sp1 = raw.indexOf(' ');
+                    const int sp2 = raw.indexOf(' ', sp1 + 1);
+                    if (sp1 >= 0 && sp2 > sp1) capturedUrl = raw.mid(sp1 + 1, sp2 - sp1 - 1);
+                    const QByteArray body = R"({"error_code":0,"data":{"ok":true}})";
+                    sock->write("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: "
+                                + QByteArray::number(body.size()) + "\r\nConnection: close\r\n\r\n" + body);
+                    sock->disconnectFromHost();
+                    requestDone = true;
+                });
+                connect(sock, &QTcpSocket::disconnected, sock, &QObject::deleteLater);
+            }
+        });
+
+        const QString keyB64 = QString::fromLatin1(QByteArray(32, 'B').toBase64());
+        const QString baseUrl = QStringLiteral("http://127.0.0.1:%1").arg(server.serverPort());
+        client.apiClient()->session()->setLoginInfoForTesting(QJsonObject{
+            {"uid", "u-me"},
+            {"zpw_enk", keyB64},
+            {"zpw_service_map_v3", QJsonObject{{"voice_call", QJsonArray{baseUrl}}}}
+        });
+
+        auto* calls = client.calls();
+        calls->callSendSignalForTesting(12438, QJsonObject{
+            {"callId", 1456789012},
+            {"hostCall", 777001},
+            {"data", "{}"}
+        });
+        QTRY_VERIFY_WITH_TIMEOUT(requestDone, 3000);
+        const QUrlQuery q(QUrl(QString::fromUtf8(capturedUrl)).query(QUrl::FullyDecoded));
+        const QString encParams = QUrl::fromPercentEncoding(q.queryItemValue(QStringLiteral("params"), QUrl::FullyEncoded).toUtf8());
+        bool decOk = false;
+        const QByteArray dec = Zalos::Core::Network::ZaloCrypto::decodeAES(keyB64, encParams, &decOk);
+        QVERIFY(decOk);
+        const QJsonObject obj = QJsonDocument::fromJson(dec).object();
+        QCOMPARE(obj.value("callId").toInt(), 1456789012);
+        QCOMPARE(obj.value("hostCall").toInt(), 777001);
+        QVERIFY(!obj.contains(QStringLiteral("calleeId")));
+        QVERIFY(!obj.contains(QStringLiteral("callType")));
+        QVERIFY(!obj.contains(QStringLiteral("partners")));
+        QVERIFY(!obj.contains(QStringLiteral("groupId")));
+
+        if (calls->isAvailable()) {
+            calls->startVoiceCall(QStringLiteral("u-cancel"), QStringLiteral("Cancel Target"), QString());
+            QCOMPARE(calls->phase(), QStringLiteral("outgoing"));
+            calls->hangup();
+            QCOMPARE(calls->phase(), QString());
+            QCOMPARE(calls->pendingEngineFrameCountForTesting(), 0);
+        } else {
+            calls->injectUiLineForTesting(R"({"type":"state","phase":"outgoing","video":false,"name":"Cancel Target"})");
+            QCOMPARE(calls->phase(), QStringLiteral("outgoing"));
+            calls->hangup();
+            QCOMPARE(calls->phase(), QString());
+        }
     }
 };
 

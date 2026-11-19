@@ -153,6 +153,7 @@ signals:
 public slots:
     void detectGnomeOrPortalTheme();
     void detectSystemAccentColor();
+    void onPortalSettingChanged(const QString& ns, const QString& key);
 
 private:
     void initSystemThemeDetection();

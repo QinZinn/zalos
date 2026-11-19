@@ -143,22 +143,41 @@ QByteArray zlibInflate(const QByteArray& compressed, bool* ok) {
     z_stream stream{};
     if (inflateInit2(&stream, 15 + 32) != Z_OK) return {};
 
-    stream.next_in = reinterpret_cast<Bytef*>(const_cast<char*>(compressed.constData()));
-    stream.avail_in = static_cast<uInt>(compressed.size());
-
+    constexpr qsizetype kMaxInflateBytes = 32 * 1024 * 1024;
+    const char* src = compressed.constData();
+    qsizetype remaining = compressed.size();
     QByteArray out;
     char buffer[16384];
     int ret = Z_OK;
-    do {
+    while (true) {
+        if (stream.avail_in == 0 && remaining > 0) {
+            const qsizetype chunk = qMin<qsizetype>(remaining, 0x7fffffff);
+            stream.next_in = reinterpret_cast<Bytef*>(const_cast<char*>(src));
+            stream.avail_in = static_cast<uInt>(chunk);
+            src += chunk;
+            remaining -= chunk;
+        }
         stream.next_out = reinterpret_cast<Bytef*>(buffer);
         stream.avail_out = sizeof(buffer);
+        const uInt prevIn = stream.avail_in;
+        const uInt prevOut = stream.avail_out;
         ret = inflate(&stream, Z_NO_FLUSH);
         if (ret != Z_OK && ret != Z_STREAM_END) {
             inflateEnd(&stream);
             return {};
         }
-        out.append(buffer, static_cast<int>(sizeof(buffer) - stream.avail_out));
-    } while (ret != Z_STREAM_END && stream.avail_in > 0);
+        const qsizetype produced = static_cast<qsizetype>(sizeof(buffer) - stream.avail_out);
+        if (out.size() + produced > kMaxInflateBytes) {
+            inflateEnd(&stream);
+            return {};
+        }
+        if (produced > 0) out.append(buffer, produced);
+        if (ret == Z_STREAM_END) break;
+        if (stream.avail_in == prevIn && stream.avail_out == prevOut && remaining == 0) {
+            inflateEnd(&stream);
+            return {};
+        }
+    }
 
     inflateEnd(&stream);
     setOk(ok, true);

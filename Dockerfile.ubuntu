@@ -37,12 +37,15 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     qt6-declarative-dev-tools \
     qt6-svg-dev \
     qt6-image-formats-plugins \
+    qt6-wayland \
     qt6-wayland-dev \
+    qt6-xdgdesktopportal-platformtheme \
     qt6-websockets-dev \
     qt6-multimedia-dev \
     qt6-shadertools-dev \
     qt6-tools-dev-tools \
     libgl-dev \
+    libopus0 \
     qml6-module-qtquick \
     qml6-module-qtquick-controls \
     qml6-module-qtquick-layouts \

@@ -111,6 +111,8 @@ private:
     double m_lastLogAt{0};
     QStringList m_history;
     SendRateTotals m_totals;
+    std::optional<uint32_t> m_lastRefUnits;
+    uint64_t m_refWrapOffset{0};
 };
 
 }

@@ -101,81 +101,98 @@ std::string pyFloat(double v) {
 std::shared_ptr<VolumeControl> pactlVolumeControl() { return std::make_shared<PactlVolume>(); }
 
 ClipGuard::ClipGuard(std::optional<std::string> source, std::shared_ptr<VolumeControl> control, bool async)
-    : m_source(std::move(source)), m_control(std::move(control)), m_async(async) {
-    m_on = computeOn();
-    if (m_source) {
-        const auto d = db();
-        logLine("mic gain guard " + std::string(m_on ? "on" : "off") + " for " + *m_source + " (now "
+    : m_async(async), m_state(std::make_shared<State>()) {
+    m_state->source = std::move(source);
+    m_state->control = std::move(control);
+    m_state->on.store(computeOn());
+    const auto src = stateSource(*m_state);
+    if (src) {
+        const auto d = stateDb(*m_state);
+        logLine("mic gain guard " + std::string(m_state->on.load() ? "on" : "off") + " for " + *src + " (now "
                 + (d ? pyFloat(*d) : std::string("None")) + " dB)");
         announce();
     }
 }
 
+ClipGuard::~ClipGuard() {
+    m_state->dead.store(true);
+}
+
 bool ClipGuard::computeOn() const {
     const char* agc = std::getenv("ZCALL_MIC_AGC");
-    return m_source.has_value() && !m_source->empty() && !(agc && std::string(agc) == "0") && m_control->available();
+    const auto src = stateSource(*m_state);
+    return src.has_value() && !src->empty() && !(agc && std::string(agc) == "0") && m_state->control->available();
+}
+
+std::optional<std::string> ClipGuard::stateSource(const State& st) {
+    std::lock_guard<std::mutex> lock(st.sourceLock);
+    return st.source;
 }
 
 std::optional<std::string> ClipGuard::source() const {
-    std::lock_guard<std::mutex> lock(m_sourceLock);
-    return m_source;
+    return stateSource(*m_state);
 }
 
 void ClipGuard::setSource(std::optional<std::string> source) {
     {
-        std::lock_guard<std::mutex> lock(m_sourceLock);
-        m_source = std::move(source);
+        std::lock_guard<std::mutex> lock(m_state->sourceLock);
+        m_state->source = std::move(source);
     }
-    m_on = computeOn();
+    m_state->on.store(computeOn());
 }
 
-std::optional<int> ClipGuard::percent() {
-    const auto src = source();
+std::optional<int> ClipGuard::statePercent(State& st) {
+    const auto src = stateSource(st);
     if (!src) return std::nullopt;
-    const auto out = m_control->getVolume(*src);
+    const auto out = st.control->getVolume(*src);
     if (!out) return std::nullopt;
     return parseVolumePercent(*out);
 }
 
-std::optional<double> ClipGuard::db() {
-    const auto src = source();
+std::optional<double> ClipGuard::stateDb(State& st) {
+    const auto src = stateSource(st);
     if (!src) return std::nullopt;
-    const auto out = m_control->getVolume(*src);
+    const auto out = st.control->getVolume(*src);
     if (!out) return std::nullopt;
     return parseVolumeDb(*out);
 }
 
-void ClipGuard::announce() {
-    const auto pct = source() && m_control->available() ? percent() : std::nullopt;
+void ClipGuard::announceState(State& st) {
+    const auto pct = stateSource(st) && st.control->available() ? statePercent(st) : std::nullopt;
     if (pct) {
-        m_announcedPct = pct;
-        m_announcedAt = monoSeconds();
+        st.announcedPct = pct;
+        st.announcedAt = monoSeconds();
         logLine(fmt("mic volume: %d%%", *pct));
     }
 }
 
+void ClipGuard::announce() {
+    announceState(*m_state);
+}
+
 void ClipGuard::setPercent(int pct) {
-    const auto src = source();
-    if (!src || !m_control->available()) {
+    const auto src = stateSource(*m_state);
+    if (!src || !m_state->control->available()) {
         logLine("mic volume: no PulseAudio source to set");
         return;
     }
     pct = std::max(0, std::min(100, pct));
-    std::lock_guard<std::recursive_mutex> lock(m_volLock);
+    std::lock_guard<std::recursive_mutex> lock(m_state->volLock);
     const double now = monoSeconds();
-    if (m_announcedPct && now - m_announcedAt < 0.6 && pct > *m_announcedPct + 2) {
-        logLine(fmt("mic volume: ignore %d%% right after %d%%", pct, *m_announcedPct));
+    if (m_state->announcedPct && now - m_state->announcedAt < 0.6 && pct > *m_state->announcedPct + 2) {
+        logLine(fmt("mic volume: ignore %d%% right after %d%%", pct, *m_state->announcedPct));
         return;
     }
-    const auto cur = percent();
+    const auto cur = statePercent(*m_state);
     if (cur && std::abs(*cur - pct) <= 2) return;
-    m_control->setVolume(*src, rawFromPercent(pct));
-    m_manual.store(true);
-    m_setDb = db();
-    announce();
+    m_state->control->setVolume(*src, rawFromPercent(pct));
+    m_state->manual.store(true);
+    m_state->setDb = stateDb(*m_state);
+    announceState(*m_state);
 }
 
 void ClipGuard::feed(const int16_t* pcm, size_t n) {
+    if (!pcm || n == 0) return;
     int count = 0;
     int hi = -32768, lo = 32767;
     for (size_t i = 0; i < n; ++i) {
@@ -185,49 +202,53 @@ void ClipGuard::feed(const int16_t* pcm, size_t n) {
         lo = std::min(lo, v);
     }
     m_clipped += count;
-    m_totalClipped.fetch_add(count);
-    if (n) {
+    m_state->totalClipped.fetch_add(count);
+    {
         const int peak = std::max(hi, -lo);
-        if (peak > m_peak.load()) m_peak.store(peak);
+        if (peak > m_state->peak.load()) m_state->peak.store(peak);
     }
     if (++m_frames < kWindow) return;
     const int clipped = m_clipped;
     m_frames = m_clipped = 0;
     const double now = monoSeconds();
-    if (m_on && !m_manual.load() && !m_busy.load() && clipped >= kMinClipped && now - m_lastStep >= kStepSec) {
+    if (m_state->on.load() && !m_state->manual.load() && !m_state->busy.exchange(true) && clipped >= kMinClipped
+        && now - m_lastStep >= kStepSec) {
         m_lastStep = now;
-        m_busy.store(true);
-        if (m_async) std::thread([this, clipped] { step(clipped, kStepDb); }).detach();
-        else step(clipped, kStepDb);
+        const std::shared_ptr<State> st = m_state;
+        if (m_async) std::thread([st, clipped] { stepState(st, clipped, kStepDb); }).detach();
+        else stepState(st, clipped, kStepDb);
+    } else if (m_state->busy.load() && (clipped < kMinClipped || now - m_lastStep < kStepSec || !m_state->on.load()
+               || m_state->manual.load())) {
     }
 }
 
-void ClipGuard::step(int clipped, double stepDb) {
+void ClipGuard::stepState(const std::shared_ptr<State>& st, int clipped, double stepDb) {
     struct Release {
         std::atomic<bool>& busy;
         ~Release() { busy.store(false); }
-    } release{m_busy};
-    std::lock_guard<std::recursive_mutex> lock(m_volLock);
-    if (m_manual.load()) return;
-    const auto cur = db();
+    } release{st->busy};
+    if (st->dead.load()) return;
+    std::lock_guard<std::recursive_mutex> lock(st->volLock);
+    if (st->dead.load() || st->manual.load()) return;
+    const auto cur = stateDb(*st);
     if (!cur || *cur <= kFloorDb + 0.01) return;
-    if (m_setDb && *cur > *m_setDb + 2.0)
-        logLine(fmt("mic gain guard: volume back at %.1f dB (last set %.1f)", *cur, *m_setDb));
+    if (st->setDb && *cur > *st->setDb + 2.0)
+        logLine(fmt("mic gain guard: volume back at %.1f dB (last set %.1f)", *cur, *st->setDb));
     const double fresh = std::max(kFloorDb, *cur - stepDb);
-    const auto src = source();
+    const auto src = stateSource(*st);
     if (!src) return;
-    m_control->setVolume(*src, rawFromDb(fresh));
-    m_steps.fetch_add(1);
-    const auto got = db();
-    m_setDb = got ? *got : fresh;
+    st->control->setVolume(*src, rawFromDb(fresh));
+    st->steps.fetch_add(1);
+    const auto got = stateDb(*st);
+    st->setDb = got ? *got : fresh;
     logLine(fmt("mic gain guard: %d clipped samples in 200 ms, %s %.1f -> %s dB", clipped, src->c_str(), *cur,
                 got ? pyFloat(*got).c_str() : "None"));
-    announce();
+    announceState(*st);
 }
 
 std::string ClipGuard::report() {
-    const int64_t total = m_totalClipped.exchange(0);
-    const int peak = m_peak.exchange(0);
+    const int64_t total = m_state->totalClipped.exchange(0);
+    const int peak = m_state->peak.exchange(0);
     return fmt("clipped %lld, peak %.1f dBFS", static_cast<long long>(total), 20 * std::log10(std::max(peak, 1) / 32768.0));
 }
 

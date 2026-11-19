@@ -15,6 +15,7 @@
 #include <QPointer>
 #include "camera_sender.h"
 
+#include <atomic>
 #include <functional>
 #include <memory>
 
@@ -135,6 +136,8 @@ public:
 #ifdef ZALOS_TESTING
     void injectUiLineForTesting(const QByteArray& line) { onUiLine(line); }
     void injectUiBytesForTesting(const QByteArray& bytes) { m_uiBuffer += bytes; drainUiBuffer(); }
+    void callSendSignalForTesting(int command, const QJsonObject& data) { onSendSignal(command, data); }
+    int pendingEngineFrameCountForTesting() const { return m_pending.size(); }
 #endif
 
     void handleVoipControl(const QJsonObject& content);
@@ -220,6 +223,8 @@ private:
     QHash<QString, QStringList> m_chunks;
     bool m_engineReady{false};
     QList<QJsonObject> m_pending;
+    quint64 m_engineGen{0};
+    std::atomic<int> m_pendingVideoFrames{0};
 
     QJsonObject m_ui;
     QString m_activePeer;

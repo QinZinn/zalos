@@ -35,14 +35,22 @@ bool envIs(const char* name, const char* value) {
 
 bool envNot(const char* name, const char* value) { return !envIs(name, value); }
 
-void encoderLoop(const Options& args, std::shared_ptr<OpusApi> opus, std::atomic<bool>* muted, Mic* mic,
-                 std::shared_ptr<ClipGuard> guard, std::function<bool()> farActive) {
+void encoderLoop(const Options& args, std::shared_ptr<OpusApi> opus, std::atomic<bool>* muted,
+                 std::atomic<bool>* stopFlag, Mic* mic, std::shared_ptr<ClipGuard> guard,
+                 std::function<bool()> farActive) {
     int err = 0;
     void* enc = opus->encoderCreate(16000, 1, OpusApi::kApplicationVoip, &err);
     if (err != 0 || !enc) {
         logLine(fmt("opus_encoder_create failed %d", err));
         return;
     }
+    struct EncoderGuard {
+        OpusApi* api{nullptr};
+        void* enc{nullptr};
+        ~EncoderGuard() {
+            if (enc && api && api->encoderDestroy) api->encoderDestroy(enc);
+        }
+    } encGuard{opus.get(), enc};
     opus->encoderCtl(enc, OpusApi::kSetBitrate, args.bitrate);
     opus->encoderCtl(enc, OpusApi::kSetComplexity, args.complexity);
     opus->encoderCtl(enc, OpusApi::kSetSignal, OpusApi::kSignalVoice);
@@ -66,6 +74,7 @@ void encoderLoop(const Options& args, std::shared_ptr<OpusApi> opus, std::atomic
     long n = 0;
     long sent = 0;
     for (;;) {
+        if (stopFlag->load()) break;
         if (args.tone) {
             for (int i = 0; i < kFrame; ++i) {
                 raw[size_t(i)] = static_cast<int16_t>(static_cast<int>(8000 * std::sin(phase)));
@@ -174,7 +183,9 @@ int main(int argc, char** argv) {
                     args.minDelay, args.maxDelay);
     playout.start();
     std::atomic<bool> muted{false};
+    std::atomic<bool> stopEnc{false};
     std::unique_ptr<Mic> mic;
+    std::thread encThread;
     if (!args.noMic) {
         if (!args.tone) mic = std::make_unique<Mic>(args.device, processed ? MaybeName(proc->source()) : chosenMic);
         if (pulse && mic) {
@@ -183,9 +194,9 @@ int main(int argc, char** argv) {
             if (!src) src = defaultSource();
             mic->guard = std::make_shared<ClipGuard>(src, pactlVolumeControl());
         }
-        std::thread(encoderLoop, std::cref(args), opus, &muted, mic.get(), mic ? mic->guard : nullptr,
-                    std::function<bool()>([&playout] { return playout.farActive(); }))
-            .detach();
+        encThread = std::thread(encoderLoop, std::cref(args), opus, &muted, &stopEnc, mic.get(),
+                                mic ? mic->guard : nullptr,
+                                std::function<bool()>([&playout] { return playout.farActive(); }));
     }
     if (pulse && envNot("ZCALL_AUDIO_DIAG", "0")) new Diag(playout, mic.get(), proc ? proc->tag() : std::string("zcall_ec_"));
 
@@ -255,7 +266,9 @@ int main(int argc, char** argv) {
         }
     }
 
+    stopEnc.store(true);
     if (mic) mic->close();
+    if (encThread.joinable()) encThread.join();
     playout.flush();
     sink->close();
     if (proc) proc->stop();

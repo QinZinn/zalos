@@ -98,15 +98,11 @@ QVariant MessageModel::data(const QModelIndex& index, int role) const {
             return item.ts > 0 && (index.row() == 0
                    || localDay(m_items.at(index.row() - 1)) != localDay(item));
         case UnreadMarkerRole: return !m_unreadMarkerId.isEmpty() && item.id == m_unreadMarkerId;
-        case ShowStatusRole: {
-            if (!item.isMine) return false;
-            for (int r = index.row() + 1; r < m_items.size(); ++r) {
-                if (m_items.at(r).isMine) return false;
-            }
-            return true;
-        }
+        case ShowStatusRole:
+            return item.isMine && index.row() == m_lastMineRow;
         case RichTextRole: {
-            const QString key = item.id + QLatin1Char(':') + QString::number(item.text.size());
+            const QString key = item.id + QLatin1Char(':') + QString::number(m_richTextRev) + QLatin1Char(':')
+                              + QString::number(item.text.size());
             if (const QString* cached = m_richTextLru.object(key)) {
                 return *cached;
             }
@@ -197,27 +193,43 @@ void MessageModel::refreshRunsAround(int row) {
     emit dataChanged(index(from), index(to), {MediaRunRole, InMediaRunRole, LastInGroupRole});
 }
 
+void MessageModel::recomputeLastMineRow() {
+    m_lastMineRow = -1;
+    for (int r = int(m_items.size()) - 1; r >= 0; --r) {
+        if (m_items.at(r).isMine) {
+            m_lastMineRow = r;
+            break;
+        }
+    }
+}
+
 void MessageModel::addMessage(const QString& text, bool isMine, const QString& sender) {
+    const int prevMine = isMine ? m_lastMineRow : -1;
     beginInsertRows(QModelIndex(), m_items.size(), m_items.size());
     MessageItem item;
-    item.id = QString::number(QDateTime::currentMSecsSinceEpoch());
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    item.id = QStringLiteral("local-%1-%2").arg(now).arg(++m_synthSeq);
     item.senderName = sender;
     item.text = text;
     item.timeStr = QDateTime::currentDateTime().toString("HH:mm");
-    item.ts = QDateTime::currentMSecsSinceEpoch();
+    item.ts = now;
     item.isMine = isMine;
     item.isE2EE = false;
     item.reaction = "";
     item.messageType = "text";
     m_items.append(item);
+    if (isMine) m_lastMineRow = int(m_items.size()) - 1;
     endInsertRows();
+    if (prevMine >= 0) emit dataChanged(index(prevMine), index(prevMine), {ShowStatusRole});
 }
 
 void MessageModel::addAttachmentMessage(const QString& type, const QString& text, const QString& url, bool isMine) {
+    const int prevMine = isMine ? m_lastMineRow : -1;
     beginInsertRows(QModelIndex(), m_items.size(), m_items.size());
     MessageItem item;
-    item.id = QString::number(QDateTime::currentMSecsSinceEpoch());
-    item.ts = QDateTime::currentMSecsSinceEpoch();
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    item.id = QStringLiteral("local-%1-%2").arg(now).arg(++m_synthSeq);
+    item.ts = now;
     item.text = text;
     item.timeStr = QDateTime::currentDateTime().toString("HH:mm");
     item.isMine = isMine;
@@ -226,12 +238,14 @@ void MessageModel::addAttachmentMessage(const QString& type, const QString& text
     item.messageType = type;
     item.mediaUrl = url;
     m_items.append(item);
+    if (isMine) m_lastMineRow = int(m_items.size()) - 1;
     endInsertRows();
+    if (prevMine >= 0) emit dataChanged(index(prevMine), index(prevMine), {ShowStatusRole});
 }
 
 void MessageModel::addMessageDirect(const QString& convId, const QString& id, const QString& senderName, const QString& text, const QString& timeStr, bool isMine, bool isE2EE, const QString& reaction, const QString& messageType, const QString& mediaUrl) {
     MessageItem item;
-    item.id = id.isEmpty() ? QString::number(QDateTime::currentMSecsSinceEpoch()) : id;
+    item.id = id.isEmpty() ? QStringLiteral("local-%1-%2").arg(QDateTime::currentMSecsSinceEpoch()).arg(++m_synthSeq) : id;
     item.senderName = senderName;
     item.text = text;
     item.timeStr = timeStr;
@@ -242,9 +256,12 @@ void MessageModel::addMessageDirect(const QString& convId, const QString& id, co
     item.mediaUrl = mediaUrl;
 
     if (m_currentConvId == convId) {
+        const int prevMine = isMine ? m_lastMineRow : -1;
         beginInsertRows(QModelIndex(), m_items.size(), m_items.size());
         m_items.append(item);
+        if (isMine) m_lastMineRow = int(m_items.size()) - 1;
         endInsertRows();
+        if (prevMine >= 0) emit dataChanged(index(prevMine), index(prevMine), {ShowStatusRole});
     } else {
         m_store[convId].append(item);
     }
@@ -314,7 +331,20 @@ void MessageModel::mergeMessages(const QString& convId, const QVector<MessageIte
             }
             byId.remove(oldId);
             byId.insert(merged.id, existingIdx);
+            const qint64 oldTs = existing.ts;
+            const bool textOrStylesChanged = merged.text != existing.text
+                || merged.extra.value(QStringLiteral("styles")) != existing.extra.value(QStringLiteral("styles"));
             existing = std::move(merged);
+            if (textOrStylesChanged) {
+                ++m_richTextRev;
+                m_richTextLru.clear();
+            }
+            if (existing.ts != oldTs) {
+                if ((existingIdx > 0 && existing.ts < at(existingIdx - 1).ts)
+                    || (existingIdx + 1 < baseSize && existing.ts > at(existingIdx + 1).ts)) {
+                    needSort = true;
+                }
+            }
             if (isActive && existingIdx < baseSize) {
                 emit dataChanged(index(existingIdx), index(existingIdx));
                 refreshRunsAround(existingIdx);
@@ -329,7 +359,7 @@ void MessageModel::mergeMessages(const QString& convId, const QVector<MessageIte
         if (last && m.ts < last->ts) needSort = true;
         appended.append(m);
     }
-    if (appended.isEmpty()) return;
+    if (appended.isEmpty() && !needSort) return;
 
     if (!isActive) {
         base.append(std::move(appended));
@@ -354,6 +384,7 @@ void MessageModel::mergeMessages(const QString& convId, const QVector<MessageIte
                       [](const MessageItem& a, const MessageItem& b) { return a.id == b.id; })) {
         beginInsertRows(QModelIndex(), 0, prepended - 1);
         m_items = std::move(sorted);
+        recomputeLastMineRow();
         endInsertRows();
         if (prepended < m_items.size()) {
             emit dataChanged(index(prepended), index(prepended));
@@ -363,28 +394,19 @@ void MessageModel::mergeMessages(const QString& convId, const QVector<MessageIte
         return;
     }
     if (pureAppend) {
+        if (appended.isEmpty()) return;
         const int before = m_items.size();
+        const int prevMine = m_lastMineRow;
         const int count = appended.size();
         beginInsertRows(QModelIndex(), before, before + count - 1);
         if (needSort) m_items = std::move(sorted);
         else m_items.append(std::move(appended));
+        recomputeLastMineRow();
         endInsertRows();
         if (before > 0) {
             emit dataChanged(index(before - 1), index(before - 1), {LastInGroupRole});
-            bool anyNewMine = false;
-            for (int row = before; row < m_items.size(); ++row) {
-                if (m_items.at(row).isMine) {
-                    anyNewMine = true;
-                    break;
-                }
-            }
-            if (anyNewMine) {
-                for (int row = before - 1; row >= 0; --row) {
-                    if (m_items.at(row).isMine) {
-                        emit dataChanged(index(row), index(row), {ShowStatusRole});
-                        break;
-                    }
-                }
+            if (prevMine >= 0 && prevMine != m_lastMineRow && prevMine < m_items.size()) {
+                emit dataChanged(index(prevMine), index(prevMine), {ShowStatusRole});
             }
             refreshRunsAround(before);
         }
@@ -396,6 +418,7 @@ void MessageModel::mergeMessages(const QString& convId, const QVector<MessageIte
     } else {
         beginResetModel();
         m_items = std::move(sorted);
+        recomputeLastMineRow();
         endResetModel();
     }
     if (m_pendingUnread > 0) placeUnreadMarker();
@@ -478,10 +501,26 @@ void MessageModel::removeMessage(const QString& convId, const QString& msgId) {
     }
     for (int row = 0; row < m_items.size(); ++row) {
         if (m_items[row].id == msgId) {
+            const bool wasUnreadMarker = !m_unreadMarkerId.isEmpty() && msgId == m_unreadMarkerId;
+            const bool wasMine = m_items[row].isMine;
             beginRemoveRows(QModelIndex(), row, row);
             m_items.removeAt(row);
+            if (wasMine || row < m_lastMineRow) recomputeLastMineRow();
             endRemoveRows();
-            refreshRunsAround(row);
+            if (wasUnreadMarker) {
+                m_unreadMarkerId.clear();
+                emit unreadMarkerChanged(-1);
+            }
+            if (row < m_items.size()) {
+                emit dataChanged(index(row), index(row), {FirstInGroupRole, DateSeparatorRole, UnreadMarkerRole});
+            }
+            if (row > 0 && row - 1 < m_items.size()) {
+                emit dataChanged(index(row - 1), index(row - 1), {LastInGroupRole, ShowStatusRole});
+            }
+            if (wasMine && m_lastMineRow >= 0 && m_lastMineRow != row - 1) {
+                emit dataChanged(index(m_lastMineRow), index(m_lastMineRow), {ShowStatusRole});
+            }
+            refreshRunsAround(qMin(row, m_items.size() - 1));
             break;
         }
     }
@@ -517,6 +556,7 @@ void MessageModel::setReaction(const QString& convId, const QString& msgId, cons
 }
 
 void MessageModel::markRecalled(const QString& convId, const QString& msgId, const QString& placeholder) {
+    ++m_richTextRev;
     m_richTextLru.clear();
     updateItem(m_store, m_items, m_currentConvId, convId, msgId, [&](MessageItem& m) {
         m.isRecalled = true;
@@ -540,6 +580,8 @@ void MessageModel::setSticker(const QString& convId, const QString& msgId, const
 }
 
 void MessageModel::setMessageExtra(const QString& convId, const QString& msgId, const QString& text, const QVariantMap& extra) {
+    ++m_richTextRev;
+    m_richTextLru.clear();
     updateItem(m_store, m_items, m_currentConvId, convId, msgId, [&](MessageItem& m) {
         if (!text.isEmpty()) m.text = text;
         for (auto it = extra.cbegin(); it != extra.cend(); ++it) {
@@ -670,6 +712,7 @@ void MessageModel::removeMessagesUpTo(const QString& convId, const QString& last
     }
     beginResetModel();
     m_items.erase(std::remove_if(m_items.begin(), m_items.end(), older), m_items.end());
+    recomputeLastMineRow();
     endResetModel();
 }
 
@@ -678,6 +721,7 @@ void MessageModel::clearThread(const QString& convId) {
     if (m_currentConvId != convId) return;
     beginResetModel();
     m_items.clear();
+    m_lastMineRow = -1;
     m_richTextLru.clear();
     endResetModel();
 }
@@ -695,6 +739,10 @@ void MessageModel::clearAll() {
     m_items.clear();
     m_store.clear();
     m_currentConvId.clear();
+    m_unreadMarkerId.clear();
+    m_pendingUnread = 0;
+    m_lastMineRow = -1;
+    ++m_richTextRev;
     m_richTextLru.clear();
     endResetModel();
 }
@@ -712,6 +760,7 @@ void MessageModel::loadConversation(const QString& conversationId) {
         m_currentConvId = conversationId;
         m_items = conversationId.isEmpty() ? QVector<MessageItem>{} : m_store.take(conversationId);
     }
+    recomputeLastMineRow();
     endResetModel();
 }
 
@@ -754,13 +803,30 @@ QVariantMap MessageModel::getMessageById(const QString& msgId) const {
 }
 
 namespace {
+bool isEmoticonStartBoundary(QChar c) {
+    if (c.isSpace()) return true;
+    switch (c.unicode()) {
+    case '(': case '[': case '{': case '"': case '\'': case '`': case '>': return true;
+    default: return false;
+    }
+}
+
+bool isEmoticonEndBoundary(QChar c) {
+    if (c.isSpace()) return true;
+    switch (c.unicode()) {
+    case ')': case ']': case '}': case '"': case '\'': case '`':
+    case '!': case '?': case '.': case ',': case ';': case ':': case '<': return true;
+    default: return false;
+    }
+}
+
 QString convertEmoticons(const QString& text) {
     if (text.isEmpty()) return text;
     struct EmoticonRule {
         const char* code;
         const char* emoji;
     };
-    static const EmoticonRule rules[] = {
+    static constexpr EmoticonRule rules[] = {
         {"/-showlove", "🤟"}, {"/-thanks", "🙏"},   {":handclap", "👏"},
         {"/-coffee", "☕"},   {"/-heart", "❤️"},    {"/-strong", "👍"},
         {"/-break", "💔"},    {"/-punch", "👊"},    {"/-share", "🤝"},
@@ -799,23 +865,55 @@ QString convertEmoticons(const QString& text) {
         {"/-v", "✌️"},        {"<3", "❤️"},         {":v", "ICON_PACMAN_PLACEHOLDER"},
         {":V", "ICON_PACMAN_PLACEHOLDER"},
     };
+    struct CompiledRule {
+        QLatin1String code;
+        QString emoji;
+        int len;
+    };
+    struct LookupTable {
+        bool hasTrigger[128]{};
+        QVector<CompiledRule> buckets[128];
+        LookupTable() {
+            for (const auto& r : rules) {
+                const auto u = static_cast<unsigned char>(r.code[0]);
+                const int len = int(std::strlen(r.code));
+                hasTrigger[u] = true;
+                buckets[u].append({QLatin1String(r.code, len), QString::fromUtf8(r.emoji), len});
+            }
+        }
+    };
+    static const LookupTable table;
 
-    QString res;
-    res.reserve(text.size());
-    int i = 0;
     const int n = text.size();
+    bool anyTrigger = false;
+    for (int i = 0; i < n; ++i) {
+        const char16_t u = text.at(i).unicode();
+        if (u < 128 && table.hasTrigger[u]) {
+            anyTrigger = true;
+            break;
+        }
+    }
+    if (!anyTrigger) return text;
+
+    const QStringView view(text);
+    QString res;
+    res.reserve(n);
+    int i = 0;
     while (i < n) {
         bool matched = false;
-        for (const auto& r : rules) {
-            const int len = int(strlen(r.code));
-            if (i + len <= n && text.mid(i, len) == QLatin1String(r.code)) {
-                const bool startOk = (i == 0 || text.at(i - 1).isSpace() || QStringLiteral("([{\"\'`>").contains(text.at(i - 1)));
-                const bool endOk = (i + len == n || text.at(i + len).isSpace() || QStringLiteral(")]}\"\'`!?.,;:<").contains(text.at(i + len)));
-                if (startOk && endOk) {
-                    res += QString::fromUtf8(r.emoji);
-                    i += len;
-                    matched = true;
-                    break;
+        const char16_t u = text.at(i).unicode();
+        if (u < 128 && table.hasTrigger[u]) {
+            const auto& bucket = table.buckets[u];
+            for (const auto& r : bucket) {
+                if (i + r.len <= n && view.mid(i, r.len).compare(r.code) == 0) {
+                    const bool startOk = (i == 0 || isEmoticonStartBoundary(text.at(i - 1)));
+                    const bool endOk = (i + r.len == n || isEmoticonEndBoundary(text.at(i + r.len)));
+                    if (startOk && endOk) {
+                        res += r.emoji;
+                        i += r.len;
+                        matched = true;
+                        break;
+                    }
                 }
             }
         }
@@ -979,7 +1077,14 @@ QString MessageModel::styledHtml(const QString& text, const QVector<MessageMenti
         QString open, close;
         QString css;
         const QString color = active(from, QStringLiteral("c_"));
-        if (color.size() == 8) css += QStringLiteral("color:#%1;").arg(color.mid(2));
+        if (color.size() == 8) {
+            const QStringView hex = QStringView(color).sliced(2, 6);
+            const bool validHex = std::all_of(hex.cbegin(), hex.cend(), [](QChar c) {
+                const ushort u = c.unicode();
+                return (u >= '0' && u <= '9') || (u >= 'a' && u <= 'f') || (u >= 'A' && u <= 'F');
+            });
+            if (validHex) css += QStringLiteral("color:#%1;").arg(hex);
+        }
         const QString size = active(from, QStringLiteral("f_"));
         if (size == QLatin1String("f_13")) css += QStringLiteral("font-size:12px;");
         else if (size == QLatin1String("f_18")) css += QStringLiteral("font-size:18px;");
@@ -1004,6 +1109,7 @@ void MessageModel::setPollData(qint64 pollId, const QVariantMap& data) {
         m_items[i].pollData = data;
         if (!data.value("question").toString().isEmpty()) {
             m_items[i].text = data.value("question").toString();
+            ++m_richTextRev;
             m_richTextLru.clear();
         }
         emit dataChanged(index(i), index(i), {PollDataRole, TextRole, RichTextRole});
@@ -1014,6 +1120,7 @@ void MessageModel::setPollData(qint64 pollId, const QVariantMap& data) {
             item.pollData = data;
             if (!data.value("question").toString().isEmpty()) {
                 item.text = data.value("question").toString();
+                ++m_richTextRev;
                 m_richTextLru.clear();
             }
         }

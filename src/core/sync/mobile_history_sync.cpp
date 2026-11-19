@@ -24,6 +24,7 @@
 #include <QRegularExpression>
 #include <QStandardPaths>
 #include <QThread>
+#include <QThreadPool>
 #include <QUuid>
 
 #include <openssl/bio.h>
@@ -149,6 +150,17 @@ void MobileHistorySync::fail(const QString& reason) {
     m_timeout.stop();
     ++m_generation;
     if (m_download) m_download->abort();
+    if (m_v2Active && m_session && !m_v2SyncId.isEmpty()) {
+        m_session->sendSyncV2Release(m_v2SyncId, 2);
+    }
+    m_v2Active = false;
+    m_v2SyncId.clear();
+    m_v2HasSession = false;
+    m_v2SawLastBatch = false;
+    m_v2InFlightDownload = false;
+    m_v2SeenUrls.clear();
+    m_v2DownloadQueue.clear();
+    m_v2Conversations.clear();
     cleanup();
     log("failed: " + reason);
     setState(Failed, reason, 0);
@@ -500,6 +512,10 @@ void MobileHistorySync::startV2Fallback(const QString& why) {
     m_timeout.start(kConfirmTimeoutMs);
     const bool wsSent = m_session->sendSyncV2Request(m_v2SyncId, syncData);
     log(QStringLiteral("v2 590 sent sync=%1 ws=%2").arg(m_v2SyncId.left(8)).arg(wsSent));
+    if (!wsSent) {
+        fail(L("Chưa kết nối được máy chủ realtime để gửi yêu cầu Sync v2.",
+               "Realtime connection is not ready to send the Sync v2 request."));
+    }
 }
 
 void MobileHistorySync::cancel() {
@@ -658,33 +674,47 @@ void MobileHistorySync::download() {
     setState(Importing, L("Đang tải bản sao lưu từ máy chủ Zalo...", "Downloading the backup from Zalo..."), 20);
     const quint64 gen = m_generation;
     m_writeFailed = false;
+    auto md5Hasher = std::make_shared<QCryptographicHash>(QCryptographicHash::Md5);
     m_timeout.start(kDownloadStallMs);
-    m_download = m_session->getWithCookies(url);
-    connect(m_download, &QNetworkReply::readyRead, this, [this, file]() {
-        if (m_download) {
-            m_timeout.start(kDownloadStallMs);
-            const QByteArray chunk = m_download->readAll();
-            if (!m_writeFailed && file->write(chunk) != chunk.size()) {
+    QPointer<QNetworkReply> reply = m_session->getWithCookies(url);
+    m_download = reply;
+    if (!reply) {
+        fail(L("URL bản sao lưu không hợp lệ.", "Invalid backup URL."));
+        return;
+    }
+    connect(reply, &QNetworkReply::readyRead, this, [this, reply, file, md5Hasher, gen]() {
+        if (!reply || gen != m_generation) return;
+        m_timeout.start(kDownloadStallMs);
+        const QByteArray chunk = reply->readAll();
+        if (!m_writeFailed && !chunk.isEmpty()) {
+            if (file->write(chunk) != chunk.size()) {
                 m_writeFailed = true;
-                m_download->abort();
+                reply->abort();
+            } else {
+                md5Hasher->addData(chunk);
             }
         }
     });
-    connect(m_download, &QNetworkReply::downloadProgress, this, [this, gen](qint64 got, qint64 total) {
-        if (gen != m_generation || total <= 0) return;
+    connect(reply, &QNetworkReply::downloadProgress, this, [this, reply, gen](qint64 got, qint64 total) {
+        if (!reply || gen != m_generation || total <= 0) return;
         m_timeout.start(kDownloadStallMs);
         setState(Importing, L("Đang tải bản sao lưu từ máy chủ Zalo...", "Downloading the backup from Zalo..."),
                  20 + int(30.0 * double(got) / double(total)));
     });
-    connect(m_download, &QNetworkReply::finished, this, [this, file, gen]() {
+    connect(reply, &QNetworkReply::finished, this, [this, reply, file, md5Hasher, gen]() {
         m_timeout.stop();
-        QNetworkReply* reply = m_download;
         if (!reply) return;
         reply->deleteLater();
-        m_download = nullptr;
+        if (m_download == reply) m_download.clear();
         if (gen != m_generation) return;
         const QByteArray tail = reply->readAll();
-        if (!m_writeFailed && file->write(tail) != tail.size()) m_writeFailed = true;
+        if (!m_writeFailed && !tail.isEmpty()) {
+            if (file->write(tail) != tail.size()) {
+                m_writeFailed = true;
+            } else {
+                md5Hasher->addData(tail);
+            }
+        }
         file->close();
         const int http = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         log(QStringLiteral("download attempt=%1 http=%2 err=%3 bytes=%4")
@@ -723,13 +753,7 @@ void MobileHistorySync::download() {
                      .arg(file->size()).arg(contentLength));
             return;
         }
-        QString md5;
-        QFile checkFile(file->fileName());
-        if (checkFile.open(QIODevice::ReadOnly)) {
-            QCryptographicHash hasher(QCryptographicHash::Md5);
-            hasher.addData(&checkFile);
-            md5 = QString::fromLatin1(hasher.result().toHex());
-        }
+        const QString md5 = QString::fromLatin1(md5Hasher->result().toHex());
         log(QStringLiteral("download integrity: content_length=%1 file_size=%2 expected_size=%3 md5=%4 checksum=%5")
                 .arg(contentLength).arg(file->size()).arg(m_expectedSize).arg(md5, m_checksum));
         decryptAndRead();
@@ -793,8 +817,10 @@ void MobileHistorySync::decryptAndRead() {
         QVector<BackupConversation> conversations;
     };
     auto result = std::make_shared<Result>();
-    const QString input = QDir(m_workDir).filePath(QStringLiteral("backup.zdb"));
-    const QString output = QDir(m_workDir).filePath(QStringLiteral("db"));
+    const QString workDir = m_workDir;
+    m_workDir.clear();
+    const QString input = QDir(workDir).filePath(QStringLiteral("backup.zdb"));
+    const QString output = QDir(workDir).filePath(QStringLiteral("db"));
     const quint64 gen = m_generation;
     QThread* worker = QThread::create([result, input, output, keyText]() {
         std::string err;
@@ -806,8 +832,11 @@ void MobileHistorySync::decryptAndRead() {
         QFile::remove(input);
         result->conversations = readBackupDirectory(output, &result->error);
     });
-    connect(worker, &QThread::finished, this, [this, worker, result, gen]() {
+    connect(worker, &QThread::finished, worker, [worker, workDir]() {
+        QDir(workDir).removeRecursively();
         worker->deleteLater();
+    });
+    connect(worker, &QThread::finished, this, [this, result, gen]() {
         if (gen != m_generation) return;
         int rows = 0;
         for (const auto& c : std::as_const(result->conversations)) rows += c.rows.size();
@@ -1050,7 +1079,10 @@ void MobileHistorySync::handleV2Control(const QString& act, const QJsonObject& d
             return;
         }
         const QString seenKey = QStringLiteral("%1:%2").arg(batchType).arg(msgUrl);
-        if (m_v2SeenUrls.contains(seenKey)) return;
+        if (m_v2SeenUrls.contains(seenKey)) {
+            if (isLast) maybeFinishV2();
+            return;
+        }
         m_v2SeenUrls.insert(seenKey);
 
         if (batchType == 2) m_v2DownloadQueue.prepend({batchType, msgUrl});
@@ -1059,10 +1091,108 @@ void MobileHistorySync::handleV2Control(const QString& act, const QJsonObject& d
     }
 }
 
+    struct V2MessageParseResult {
+        enum ErrorKind { None, InvalidFraming, DecryptFailed, ZstdFailed, ParseFailed };
+        ErrorKind errorKind{None};
+        V2::CryptoStatus cryptoStatus{V2::CryptoStatus::Ok};
+        QVector<MobileHistorySync::BackupConversation> conversations;
+        QStringList discoveredIds;
+    };
+
+    V2MessageParseResult parseV2MessageBatch(const QByteArray& bytes, const V2::SessionRecord& session,
+                                             const QString& myNoisedUid) {
+        V2MessageParseResult out;
+        QVector<QByteArray> frames;
+        if (!V2::splitFrames(bytes, &frames) || frames.isEmpty()) {
+            out.errorKind = V2MessageParseResult::InvalidFraming;
+            return out;
+        }
+        for (const QByteArray& frame : frames) {
+            QByteArray compressed;
+            const V2::CryptoStatus st = V2::openMessage(session, frame, &compressed);
+            if (st != V2::CryptoStatus::Ok) {
+                out.errorKind = V2MessageParseResult::DecryptFailed;
+                out.cryptoStatus = st;
+                return out;
+            }
+            QByteArray proto = compressed;
+            if (compressed.size() >= 4 &&
+                static_cast<unsigned char>(compressed.at(0)) == 0x28 &&
+                static_cast<unsigned char>(compressed.at(1)) == 0xb5 &&
+                static_cast<unsigned char>(compressed.at(2)) == 0x2f &&
+                static_cast<unsigned char>(compressed.at(3)) == 0xfd) {
+                QByteArray zstdErr;
+                const V2::ZstdStatus zs = V2::zstdDecompress(compressed, &proto, &zstdErr);
+                if (zs != V2::ZstdStatus::Ok) {
+                    out.errorKind = V2MessageParseResult::ZstdFailed;
+                    return out;
+                }
+            }
+            QVector<V2::ParsedSyncV2Partition> parts;
+            if (!V2::parseSyncV2Chunk(proto, &parts)) {
+                out.errorKind = V2MessageParseResult::ParseFailed;
+                return out;
+            }
+            for (const V2::ParsedSyncV2Partition& part : parts) {
+                MobileHistorySync::BackupConversation conv;
+                if (part.id.startsWith(QLatin1String("group/"))) {
+                    conv.isGroup = true;
+                    conv.plainId = part.id.mid(6);
+                } else if (part.id.startsWith(QLatin1String("oneone/"))) {
+                    conv.isGroup = false;
+                    conv.plainId = part.id.mid(7);
+                } else {
+                    conv.plainId = part.id;
+                }
+                if (conv.plainId.isEmpty()) continue;
+                out.discoveredIds.append(conv.plainId);
+
+                conv.rows.reserve(part.messages.size());
+                for (const V2::ParsedSyncV2Message& pm : part.messages) {
+                    MobileHistorySync::BackupRow row;
+                    row.globalMsgId = pm.globalId;
+                    row.cliMsgId = QString::number(pm.clientId);
+                    row.msgType = pm.msgType;
+                    row.ts = static_cast<qint64>(pm.timestamp);
+                    QString sender = pm.senderId;
+                    if (sender.startsWith(QLatin1String("oneone/"))) sender = sender.mid(7);
+                    else if (sender.startsWith(QLatin1String("group/"))) sender = sender.mid(6);
+                    if (!myNoisedUid.isEmpty() && sender == myNoisedUid) {
+                        row.senderId = QStringLiteral("0");
+                    } else {
+                        row.senderId = sender;
+                        if (!sender.isEmpty()) out.discoveredIds.append(sender);
+                    }
+                    row.text = pm.content;
+                    if (!pm.attaches.isEmpty()) {
+                        row.hasParsedBin = true;
+                        for (const V2::ParsedSyncV2Attach& pa : pm.attaches) {
+                            decltype(row.parsedBin.attachs)::value_type ba;
+                            ba.type = pa.attachType.toUtf8().toStdString();
+                            ba.action = pa.action.toUtf8().toStdString();
+                            ba.params = pa.params.toUtf8().toStdString();
+                            ba.title = pa.title.toUtf8().toStdString();
+                            ba.href = pa.href.toUtf8().toStdString();
+                            ba.thumb = pa.thumb.toUtf8().toStdString();
+                            ba.description = pa.description.toUtf8().toStdString();
+                            ba.catId = pa.catId;
+                            ba.id = pa.id;
+                            row.parsedBin.attachs.push_back(std::move(ba));
+                        }
+                    }
+                    conv.rows.append(std::move(row));
+                }
+                if (!conv.rows.isEmpty()) out.conversations.append(std::move(conv));
+            }
+        }
+        return out;
+    }
+
 void MobileHistorySync::processNextV2Download() {
     if (!m_v2Active || !m_session || m_v2InFlightDownload) return;
     if (m_v2DownloadQueue.isEmpty()) {
         maybeFinishV2();
+        if (m_v2Active && !m_v2SawLastBatch) m_timeout.start(kBackupTimeoutMs);
         return;
     }
     int nextIdx = -1;
@@ -1094,15 +1224,69 @@ void MobileHistorySync::processNextV2Download() {
         if (m_download == reply) m_download.clear();
         if (gen != m_generation || !m_v2Active) return;
 
-        m_v2InFlightDownload = false;
         const int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         if (reply->error() != QNetworkReply::NoError || httpStatus >= 400) {
+            m_v2InFlightDownload = false;
             m_session->sendSyncV2Release(m_v2SyncId, 2);
             m_v2Active = false;
             fail(L("Không tải được gói Sync v2 (HTTP %1).", "Failed to download Sync v2 batch (HTTP %1).").arg(httpStatus));
             return;
         }
         const QByteArray bytes = reply->readAll();
+        if (task.batchType == 1) {
+            if (!m_v2HasSession) {
+                m_v2InFlightDownload = false;
+                m_session->sendSyncV2Release(m_v2SyncId, 2);
+                m_v2Active = false;
+                fail(L("Thiếu khóa phiên Sync v2.", "Missing Sync v2 session key."));
+                return;
+            }
+            const V2::SessionRecord session = m_v2Session;
+            const QString myNoisedUid = m_myNoisedUid;
+            const QPointer<MobileHistorySync> self(this);
+            QThreadPool::globalInstance()->start([self, gen, bytes, session, myNoisedUid]() {
+                V2MessageParseResult res = parseV2MessageBatch(bytes, session, myNoisedUid);
+                if (!self) return;
+                QMetaObject::invokeMethod(self, [self, gen, res = std::move(res)]() mutable {
+                    if (!self || gen != self->m_generation || !self->m_v2Active) return;
+                    self->m_v2InFlightDownload = false;
+                    if (res.errorKind != V2MessageParseResult::None) {
+                        QString err;
+                        switch (res.errorKind) {
+                        case V2MessageParseResult::InvalidFraming:
+                            err = self->L("Gói dữ liệu Sync v2 không hợp lệ.", "Invalid Sync v2 batch framing.");
+                            break;
+                        case V2MessageParseResult::DecryptFailed:
+                            err = self->L("Không giải mã được gói tin nhắn Sync v2 (%1).",
+                                          "Failed to decrypt Sync v2 message batch (%1).")
+                                      .arg(V2::cryptoStatusName(res.cryptoStatus));
+                            break;
+                        case V2MessageParseResult::ZstdFailed:
+                            err = self->L("Không giải nén được gói tin nhắn Sync v2 (zstd).",
+                                          "Failed to decompress Sync v2 message batch (zstd).");
+                            break;
+                        case V2MessageParseResult::ParseFailed:
+                        case V2MessageParseResult::None:
+                            err = self->L("Không phân tích được dữ liệu tin nhắn Sync v2.", "Failed to parse Sync v2 messages.");
+                            break;
+                        }
+                        if (self->m_session) self->m_session->sendSyncV2Release(self->m_v2SyncId, 2);
+                        self->m_v2Active = false;
+                        self->fail(err);
+                        return;
+                    }
+                    for (const QString& id : std::as_const(res.discoveredIds)) {
+                        self->m_ids.insert(id, id);
+                    }
+                    for (auto& conv : res.conversations) {
+                        self->m_v2Conversations.append(std::move(conv));
+                    }
+                    self->processNextV2Download();
+                }, Qt::QueuedConnection);
+            });
+            return;
+        }
+        m_v2InFlightDownload = false;
         QString err;
         if (!handleV2BatchBytes(task.batchType, bytes, &err)) {
             m_session->sendSyncV2Release(m_v2SyncId, 2);
@@ -1115,13 +1299,12 @@ void MobileHistorySync::processNextV2Download() {
 }
 
 bool MobileHistorySync::handleV2BatchBytes(int batchType, const QByteArray& bytes, QString* error) {
-    QVector<QByteArray> frames;
-    if (!V2::splitFrames(bytes, &frames) || frames.isEmpty()) {
-        if (error) *error = L("Gói dữ liệu Sync v2 không hợp lệ.", "Invalid Sync v2 batch framing.");
-        return false;
-    }
-
     if (batchType == 2) {
+        QVector<QByteArray> frames;
+        if (!V2::splitFrames(bytes, &frames) || frames.isEmpty()) {
+            if (error) *error = L("Gói dữ liệu Sync v2 không hợp lệ.", "Invalid Sync v2 batch framing.");
+            return false;
+        }
         for (const QByteArray& frame : frames) {
             V2::MetadataPlain metaOut;
             const V2::CryptoStatus st = V2::openMetadata(frame, m_v2Ik.pub, m_v2Ik.priv, m_v2Ek.priv, &metaOut);
@@ -1144,89 +1327,35 @@ bool MobileHistorySync::handleV2BatchBytes(int batchType, const QByteArray& byte
             if (error) *error = L("Thiếu khóa phiên Sync v2.", "Missing Sync v2 session key.");
             return false;
         }
-        for (const QByteArray& frame : frames) {
-            QByteArray compressed;
-            const V2::CryptoStatus st = V2::openMessage(m_v2Session, frame, &compressed);
-            if (st != V2::CryptoStatus::Ok) {
-                if (error) {
+        V2MessageParseResult res = parseV2MessageBatch(bytes, m_v2Session, m_myNoisedUid);
+        if (res.errorKind != V2MessageParseResult::None) {
+            if (error) {
+                switch (res.errorKind) {
+                case V2MessageParseResult::InvalidFraming:
+                    *error = L("Gói dữ liệu Sync v2 không hợp lệ.", "Invalid Sync v2 batch framing.");
+                    break;
+                case V2MessageParseResult::DecryptFailed:
                     *error = L("Không giải mã được gói tin nhắn Sync v2 (%1).",
                                "Failed to decrypt Sync v2 message batch (%1).")
-                                 .arg(V2::cryptoStatusName(st));
-                }
-                return false;
-            }
-            QByteArray proto = compressed;
-            if (compressed.size() >= 4 &&
-                static_cast<unsigned char>(compressed.at(0)) == 0x28 &&
-                static_cast<unsigned char>(compressed.at(1)) == 0xb5 &&
-                static_cast<unsigned char>(compressed.at(2)) == 0x2f &&
-                static_cast<unsigned char>(compressed.at(3)) == 0xfd) {
-                QByteArray zstdErr;
-                const V2::ZstdStatus zs = V2::zstdDecompress(compressed, &proto, &zstdErr);
-                if (zs != V2::ZstdStatus::Ok) {
-                    if (error) {
-                        *error = L("Không giải nén được gói tin nhắn Sync v2 (zstd).",
-                                   "Failed to decompress Sync v2 message batch (zstd).");
-                    }
-                    return false;
+                                 .arg(V2::cryptoStatusName(res.cryptoStatus));
+                    break;
+                case V2MessageParseResult::ZstdFailed:
+                    *error = L("Không giải nén được gói tin nhắn Sync v2 (zstd).",
+                               "Failed to decompress Sync v2 message batch (zstd).");
+                    break;
+                case V2MessageParseResult::ParseFailed:
+                case V2MessageParseResult::None:
+                    *error = L("Không phân tích được dữ liệu tin nhắn Sync v2.", "Failed to parse Sync v2 messages.");
+                    break;
                 }
             }
-            QVector<V2::ParsedSyncV2Partition> parts;
-            if (!V2::parseSyncV2Chunk(proto, &parts)) {
-                if (error) *error = L("Không phân tích được dữ liệu tin nhắn Sync v2.", "Failed to parse Sync v2 messages.");
-                return false;
-            }
-            for (const V2::ParsedSyncV2Partition& part : parts) {
-                BackupConversation conv;
-                if (part.id.startsWith(QLatin1String("group/"))) {
-                    conv.isGroup = true;
-                    conv.plainId = part.id.mid(6);
-                } else if (part.id.startsWith(QLatin1String("oneone/"))) {
-                    conv.isGroup = false;
-                    conv.plainId = part.id.mid(7);
-                } else {
-                    conv.plainId = part.id;
-                }
-                if (conv.plainId.isEmpty()) continue;
-                m_ids.insert(conv.plainId, conv.plainId);
-
-                conv.rows.reserve(part.messages.size());
-                for (const V2::ParsedSyncV2Message& pm : part.messages) {
-                    BackupRow row;
-                    row.globalMsgId = pm.globalId;
-                    row.cliMsgId = QString::number(pm.clientId);
-                    row.msgType = pm.msgType;
-                    row.ts = static_cast<qint64>(pm.timestamp);
-                    QString sender = pm.senderId;
-                    if (sender.startsWith(QLatin1String("oneone/"))) sender = sender.mid(7);
-                    else if (sender.startsWith(QLatin1String("group/"))) sender = sender.mid(6);
-                    if (!m_myNoisedUid.isEmpty() && sender == m_myNoisedUid) {
-                        row.senderId = QStringLiteral("0");
-                    } else {
-                        row.senderId = sender;
-                        if (!sender.isEmpty()) m_ids.insert(sender, sender);
-                    }
-                    row.text = pm.content;
-                    if (!pm.attaches.isEmpty()) {
-                        row.hasParsedBin = true;
-                        for (const V2::ParsedSyncV2Attach& pa : pm.attaches) {
-                            decltype(row.parsedBin.attachs)::value_type ba;
-                            ba.type = pa.attachType.toUtf8().toStdString();
-                            ba.action = pa.action.toUtf8().toStdString();
-                            ba.params = pa.params.toUtf8().toStdString();
-                            ba.title = pa.title.toUtf8().toStdString();
-                            ba.href = pa.href.toUtf8().toStdString();
-                            ba.thumb = pa.thumb.toUtf8().toStdString();
-                            ba.description = pa.description.toUtf8().toStdString();
-                            ba.catId = pa.catId;
-                            ba.id = pa.id;
-                            row.parsedBin.attachs.push_back(std::move(ba));
-                        }
-                    }
-                    conv.rows.append(std::move(row));
-                }
-                if (!conv.rows.isEmpty()) m_v2Conversations.append(std::move(conv));
-            }
+            return false;
+        }
+        for (const QString& id : std::as_const(res.discoveredIds)) {
+            m_ids.insert(id, id);
+        }
+        for (auto& conv : res.conversations) {
+            m_v2Conversations.append(std::move(conv));
         }
         return true;
     }

@@ -366,7 +366,20 @@ void ConversationModel::updateProfile(const QString& convId, const QString& name
         if (m_filteredItems[row].id != convId) continue;
         m_filteredItems[row] = conversation(convId);
         const QModelIndex idx = index(row);
-        emit dataChanged(idx, idx, {NameRole, AvatarUrlRole, MemberCountRole});
+        emit dataChanged(idx, idx, {NameRole, AvatarUrlRole, MemberCountRole, IsOfficialRole});
+        break;
+    }
+}
+
+void ConversationModel::setSenderPrefix(const QString& convId, const QString& senderPrefix) {
+    const int i = indexOf(convId);
+    if (i < 0 || m_allItems[i].senderPrefix == senderPrefix) return;
+    m_allItems[i].senderPrefix = senderPrefix;
+    for (int row = 0; row < m_filteredItems.size(); ++row) {
+        if (m_filteredItems[row].id != convId) continue;
+        m_filteredItems[row].senderPrefix = senderPrefix;
+        const QModelIndex idx = index(row);
+        emit dataChanged(idx, idx, {SenderPrefixRole});
         break;
     }
 }
@@ -492,7 +505,11 @@ void ConversationModel::setFriendContext(const QSet<QString>& friends, const QSe
     m_officialIds = officials;
     m_myUid = myUid;
     m_friendsKnown = known;
-    if (m_strangerOnly || m_typeFilter == QLatin1String("stranger") || m_typeFilter == QLatin1String("friend")) refilter();
+    if (m_strangerOnly || m_typeFilter == QLatin1String("stranger") || m_typeFilter == QLatin1String("friend")) {
+        refilter();
+    } else if (!m_filteredItems.isEmpty()) {
+        emit dataChanged(index(0), index(m_filteredItems.size() - 1), {IsOfficialRole});
+    }
     emit filterChanged();
 }
 
@@ -601,11 +618,17 @@ void ConversationModel::clearDrafts() {
     if (!m_filteredItems.isEmpty()) emit dataChanged(index(0), index(m_filteredItems.size() - 1), {DraftRole});
 }
 
-void ConversationModel::updateLastMessage(const QString& convId, const QString& message, const QString& timeStr) {
+void ConversationModel::updateLastMessage(const QString& convId, const QString& message, const QString& timeStr,
+                                          const QString& senderPrefix, bool updatePrefix) {
     const int i = indexOf(convId);
-    if (i < 0 || (m_allItems[i].lastMessage == message && m_allItems[i].timestampStr == timeStr)) return;
-    m_allItems[i].lastMessage = message;
-    m_allItems[i].timestampStr = timeStr;
+    if (i < 0) return;
+    auto& item = m_allItems[i];
+    const bool sameMsg = item.lastMessage == message && item.timestampStr == timeStr;
+    const bool samePrefix = !updatePrefix || item.senderPrefix == senderPrefix;
+    if (sameMsg && samePrefix) return;
+    item.lastMessage = message;
+    item.timestampStr = timeStr;
+    if (updatePrefix) item.senderPrefix = senderPrefix;
     applyFilter();
 }
 
@@ -660,7 +683,28 @@ void ConversationModel::clearAll() {
     m_filteredItems.clear();
     m_index.clear();
     m_foldCache.clear();
+    m_drafts.clear();
+    m_memberAvatars.clear();
+    m_hiddenIds.clear();
+    m_hiddenPinReveal = false;
+    m_archivedIds.clear();
+    m_strangerOnly = false;
+    m_friendsKnown = false;
+    m_friendIds.clear();
+    m_officialIds.clear();
+    m_myUid.clear();
+    m_labels.clear();
+    m_activeCategory = QStringLiteral("priority");
+    m_searchQuery.clear();
+    m_labelFilter = 0;
+    m_typeFilter = QStringLiteral("all");
+    m_viewMode = QStringLiteral("normal");
+    m_batchDepth = 0;
+    m_filterDirty = false;
+    m_resetPending = false;
+    m_unreadDirty = false;
     endResetModel();
+    emit filterChanged();
     emit unreadCountChanged(0, false);
 }
 

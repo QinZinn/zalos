@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
+import QtQuick.Window
 import Zalos
 
 Rectangle {
@@ -849,7 +850,7 @@ Rectangle {
                         BusyIndicator {
                             Layout.alignment: Qt.AlignHCenter
                             visible: ZaloClient.isSyncing
-                            running: visible
+                            running: visible && (Window.window ? (Window.window.visible && Window.window.visibility !== Window.Minimized) : true)
                         }
                         Text {
                             Layout.fillWidth: true

@@ -1368,8 +1368,8 @@ Rectangle {
                         anchors.centerIn: parent
                         width: 24
                         height: 24
-                        running: ZaloClient.isLoadingHistory
-                        visible: running
+                        visible: ZaloClient.isLoadingHistory
+                        running: visible && root.visible && (Window.window ? (Window.window.visible && Window.window.visibility !== Window.Minimized) : true)
                     }
                 }
 
@@ -1381,7 +1381,7 @@ Rectangle {
                     onOpenMessageMenuRequested: (item, msg, mx, my) => root.openMessageMenu(item, msg, mx, my)
                     onOpenReactionDetailsRequested: (msgId, anchor) => root.openReactionDetails(msgId, anchor)
                     onOpenSeenDetailsRequested: (uids) => root.openSeenDetails(uids)
-                    onOpenViewerRequested: (url, sender, isMine, ts) => root.openViewer(url, sender, isMine, ts)
+                    onOpenViewerRequested: (msgId) => root.openViewer(msgId)
                     onJumpToMessageRequested: (msgId, cliMsgId) => root.jumpToMessage(msgId, cliMsgId)
                 }
             }
@@ -1788,7 +1788,7 @@ Rectangle {
                         radius: 6
                         color: Theme.badgeRed
                         SequentialAnimation on opacity {
-                            running: ZaloClient.voiceRecorder.recording
+                            running: ZaloClient.voiceRecorder.recording && root.visible && (Window.window ? (Window.window.visible && Window.window.visibility !== Window.Minimized) : true)
                             loops: Animation.Infinite
                             NumberAnimation { to: 0.25; duration: 600 }
                             NumberAnimation { to: 1.0; duration: 600 }
@@ -3857,7 +3857,7 @@ Rectangle {
         id: saveImageDialog
         title: I18n.t("Lưu ảnh", "Save picture")
         fileMode: FileDialog.SaveFile
-        currentFile: "file:///" + ZaloClient.suggestedMediaFileName(root.menuMessage.url || "")
+        currentFile: ZaloClient.suggestedMediaSaveUrl(root.menuMessage.url || "")
         onAccepted: ZaloClient.saveMediaTo(root.menuMessage.url, selectedFile.toString())
     }
 

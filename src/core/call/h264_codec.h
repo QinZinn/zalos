@@ -69,8 +69,12 @@ public:
 private:
     ISVCEncoder* m_encoder{nullptr};
     QSize m_size;
+    QByteArray m_picStorage;
+    QByteArray m_infoStorage;
 };
 
+bool imageToI420Into(const QImage& source, QSize size, QByteArray& out);
+bool frameToI420Into(const QVideoFrame& frame, QSize size, QByteArray& out);
 QByteArray imageToI420(const QImage& source, QSize size);
 QByteArray frameToI420(const QVideoFrame& frame, QSize size);
 

@@ -159,6 +159,7 @@ signals:
 
 private:
     QVector<MessageItem>& threadFor(const QString& convId);
+    void recomputeLastMineRow();
     void markOwnUpTo(const QString& convId, const QString& msgId, const QString& status);
     void placeUnreadMarker();
     bool isRunTile(int row) const;
@@ -170,6 +171,9 @@ private:
     QString m_currentConvId;
     QString m_unreadMarkerId;
     int m_pendingUnread{0};
+    int m_lastMineRow{-1};
+    quint64 m_richTextRev{0};
+    quint64 m_synthSeq{0};
     mutable QCache<QString, QString> m_richTextLru{64};
 };
 

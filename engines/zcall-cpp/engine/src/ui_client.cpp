@@ -57,9 +57,25 @@ void ElectronCallUi::send(const QJsonObject& msg) {
     m_sock->write(QJsonDocument(msg).toJson(QJsonDocument::Compact) + '\n');
 }
 
-void ElectronCallUi::open(const UiOpen& o) {
+void ElectronCallUi::clearIncomingCallbacks() {
     m_accept = nullptr;
     m_reject = nullptr;
+}
+
+CallUi::AcceptFn ElectronCallUi::takeAccept() {
+    AcceptFn fn = std::move(m_accept);
+    clearIncomingCallbacks();
+    return fn;
+}
+
+CallUi::RejectFn ElectronCallUi::takeReject() {
+    RejectFn fn = std::move(m_reject);
+    clearIncomingCallbacks();
+    return fn;
+}
+
+void ElectronCallUi::open(const UiOpen& o) {
+    clearIncomingCallbacks();
     QJsonObject s{{"phase", "outgoing"}, {"name", o.title}, {"avatar", o.avatar}, {"statusCode", o.statusCode},
                   {"statusParams", o.statusParams}, {"text", statusText(o.statusCode, o.statusParams)}, {"since", 0},
                   {"video", o.video}, {"group", o.group}, {"selfAvatar", o.selfAvatar}, {"muted", false}, {"speakerOff", false}};
@@ -81,8 +97,8 @@ void ElectronCallUi::incoming(const UiIncoming& o, AcceptFn onAccept, RejectFn o
         f.title = o.title;
         f.statusCode = o.statusCode;
         f.statusParams = o.statusParams;
-        m_fallback->incoming(f, [this](bool) { if (m_accept) { auto a = m_accept; m_accept = nullptr; a(false); } },
-                             [this](const QString& why) { if (m_reject) { auto r = m_reject; m_reject = nullptr; r(why); } });
+        m_fallback->incoming(f, [this](bool) { if (auto a = takeAccept()) a(false); },
+                             [this](const QString& why) { if (auto r = takeReject()) r(why); });
     }
 }
 
@@ -92,6 +108,7 @@ void ElectronCallUi::status(const QString& code, double since, const QJsonObject
     QString phase = s.value("phase").toString();
     if (since != 0) phase = QStringLiteral("connected");
     else if (phase == QLatin1String("incoming")) phase = QStringLiteral("connecting");
+    if (phase != QLatin1String("incoming")) clearIncomingCallbacks();
     s.insert("phase", phase);
     s.insert("statusCode", code);
     s.insert("statusParams", params);
@@ -101,8 +118,7 @@ void ElectronCallUi::status(const QString& code, double since, const QJsonObject
 }
 
 void ElectronCallUi::close(const QString& code, const QJsonObject& params) {
-    m_accept = nullptr;
-    m_reject = nullptr;
+    clearIncomingCallbacks();
     m_hasState = false;
     m_state = QJsonObject();
     const QString closeCode = code.isEmpty() ? QStringLiteral("ended") : code;
@@ -184,39 +200,53 @@ void ElectronCallUi::video(const UiVideo& v) {
 
 void ElectronCallUi::onData() {
     m_buf += m_sock->readAll();
-    for (int i = m_buf.indexOf('\n'); i >= 0; i = m_buf.indexOf('\n')) {
+    for (;;) {
+        if (m_pendingBinBytes > 0) {
+            if (m_buf.size() < m_pendingBinBytes) return;
+            const QByteArray payload = m_buf.left(int(m_pendingBinBytes));
+            m_buf.remove(0, int(m_pendingBinBytes));
+            m_pendingBinBytes = 0;
+            const QJsonObject head = std::move(m_pendingBinHead);
+            m_pendingBinHead = QJsonObject();
+            if (m_listener) {
+                m_listener->uiVideoFrame(OutVideoFrame{head.value("key").toBool(), payload, head.value("screen").toBool(),
+                                                       head.value("w").toInt(), head.value("h").toInt()});
+            }
+            continue;
+        }
+        const int i = m_buf.indexOf('\n');
+        if (i < 0) return;
         const QByteArray line = m_buf.left(i);
         m_buf.remove(0, i + 1);
         QJsonParseError err{};
         const QJsonDocument d = QJsonDocument::fromJson(line, &err);
         if (err.error != QJsonParseError::NoError || !d.isObject()) continue;
-        onAction(d.object());
+        const QJsonObject obj = d.object();
+        if (obj.value("action") == QLatin1String("videoFrame") && obj.contains(QLatin1String("bin"))) {
+            const qint64 n = obj.value("bin").toVariant().toLongLong();
+            if (n > 0 && n <= 4 * 1024 * 1024) {
+                m_pendingBinBytes = n;
+                m_pendingBinHead = obj;
+            }
+            continue;
+        }
+        onAction(obj);
     }
 }
 
 void ElectronCallUi::onAction(const QJsonObject& m) {
     const QString action = m.value("action").toString();
     if (action == QLatin1String("accept")) {
-        if (m_accept) {
-            auto a = m_accept;
-            m_accept = nullptr;
-            a(m.value("camStartOff").toBool());
-        }
+        if (auto a = takeAccept()) a(m.value("camStartOff").toBool());
         return;
     }
     if (action == QLatin1String("reject")) {
-        if (m_reject) {
-            auto r = m_reject;
-            m_reject = nullptr;
-            r(m.value("why").toString(QStringLiteral("reject")));
-        }
+        if (auto r = takeReject()) r(m.value("why").toString(QStringLiteral("reject")));
         return;
     }
     if (m_listener == nullptr) return;
     if (action == QLatin1String("hangup")) {
-        if (m_reject) {
-            auto r = m_reject;
-            m_reject = nullptr;
+        if (auto r = takeReject()) {
             r(QStringLiteral("reject"));
             return;
         }
@@ -264,8 +294,8 @@ void ElectronCallUi::useFallback() {
         f.statusCode = m_state.value("statusCode").toString();
         f.statusParams = m_state.value("statusParams").toObject();
         m_fallback->incoming(f,
-                             [this](bool) { if (m_accept) { auto a = m_accept; m_accept = nullptr; a(false); } },
-                             [this](const QString& why) { if (m_reject) { auto r = m_reject; m_reject = nullptr; r(why); } });
+                             [this](bool) { if (auto a = takeAccept()) a(false); },
+                             [this](const QString& why) { if (auto r = takeReject()) r(why); });
     } else {
         m_fallback->open(fallbackOpen(m_state));
     }

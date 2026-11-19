@@ -7,8 +7,7 @@
 
 using namespace Zalos::Core::Network;
 
-// Vectors generated with crypto-js 4.2.0 / Node crypto using the zca-js algorithms
-// (src/utils.ts: ParamsEncryptor, encodeAES, getSignKey, decodeEventData).
+// Reference test vectors generated with crypto-js 4.2.0 / Node crypto
 class TestProtocol : public QObject {
     Q_OBJECT
 

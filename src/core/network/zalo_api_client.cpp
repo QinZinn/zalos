@@ -9,9 +9,11 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QNetworkRequest>
+#include <QPointer>
 #include <QProcess>
 #include <QRegularExpression>
 #include <QStandardPaths>
+#include <QThreadPool>
 #include <QUrl>
 
 namespace Zalos::Core::Network {
@@ -82,14 +84,22 @@ void ZaloApiClient::generateQrToken() {
     request.setRawHeader("sec-fetch-site", "same-site");
     request.setAttribute(kTagAttr, "qr_step1_load_page");
     request.setAttribute(kGenAttr, m_qrGeneration);
-    m_netManager->get(request);
+    m_activeQrReply = m_netManager->get(request);
 }
 
 void ZaloApiClient::cancelQrLogin() {
+    ++m_qrGeneration;
+    ++m_browserSyncGen;
     m_isPollingScan = false;
     m_isPollingConfirm = false;
     m_qrPollRetries = 0;
     m_qrRetryTimer.stop();
+    if (m_activeQrReply) {
+        QNetworkReply* reply = m_activeQrReply.data();
+        m_activeQrReply.clear();
+        reply->abort();
+        reply->deleteLater();
+    }
 }
 
 void ZaloApiClient::postIdForm(const QString& url, const QList<QPair<QString, QString>>& form, const QString& tag,
@@ -106,7 +116,7 @@ void ZaloApiClient::postIdForm(const QString& url, const QList<QPair<QString, QS
     req.setAttribute(kGenAttr, m_qrGeneration);
     if (tag == QLatin1String("qr_step5_waiting_scan") || tag == QLatin1String("qr_step6_waiting_confirm"))
         req.setTransferTimeout(kLongPollTimeoutMs);
-    m_netManager->post(req, body);
+    m_activeQrReply = m_netManager->post(req, body);
 }
 
 void ZaloApiClient::pollWaitingScan() {
@@ -130,7 +140,7 @@ void ZaloApiClient::checkSession() {
     req.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
     req.setAttribute(kTagAttr, "qr_step7_check_session");
     req.setAttribute(kGenAttr, m_qrGeneration);
-    m_netManager->get(req);
+    m_activeQrReply = m_netManager->get(req);
 }
 
 void ZaloApiClient::startSessionLogin(const QString& imei, const QString& userAgent, const QString& language) {
@@ -155,27 +165,40 @@ void ZaloApiClient::forgetSession() {
 
 void ZaloApiClient::syncFromBrowserSession() {
     cancelQrLogin();
-
-    Platform::BrowserSessionResult res = Platform::BrowserSessionReader::readSession();
-    if (!res.success) {
-        emit credentialsUnavailable(res.reason.isEmpty() ? QStringLiteral("no_browser_session") : res.reason);
-        return;
-    }
-
-    if (res.cookies.isEmpty() || res.imei.isEmpty()) {
-        emit credentialsUnavailable("incomplete_session");
-        return;
-    }
-
-    m_jar->replaceCookies({});
-    ZaloSession::importCookies(m_jar, res.cookies);
-    emit credentialsObtained();
-    startSessionLogin(res.imei, res.userAgent.isEmpty() ? ZaloSession::kDefaultUserAgent : res.userAgent, m_language);
+    const quint64 syncGen = ++m_browserSyncGen;
+    QPointer<ZaloApiClient> self(this);
+    QThreadPool::globalInstance()->start([self, syncGen]() {
+        const Platform::BrowserSessionResult res = Platform::BrowserSessionReader::readSession();
+        QObject* target = QCoreApplication::instance();
+        if (!target || !self) return;
+        QMetaObject::invokeMethod(
+            target,
+            [self, syncGen, res]() {
+                if (!self || syncGen != self->m_browserSyncGen) return;
+                if (!res.success) {
+                    emit self->credentialsUnavailable(
+                        res.reason.isEmpty() ? QStringLiteral("no_browser_session") : res.reason);
+                    return;
+                }
+                if (res.cookies.isEmpty() || res.imei.isEmpty()) {
+                    emit self->credentialsUnavailable(QStringLiteral("incomplete_session"));
+                    return;
+                }
+                self->m_jar->replaceCookies({});
+                ZaloSession::importCookies(self->m_jar, res.cookies);
+                emit self->credentialsObtained();
+                self->startSessionLogin(
+                    res.imei, res.userAgent.isEmpty() ? ZaloSession::kDefaultUserAgent : res.userAgent,
+                    self->m_language);
+            },
+            Qt::QueuedConnection);
+    });
 }
 
 void ZaloApiClient::onReplyFinished(QNetworkReply* reply) {
     const QString tag = reply->request().attribute(kTagAttr).toString();
     if (tag.isEmpty()) return;
+    if (m_activeQrReply == reply) m_activeQrReply.clear();
     reply->deleteLater();
 
     if (tag == "ping") {

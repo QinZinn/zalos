@@ -1,77 +1,141 @@
 #!/bin/sh
 set -e
 
-# AppDir Path Resolution
 APPDIR="$(dirname "$(readlink -f "$0")")"
 export APPDIR
 
 export PATH="${APPDIR}/usr/bin:${PATH}"
 
-# Qt, QML modules and OpenSSL come from the host when complete; otherwise fall back to the bundled minimal Qt6 runtime.
+_ldconfig="$(command -v ldconfig 2>/dev/null || echo /sbin/ldconfig)"
+case "$(uname -m)" in
+    x86_64|amd64) _ldarch="x86-64" ;;
+    aarch64|arm64) _ldarch="AArch64" ;;
+    *) _ldarch="" ;;
+esac
+_ldcache=""
+[ -x "${_ldconfig}" ] && _ldcache="$("${_ldconfig}" -p 2>/dev/null || true)"
+
+_has_host_lib() {
+    [ -n "${_ldcache}" ] || return 1
+    if [ -n "${_ldarch}" ]; then
+        printf '%s\n' "${_ldcache}" | grep -Eq "^[[:space:]]*$1 \(.*${_ldarch}"
+    else
+        printf '%s\n' "${_ldcache}" | grep -Eq "^[[:space:]]*$1 "
+    fi
+}
+
+_need_openssl3=""
+if [ -d "${APPDIR}/usr/lib/openssl3-fallback" ] \
+   && { ! _has_host_lib "libcrypto\.so\.3" || ! _has_host_lib "libssl\.so\.3"; }; then
+    _need_openssl3="1"
+fi
+
 _use_host_qt=""
 if [ "${ZALOS_FORCE_BUNDLED_QT:-0}" != "1" ] && [ -d "${APPDIR}/usr/lib/qt6-fallback/lib" ]; then
-    if ! ldd "${APPDIR}/usr/bin/zalos" 2>/dev/null | grep -q "not found"; then
+    _probe_ld="${LD_LIBRARY_PATH:-}"
+    if [ -n "${_need_openssl3}" ]; then
+        _probe_ld="${APPDIR}/usr/lib/openssl3-fallback${_probe_ld:+:${_probe_ld}}"
+    fi
+    if _ldd_out="$(LD_LIBRARY_PATH="${_probe_ld}" ldd -r "${APPDIR}/usr/bin/zalos" 2>&1)" \
+       && ! printf '%s\n' "${_ldd_out}" | grep -Eq "not found|undefined symbol|version .* not found"; then
+        _has_qml=""
         for _qdir in /usr/lib/qt6/qml /usr/lib64/qt6/qml /usr/lib/*/qt6/qml; do
-            if [ -d "${_qdir}/QtQuick/Controls" ]; then
-                _use_host_qt="1"
+            if [ -d "${_qdir}/QtQuick/Controls" ] \
+               && [ -d "${_qdir}/QtQuick/Dialogs" ] \
+               && [ -d "${_qdir}/QtQuick/Shapes" ] \
+               && [ -d "${_qdir}/QtQuick/Layouts" ] \
+               && [ -d "${_qdir}/QtQuick/Window" ] \
+               && [ -d "${_qdir}/QtQuick/Templates" ] \
+               && [ -d "${_qdir}/QtMultimedia" ] \
+               && [ -d "${_qdir}/QtCore" ]; then
+                _has_qml="1"
                 break
             fi
         done
+        _has_sqlite=""
+        _has_tls=""
+        for _pdir in /usr/lib/qt6/plugins /usr/lib64/qt6/plugins /usr/lib/*/qt6/plugins; do
+            [ -f "${_pdir}/sqldrivers/libqsqlite.so" ] && _has_sqlite="1"
+            [ -f "${_pdir}/tls/libqopensslbackend.so" ] && _has_tls="1"
+        done
+        if [ -n "${_has_qml}" ] && [ -n "${_has_sqlite}" ] && [ -n "${_has_tls}" ]; then
+            _use_host_qt="1"
+        fi
     fi
 elif [ ! -d "${APPDIR}/usr/lib/qt6-fallback/lib" ]; then
     _use_host_qt="1"
 fi
 
+_export_ssl_cert_file() {
+    if [ -z "${SSL_CERT_FILE:-}" ]; then
+        for _ca in /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt /etc/ssl/ca-bundle.pem /etc/ssl/cert.pem; do
+            if [ -r "${_ca}" ]; then
+                export SSL_CERT_FILE="${_ca}"
+                break
+            fi
+        done
+    fi
+}
+
 if [ -n "${_use_host_qt}" ]; then
-    if [ -d "${APPDIR}/usr/lib/openssl3-fallback" ] && ! /sbin/ldconfig -p 2>/dev/null | grep -q "libcrypto\.so\.3 "; then
+    if [ -n "${_need_openssl3}" ]; then
         export LD_LIBRARY_PATH="${APPDIR}/usr/lib/openssl3-fallback${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+        _export_ssl_cert_file
     fi
 
     if [ -d "${APPDIR}/usr/lib64/qt6/plugins" ]; then
-        export QT_PLUGIN_PATH="${APPDIR}/usr/lib64/qt6/plugins:${QT_PLUGIN_PATH}"
+        export QT_PLUGIN_PATH="${APPDIR}/usr/lib64/qt6/plugins${QT_PLUGIN_PATH:+:${QT_PLUGIN_PATH}}"
     fi
 
     if [ -d "${APPDIR}/usr/lib/webp-fallback/imageformats" ]; then
         _host_webp=""
-        for _d in ${QT_PLUGIN_PATH} /usr/lib/qt6/plugins /usr/lib64/qt6/plugins /usr/lib/*/qt6/plugins; do
-            [ -f "${_d}/imageformats/libqwebp.so" ] && _host_webp="1" && break
-        done
-        [ -z "${_host_webp}" ] && export QT_PLUGIN_PATH="${APPDIR}/usr/lib/webp-fallback:${QT_PLUGIN_PATH}"
+        if [ -n "${QT_PLUGIN_PATH:-}" ]; then
+            _saved_ifs="${IFS}"
+            IFS=:
+            for _d in ${QT_PLUGIN_PATH}; do
+                [ -n "${_d}" ] && [ -f "${_d}/imageformats/libqwebp.so" ] && _host_webp="1" && break
+            done
+            IFS="${_saved_ifs}"
+        fi
+        if [ -z "${_host_webp}" ]; then
+            for _d in /usr/lib/qt6/plugins /usr/lib64/qt6/plugins /usr/lib/*/qt6/plugins; do
+                [ -f "${_d}/imageformats/libqwebp.so" ] && _host_webp="1" && break
+            done
+        fi
+        [ -z "${_host_webp}" ] && export QT_PLUGIN_PATH="${APPDIR}/usr/lib/webp-fallback${QT_PLUGIN_PATH:+:${QT_PLUGIN_PATH}}"
     fi
 
     if [ -d "${APPDIR}/usr/lib64/qt6/qml" ]; then
-        export QML2_IMPORT_PATH="${APPDIR}/usr/lib64/qt6/qml:${QML2_IMPORT_PATH}"
-        export QML_IMPORT_PATH="${APPDIR}/usr/lib64/qt6/qml:${QML_IMPORT_PATH}"
+        export QML2_IMPORT_PATH="${APPDIR}/usr/lib64/qt6/qml${QML2_IMPORT_PATH:+:${QML2_IMPORT_PATH}}"
+        export QML_IMPORT_PATH="${APPDIR}/usr/lib64/qt6/qml${QML_IMPORT_PATH:+:${QML_IMPORT_PATH}}"
     fi
 else
     export ZALOS_BUNDLED_QT=1
     export LD_LIBRARY_PATH="${APPDIR}/usr/lib/qt6-fallback/lib:${APPDIR}/usr/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
-    if [ -d "${APPDIR}/usr/lib/openssl3-fallback" ] && ! /sbin/ldconfig -p 2>/dev/null | grep -q "libcrypto\.so\.3 "; then
+    if [ -n "${_need_openssl3}" ]; then
         export LD_LIBRARY_PATH="${LD_LIBRARY_PATH}:${APPDIR}/usr/lib/openssl3-fallback"
+        _export_ssl_cert_file
     fi
     export QT_PLUGIN_PATH="${APPDIR}/usr/lib/qt6-fallback/plugins"
     export QML2_IMPORT_PATH="${APPDIR}/usr/lib/qt6-fallback/qml"
     export QML_IMPORT_PATH="${APPDIR}/usr/lib/qt6-fallback/qml"
 fi
 
-if [ -d "${APPDIR}/usr/lib/opus-fallback" ] && ! /sbin/ldconfig -p 2>/dev/null | grep -q "libopus\.so\.0 "; then
+if [ -d "${APPDIR}/usr/lib/opus-fallback" ] && ! _has_host_lib "libopus\.so\.0"; then
     export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:+${LD_LIBRARY_PATH}:}${APPDIR}/usr/lib/opus-fallback"
 fi
 
 export XDG_DATA_DIRS="${APPDIR}/usr/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
 
-# Smart display platform detection (Wayland with xcb fallback vs pure X11)
-if [ -z "${QT_QPA_PLATFORM}" ]; then
-    if [ -n "${WAYLAND_DISPLAY}" ] || [ "${XDG_SESSION_TYPE}" = "wayland" ]; then
+if [ -z "${QT_QPA_PLATFORM:-}" ]; then
+    if [ -n "${WAYLAND_DISPLAY:-}" ] || [ "${XDG_SESSION_TYPE:-}" = "wayland" ]; then
         export QT_QPA_PLATFORM="wayland;xcb"
-    elif [ -n "${DISPLAY}" ]; then
+    elif [ -n "${DISPLAY:-}" ]; then
         export QT_QPA_PLATFORM="xcb"
     fi
 fi
 
-# Input method (IBus / Fcitx) selection is reconciled inside the application (see configureInputMethod in main.cpp).
-
-if [ -z "${GLIBC_TUNABLES}" ]; then
+if [ -z "${GLIBC_TUNABLES:-}" ]; then
     export GLIBC_TUNABLES="glibc.malloc.arena_max=2:glibc.malloc.tcache_max=64:glibc.malloc.trim_threshold=131072:glibc.malloc.mmap_threshold=131072"
 fi
 
@@ -82,7 +146,7 @@ if [ -n "${APPIMAGE:-}" ] && [ -z "${ZALOS_NO_DETACH:-}" ] && [ -z "${ZALOS_DEBU
     _detach=1
     for _arg in "$@"; do
         case "${_arg}" in
-            --debug|--test-gui|--screenshot|-h|--help|-v|--version|-f|--foreground)
+            --debug|--test-gui|--screenshot|--screenshot=*|-h|--help|-v|--version|-f|--foreground)
                 _detach=0
                 break
                 ;;
@@ -91,9 +155,26 @@ if [ -n "${APPIMAGE:-}" ] && [ -z "${ZALOS_NO_DETACH:-}" ] && [ -z "${ZALOS_DEBU
 fi
 
 if [ "${_detach}" -eq 1 ]; then
-    ZALOS_NO_DETACH=1 setsid "${APPIMAGE}" "$@" </dev/null >/dev/null 2>&1 &
+    if ! grep -Fq " ${APPDIR} " /proc/mounts 2>/dev/null; then
+        APPIMAGE_EXTRACT_AND_RUN=1 ZALOS_NO_DETACH=1 setsid "${APPIMAGE}" "$@" </dev/null >/dev/null 2>&1 &
+    else
+        ZALOS_NO_DETACH=1 setsid "${APPIMAGE}" "$@" </dev/null >/dev/null 2>&1 &
+    fi
     exit 0
 fi
 
-# Execute Zalos binary
+if [ "$#" -gt 0 ]; then
+    _n="$#"
+    _i=0
+    while [ "${_i}" -lt "${_n}" ]; do
+        _arg="$1"
+        shift
+        case "${_arg}" in
+            -f|--foreground) ;;
+            *) set -- "$@" "${_arg}" ;;
+        esac
+        _i=$((_i + 1))
+    done
+fi
+
 exec "${APPDIR}/usr/bin/zalos" "$@"

@@ -94,7 +94,7 @@ QByteArray BrowserSessionReader::readSafeStorageKey(const QString& appAttr, cons
 
     {
         QProcess proc;
-        proc.start("kwallet-query", {"-f", folderName, "-r", folderName + " Keys", "kdewallet"});
+        proc.start("kwallet-query", {"-f", folderName + " Keys", "-r", folderName + " Safe Storage", "kdewallet"});
         if (proc.waitForFinished(1000) && proc.exitCode() == 0) {
             QByteArray out = proc.readAllStandardOutput().trimmed();
             if (!out.isEmpty()) return out;
@@ -163,6 +163,10 @@ BrowserSessionResult BrowserSessionReader::readSession() {
 
             const QString tmpCookie = tmpDir.path() + "/Cookies";
             if (!QFile::copy(cookiePath, tmpCookie)) continue;
+            for (const char* suffix : {"-wal", "-shm"}) {
+                const QString aux = cookiePath + suffix;
+                if (QFile::exists(aux)) QFile::copy(aux, tmpCookie + suffix);
+            }
 
             const QString connName = QStringLiteral("browser_session_probe_%1").arg(QRandomGenerator::global()->generate());
 
@@ -211,8 +215,9 @@ BrowserSessionResult BrowserSessionReader::readSession() {
             sawAnyZalo = true;
 
             const QByteArray secret = readSafeStorageKey(b.appAttr, b.kwalletFolder);
-            const QByteArray aesKey = deriveAesKey(secret);
-            if (aesKey.isEmpty()) continue;
+            const QByteArray keyringKey = deriveAesKey(secret);
+            const QByteArray peanutsKey = deriveAesKey("peanuts");
+            if (keyringKey.isEmpty() && peanutsKey.isEmpty()) continue;
 
             QJsonArray cookieArray;
             bool decryptFailed = false;
@@ -221,12 +226,25 @@ BrowserSessionResult BrowserSessionReader::readSession() {
                 QString plainVal = rc.value;
                 if (plainVal.isEmpty() && !rc.encrypted.isEmpty()) {
                     if (rc.encrypted.startsWith("v10") || rc.encrypted.startsWith("v11")) {
-                        QByteArray rawDecrypted = decryptAesCbc(aesKey, rc.encrypted.mid(3));
-                        if (rawDecrypted.isEmpty()) {
+                        const QByteArray cipher = rc.encrypted.mid(3);
+                        const bool preferPeanuts = rc.encrypted.startsWith("v10");
+                        const QByteArray& firstKey = preferPeanuts ? peanutsKey : keyringKey;
+                        const QByteArray& secondKey = preferPeanuts ? keyringKey : peanutsKey;
+                        QByteArray rawDecrypted;
+                        bool decryptedOk = false;
+                        if (!firstKey.isEmpty()) {
+                            rawDecrypted = decryptAesCbc(firstKey, cipher);
+                            if (!rawDecrypted.isEmpty() || cipher.size() == 16) decryptedOk = true;
+                        }
+                        if (!decryptedOk && !secondKey.isEmpty() && secondKey != firstKey) {
+                            rawDecrypted = decryptAesCbc(secondKey, cipher);
+                            if (!rawDecrypted.isEmpty() || cipher.size() == 16) decryptedOk = true;
+                        }
+                        if (!decryptedOk) {
                             decryptFailed = true;
                             break;
                         }
-                        if (dbVersion >= 24 && rawDecrypted.size() > 32) {
+                        if (dbVersion >= 24 && rawDecrypted.size() >= 32) {
                             rawDecrypted = rawDecrypted.mid(32);
                         }
                         plainVal = QString::fromUtf8(rawDecrypted);

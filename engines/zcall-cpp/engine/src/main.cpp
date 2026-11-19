@@ -10,13 +10,29 @@
 
 #include <QCoreApplication>
 #include <QDir>
+#include <QSocketNotifier>
 #include <QStringList>
 #include <QTimer>
 
+#include <csignal>
 #include <cstdio>
 #include <memory>
+#include <unistd.h>
 
 using namespace zcall;
+
+namespace {
+
+int g_sigFd[2]{-1, -1};
+
+void handleExitSignal(int) {
+    if (g_sigFd[1] < 0) return;
+    const char b = 1;
+    const ssize_t ignored = ::write(g_sigFd[1], &b, 1);
+    (void)ignored;
+}
+
+}
 
 int main(int argc, char** argv) {
     QCoreApplication app(argc, argv);
@@ -99,7 +115,24 @@ int main(int argc, char** argv) {
     });
     ipc.connectAll();
 
+    QSocketNotifier* sigNotifier = nullptr;
+    if (::pipe(g_sigFd) == 0) {
+        std::signal(SIGINT, handleExitSignal);
+        std::signal(SIGTERM, handleExitSignal);
+        sigNotifier = new QSocketNotifier(g_sigFd[0], QSocketNotifier::Read, &app);
+        QObject::connect(sigNotifier, &QSocketNotifier::activated, &app, [&core, &app, sigNotifier]() {
+            sigNotifier->setEnabled(false);
+            char buf[32];
+            while (::read(g_sigFd[0], buf, sizeof(buf)) > 0) {}
+            core.hangup(QStringLiteral("engine-exit"));
+            QTimer::singleShot(300, &app, [] { QCoreApplication::exit(0); });
+        });
+    }
+
     const int code = app.exec();
     ipcPtr = nullptr;
+    if (g_sigFd[0] >= 0) ::close(g_sigFd[0]);
+    if (g_sigFd[1] >= 0) ::close(g_sigFd[1]);
+    g_sigFd[0] = g_sigFd[1] = -1;
     return code;
 }

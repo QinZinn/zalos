@@ -17,6 +17,7 @@ class QJSEngine;
 #include <memory>
 
 class QMediaPlayer;
+class QNetworkAccessManager;
 
 #include "models/conversation_model.h"
 #include "models/message_model.h"
@@ -564,6 +565,7 @@ public:
     void handleReactionsForTesting(const QJsonArray& reactions, bool isGroup) { handleReactions(reactions, isGroup); }
     Platform::DesktopNotifications* notificationsForTesting() const { return m_notifications; }
     void reloadDraftsForTesting() { loadDrafts(); }
+    void resolveUnknownUsersForTesting() { resolveUnknownUsers(); }
     bool openOfflineCacheForTesting(const QString& uid) {
         m_cachedUid = uid;
         return loadOfflineCache();
@@ -715,6 +717,8 @@ public:
     Q_INVOKABLE void copyImage(const QString& url);
     Q_INVOKABLE void openFileMessage(const QString& url, const QString& fileName);
     Q_INVOKABLE QString suggestedMediaFileName(const QString& url) const;
+    Q_INVOKABLE QString suggestedMediaSaveUrl(const QString& url) const;
+    Q_INVOKABLE QString annotatedImageTempPath() const;
     Q_INVOKABLE void notifyTyping();
     Q_INVOKABLE void acceptFriendRequest(const QString& uid);
     Q_INVOKABLE void rejectFriendRequest(const QString& uid);
@@ -973,6 +977,7 @@ private:
                      const QJsonObject& quoted,
                      const QString& localId, const QString& cliMsgId, const QJsonArray& styles = QJsonArray());
     void loadGroupInfo(const QStringList& groupIds);
+    void sendForward(const QString& targetThreadId, const QString& msgId, bool notifySuccess);
     void updateGroupComposite(const QString& groupId);
     void lookupCompositeMembers();
     void resolveUnknownUsers();
@@ -982,6 +987,9 @@ private:
     static bool isQuietMessageType(const QString& msgType);
     void ensureConversation(const QString& threadId, bool isGroup);
     void applyProfileToConversation(const QString& id);
+    QString resolvedSenderName(const Models::MessageItem& item) const;
+    QString previewPrefixFor(const Models::MessageItem& item, bool isGroup) const;
+    void refreshGroupSenderPrefixes(const QSet<QString>& uids);
     void rebuildContacts();
     void rebuildContactsNow();
     void setSyncing(bool syncing);
@@ -1006,6 +1014,8 @@ private:
     bool isGroupThread(const QString& threadId) const;
     void handleMobileSyncControl(const QJsonObject& content);
     void setMobileSyncState(int state, const QString& status, int progress = 0);
+    QNetworkAccessManager* ensureUpdateNam();
+    void trimMessageCaches();
 
     QHash<QString, QJsonObject> m_rawMessages;
     QHash<QString, QString> m_messageThread;
@@ -1154,7 +1164,7 @@ private:
     QString m_reconnectProbeReason;
     bool m_loadingHistory{false};
     bool m_syncing{false};
-    int m_pendingSyncJobs{0};
+    quint64 m_accountLoadGen{0};
     QTimer* m_userLookupTimer{nullptr};
 
     bool m_isLoggedIn{false};
@@ -1267,6 +1277,11 @@ private:
     QVariantList m_bankAccounts;
     QVariantList m_blockedUsers;
     QHash<QString, QHash<QString, QVariantList>> m_serverSharedMedia;
+    struct LastGroupSender {
+        QString uid;
+        qint64 ts{0};
+    };
+    QHash<QString, LastGroupSender> m_lastGroupSender;
     QSet<QString> m_bankCardFetching;
     QSet<QString> m_closeFriendIds;
     bool m_startHiddenInTray{false};
@@ -1283,6 +1298,7 @@ private:
     bool m_isPreviewPlaying{false};
     QString m_currentPreviewSound{""};
     QTimer* m_previewTimer{nullptr};
+    QNetworkAccessManager* m_updateNam{nullptr};
     QString m_appLanguage{"vi"};
 
     Models::ConversationModel* m_conversationModel{nullptr};

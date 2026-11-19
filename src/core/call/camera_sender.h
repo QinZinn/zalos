@@ -93,6 +93,7 @@ private:
     mutable QMutex m_stateMutex;
     QPointer<QVideoSink> m_preview;
     H264Encoder m_encoder;
+    QByteArray m_i420Buf;
     QSize m_size{640, 360};
     int m_fps{15};
     int m_bitrate{300000};

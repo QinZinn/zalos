@@ -199,6 +199,235 @@ private Q_SLOTS:
         if (!run.proc.waitForFinished(3000)) run.proc.kill();
     }
 
+    void uiHangupAfterAcceptAndOutgoing() {
+        QTcpServer recvSrv;
+        QTcpServer sendSrv;
+        QTcpServer uiSrv;
+        QVERIFY(recvSrv.listen(QHostAddress::LocalHost, 0));
+        QVERIFY(sendSrv.listen(QHostAddress::LocalHost, 0));
+        QVERIFY(uiSrv.listen(QHostAddress::LocalHost, 0));
+
+        QList<QJsonObject> frames;
+        QList<QJsonObject> uiMsgs;
+        QTcpSocket* engineSend = nullptr;
+        QTcpSocket* uiSock = nullptr;
+        QByteArray uiBuf;
+        bool uiAuthed = false;
+        FrameParser parser(m_key, true, [&frames](const IpcFrame& f) {
+            if (!f.isToken && !f.isError && f.json.isObject()) frames.append(f.json.toObject());
+        });
+
+        connect(&recvSrv, &QTcpServer::newConnection, this, [&] {
+            QTcpSocket* s = recvSrv.nextPendingConnection();
+            connect(s, &QTcpSocket::readyRead, s, [&parser, s] { parser.push(s->readAll()); });
+        });
+        connect(&sendSrv, &QTcpServer::newConnection, this, [&] { engineSend = sendSrv.nextPendingConnection(); });
+        connect(&uiSrv, &QTcpServer::newConnection, this, [&] {
+            uiSock = uiSrv.nextPendingConnection();
+            connect(uiSock, &QTcpSocket::readyRead, uiSock, [&] {
+                uiBuf += uiSock->readAll();
+                for (;;) {
+                    const int nl = uiBuf.indexOf('\n');
+                    if (nl < 0) break;
+                    const QByteArray line = uiBuf.left(nl);
+                    uiBuf.remove(0, nl + 1);
+                    if (!uiAuthed) {
+                        if (line == "TKN-ui") uiAuthed = true;
+                        continue;
+                    }
+                    const QJsonDocument d = QJsonDocument::fromJson(line);
+                    if (d.isObject()) uiMsgs.append(d.object());
+                }
+            });
+        });
+
+        QProcess proc;
+        proc.setProcessChannelMode(QProcess::ForwardedErrorChannel);
+        proc.start(QStringLiteral(ZCALL_ENGINE_BIN),
+                   {QStringLiteral("--token"), QLatin1String(kToken),
+                    QStringLiteral("--key-file"), m_dir.filePath(QStringLiteral("transport.key")),
+                    QStringLiteral("--recv"), QString::number(recvSrv.serverPort()),
+                    QStringLiteral("--send"), QString::number(sendSrv.serverPort()),
+                    QStringLiteral("--ui-port"), QString::number(uiSrv.serverPort()),
+                    QStringLiteral("--ui-token"), QStringLiteral("TKN-ui"),
+                    QStringLiteral("--media"), QStringLiteral("stub"),
+                    QStringLiteral("--group")});
+        QVERIFY(proc.waitForStarted(5000));
+        QTRY_VERIFY_WITH_TIMEOUT(engineSend != nullptr && uiSock != nullptr && uiAuthed, 10000);
+
+        auto sendFrame = [&](const QJsonObject& f) {
+            engineSend->write(ipcEncrypt(QJsonDocument(f).toJson(QJsonDocument::Compact), m_key) + '$');
+            engineSend->flush();
+        };
+        auto sendUi = [&](const QJsonObject& a) {
+            uiSock->write(QJsonDocument(a).toJson(QJsonDocument::Compact) + '\n');
+            uiSock->flush();
+        };
+        auto hasSignal = [&](int cmd) {
+            for (const QJsonObject& f : frames)
+                if (f.value("type").toString() == "sendSignal" && f.value("command").toInt() == cmd) return true;
+            return false;
+        };
+        auto findSignal = [&](int cmd) -> QJsonObject {
+            for (const QJsonObject& f : frames)
+                if (f.value("type").toString() == "sendSignal" && f.value("command").toInt() == cmd) return f;
+            return {};
+        };
+        auto hasUpdate = [&](const QString& cmd, const QString& stateVal = QString()) {
+            for (const QJsonObject& f : frames) {
+                if (f.value("type").toString() == "update" && f.value("command").toString() == cmd) {
+                    if (stateVal.isEmpty() || f.value("data").toObject().value("state").toString() == stateVal) return true;
+                }
+            }
+            return false;
+        };
+        auto hasUiPhase = [&](const QString& phase) {
+            for (const QJsonObject& m : uiMsgs)
+                if (m.value("type").toString() == "state" && m.value("phase").toString() == phase) return true;
+            return false;
+        };
+        auto hasUiClose = [&]() {
+            for (const QJsonObject& m : uiMsgs)
+                if (m.value("type").toString() == "close") return true;
+            return false;
+        };
+
+        QTRY_VERIFY_WITH_TIMEOUT(hasUpdate(QStringLiteral("native-ready")), 10000);
+
+        frames.clear();
+        uiMsgs.clear();
+        sendFrame(QJsonObject{
+            {"type", "control"},
+            {"data", QJsonObject{
+                {"act", "request"},
+                {"data", QJsonObject{
+                    {"callId", 1234567890},
+                    {"uidN", "999001"},
+                    {"uidFrom", 999001},
+                    {"uidTo", 111111},
+                    {"session", "S" + QString(40, QLatin1Char('a'))},
+                    {"rtpAddress", "10.0.0.1:4200"},
+                    {"rtcpAddress", "10.0.0.1:4201"},
+                    {"params", QJsonObject{{"Dname", "Caller One"}, {"extendData", QJsonObject{{"callType", 1}}}}}
+                }}
+            }}
+        });
+        QTRY_VERIFY_WITH_TIMEOUT(hasUiPhase(QStringLiteral("incoming")), 5000);
+        sendUi(QJsonObject{{"action", "accept"}, {"camStartOff", false}});
+        QTRY_VERIFY_WITH_TIMEOUT(hasSignal(402) && hasUiPhase(QStringLiteral("connected")), 5000);
+
+        frames.clear();
+        uiMsgs.clear();
+        sendUi(QJsonObject{{"action", "hangup"}});
+        QTRY_VERIFY_WITH_TIMEOUT(hasSignal(409), 5000);
+        QTRY_VERIFY_WITH_TIMEOUT(hasSignal(406) && hasUpdate(QStringLiteral("callState"), QStringLiteral("free")) && hasUiClose(), 5000);
+        const QJsonObject sig409 = findSignal(409).value("data").toObject();
+        QCOMPARE(sig409.value("toId").toString(), QStringLiteral("999001"));
+        QCOMPARE(sig409.value("callId").toDouble(), 1234567890.0);
+
+        frames.clear();
+        uiMsgs.clear();
+        sendFrame(QJsonObject{
+            {"type", "request"},
+            {"command", "makeCall"},
+            {"data", QJsonObject{{"type", 1}, {"partner", QJsonArray{QJsonObject{{"id", "999002"}, {"name", "Callee Two"}}}}}}
+        });
+        QTRY_VERIFY_WITH_TIMEOUT(hasSignal(401), 5000);
+        sendFrame(QJsonObject{
+            {"type", "recvSignal"},
+            {"command", 401},
+            {"data", QJsonObject{
+                {"status", 0},
+                {"sessId", "S" + QString(40, QLatin1Char('b'))},
+                {"fromId", "111111"},
+                {"toId", "999002"},
+                {"servers", QJsonArray{QJsonObject{{"rtpaddr", "10.0.0.1:4200"}, {"rtcpaddr", "10.0.0.1:4201"}}}}
+            }}
+        });
+        QTRY_VERIFY_WITH_TIMEOUT(hasSignal(416), 5000);
+        uiMsgs.clear();
+        sendUi(QJsonObject{{"action", "hangup"}});
+        QTRY_VERIFY_WITH_TIMEOUT(hasSignal(405) && hasSignal(406) && hasUiClose(), 5000);
+
+        frames.clear();
+        uiMsgs.clear();
+        sendFrame(QJsonObject{
+            {"type", "request"},
+            {"command", "makeCall"},
+            {"data", QJsonObject{{"type", 1}, {"partner", QJsonArray{QJsonObject{{"id", "999003"}, {"name", "Callee Three"}}}}}}
+        });
+        QTRY_VERIFY_WITH_TIMEOUT(hasSignal(401), 5000);
+        const double outCallId = findSignal(401).value("data").toObject().value("callId").toDouble();
+        sendFrame(QJsonObject{
+            {"type", "recvSignal"},
+            {"command", 401},
+            {"data", QJsonObject{
+                {"status", 0},
+                {"sessId", "S" + QString(40, QLatin1Char('c'))},
+                {"fromId", "111111"},
+                {"toId", "999003"},
+                {"servers", QJsonArray{QJsonObject{{"rtpaddr", "10.0.0.1:4200"}, {"rtcpaddr", "10.0.0.1:4201"}}}}
+            }}
+        });
+        QTRY_VERIFY_WITH_TIMEOUT(hasSignal(416), 5000);
+        sendFrame(QJsonObject{
+            {"type", "control"},
+            {"data", QJsonObject{
+                {"act", "answer"},
+                {"data", QJsonObject{
+                    {"callId", outCallId},
+                    {"status", 0},
+                    {"params", QJsonObject{{"status", 0}, {"rtpSerIp", "10.0.0.1:4200"}}}
+                }}
+            }}
+        });
+        QTRY_VERIFY_WITH_TIMEOUT(hasSignal(408) && hasUiPhase(QStringLiteral("connected")), 5000);
+        frames.clear();
+        uiMsgs.clear();
+        sendUi(QJsonObject{{"action", "hangup"}});
+        QTRY_VERIFY_WITH_TIMEOUT(hasSignal(409) && hasSignal(406) && hasUiClose(), 5000);
+        QCOMPARE(findSignal(409).value("data").toObject().value("toId").toString(), QStringLiteral("999003"));
+
+        frames.clear();
+        uiMsgs.clear();
+        sendFrame(QJsonObject{
+            {"type", "control"},
+            {"data", QJsonObject{
+                {"act", "group_request"},
+                {"data", QJsonObject{
+                    {"id", 1456789012},
+                    {"hostCall", 777001},
+                    {"groupId", 888001},
+                    {"receiverId", 111111},
+                    {"callType", 1},
+                    {"groupName", "Group Test"},
+                    {"callSetting", QJsonObject{
+                        {"session", "S" + QString(40, QLatin1Char('g'))},
+                        {"servers", QJsonArray{QJsonObject{{"rtpaddr", "10.0.0.1:4200"}, {"rtcpaddr", "10.0.0.1:4201"}}}}
+                    }}
+                }}
+            }}
+        });
+        QTRY_VERIFY_WITH_TIMEOUT(hasUiPhase(QStringLiteral("incoming")), 5000);
+        sendUi(QJsonObject{{"action", "accept"}, {"camStartOff", false}});
+        QTRY_VERIFY_WITH_TIMEOUT(hasSignal(12436) && hasUiPhase(QStringLiteral("connecting")), 5000);
+        sendFrame(QJsonObject{
+            {"type", "control"},
+            {"data", QJsonObject{
+                {"act", "group_broadcast"},
+                {"data", QJsonObject{{"callId", 1456789012}, {"userId", 777001}, {"callState", 3}, {"audioState", 0}, {"videoState", 1}}}
+            }}
+        });
+        QTRY_VERIFY_WITH_TIMEOUT(hasUiPhase(QStringLiteral("connected")), 5000);
+        frames.clear();
+        uiMsgs.clear();
+        sendUi(QJsonObject{{"action", "hangup"}});
+        QTRY_VERIFY_WITH_TIMEOUT(hasSignal(12438) && hasSignal(12446) && hasUiClose(), 5000);
+
+        proc.terminate();
+        if (!proc.waitForFinished(3000)) proc.kill();
+    }
+
     void cleanupTestCase() {
         if (m_proc.state() != QProcess::NotRunning) {
             m_proc.terminate();

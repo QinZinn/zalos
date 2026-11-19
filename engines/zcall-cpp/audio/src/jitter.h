@@ -60,11 +60,13 @@ public:
     int minTarget() const { return m_minTarget; }
     double last() const { return m_last; }
     bool hasPackets() const { return !m_packets.empty(); }
-    bool hasCarry() const { return !m_carry.empty(); }
+    bool hasCarry() const { return m_carryPos < m_carry.size(); }
     bool playing() const { return m_playing; }
     size_t buffered() const { return m_packets.size(); }
 
 private:
+    size_t carrySize() const { return m_carry.size() - m_carryPos; }
+    void compactCarry();
     void decodeInto(const std::vector<uint8_t>* payload, bool fec);
     void take(int16_t* out);
     bool ensure(size_t samples);
@@ -82,6 +84,7 @@ private:
     bool m_playing{false};
     int m_expand{0};
     std::vector<int16_t> m_carry;
+    size_t m_carryPos{0};
     std::vector<int16_t> m_decodeBuf;
     std::deque<double> m_transit;
     std::vector<double> m_sorted;

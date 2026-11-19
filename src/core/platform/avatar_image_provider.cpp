@@ -18,12 +18,15 @@
 #include <QPainter>
 #include <QPainterPath>
 #include <QPointer>
+#include <QSaveFile>
 #include <QStandardPaths>
 #include <QThread>
 #include <QCoreApplication>
 #include <QThreadPool>
 #include <QTimer>
 #include <QUrl>
+
+#include <memory>
 
 namespace Zalos::Core::Platform {
 
@@ -36,6 +39,7 @@ constexpr int kMaxMediaCacheKiB = 8 * 1024;
 constexpr int kMaxCachedMediaImageKiB = 4 * 1024;
 constexpr int kRetryDelayMs = 750;
 constexpr qint64 kTouchIntervalSecs = 24 * 3600;
+constexpr qint64 kMaxAvatarBytes = 32LL * 1024 * 1024;
 
 QMutex s_memCacheMutex;
 QCache<QString, QImage> s_avatarMemCache(kMaxAvatarCacheKiB);
@@ -52,6 +56,17 @@ QNetworkAccessManager* sharedNam() {
 
 class AvatarResponse : public QQuickImageResponse {
 public:
+    struct State {
+        QMutex mutex;
+        AvatarResponse* response{nullptr};
+        QImage image;
+        QString error;
+        int diameter{0};
+        bool circular{false};
+        QString memKey;
+        bool cancelled{false};
+    };
+
     AvatarResponse(const QString& id, const QSize& requestedSize, bool circular)
         : m_circular(circular),
           m_diameter(requestedSize.isValid() && requestedSize.width() > 0
@@ -60,10 +75,15 @@ public:
         const QUrl url(QUrl::fromPercentEncoding(id.toUtf8()));
         const QString hashHex = QString::fromLatin1(QCryptographicHash::hash(url.toEncoded(), QCryptographicHash::Md5).toHex());
         m_memKey = hashHex + QLatin1Char(circular ? '@' : '#') + QString::number(m_diameter);
+        m_state = std::make_shared<State>();
+        m_state->response = this;
+        m_state->diameter = m_diameter;
+        m_state->circular = m_circular;
+        m_state->memKey = m_memKey;
 
         QImage memCached;
         if (AvatarImageProvider::lookupMemCache(m_memKey, &memCached)) {
-            m_image = memCached;
+            m_state->image = memCached;
             QMetaObject::invokeMethod(this, &QQuickImageResponse::finished, Qt::QueuedConnection);
             return;
         }
@@ -75,8 +95,9 @@ public:
             const int diameter = m_diameter;
             const bool circularFlag = m_circular;
             const QString memKey = m_memKey;
-            QPointer<AvatarResponse> self(this);
-            decodePool().start([self, path, diameter, circularFlag, memKey]() {
+            const std::weak_ptr<State> weak = m_state;
+            decodePool().start([weak, path, diameter, circularFlag, memKey]() {
+                if (weak.expired()) return;
                 QImage shaped;
                 QString error;
                 if (!AvatarImageProvider::lookupMemCache(memKey, &shaped)) {
@@ -90,11 +111,10 @@ public:
                         else error = QStringLiteral("not a decodable image");
                     }
                 }
-                QMetaObject::invokeMethod(QCoreApplication::instance(), [self, shaped, error]() {
-                    if (!self) return;
-                    if (shaped.isNull()) self->failWith(error);
-                    else self->deliver(shaped);
-                }, Qt::QueuedConnection);
+                if (const auto s = weak.lock()) {
+                    if (shaped.isNull()) failState(s, error);
+                    else deliverState(s, shaped);
+                }
             });
             return;
         }
@@ -102,8 +122,9 @@ public:
             const int diameter = m_diameter;
             const bool circularFlag = m_circular;
             const QString memKey = m_memKey;
-            QPointer<AvatarResponse> self(this);
-            decodePool().start([self, url, cachePath, diameter, circularFlag, memKey]() {
+            const std::weak_ptr<State> weak = m_state;
+            decodePool().start([weak, url, cachePath, diameter, circularFlag, memKey]() {
+                if (weak.expired()) return;
                 QImage shaped;
                 if (!AvatarImageProvider::lookupMemCache(memKey, &shaped)) {
                     QFile cachedFile(cachePath);
@@ -123,23 +144,35 @@ public:
                         }
                     }
                 }
-                QMetaObject::invokeMethod(QCoreApplication::instance(), [self, url, cachePath, shaped]() {
-                    if (!self) return;
-                    if (!shaped.isNull()) {
-                        self->deliver(shaped);
-                        return;
-                    }
-                    self->startNetworkFetch(url, cachePath);
-                }, Qt::QueuedConnection);
+                const auto s = weak.lock();
+                if (!s) return;
+                if (!shaped.isNull()) {
+                    deliverState(s, shaped);
+                    return;
+                }
+                startNetworkFetch(s, url, cachePath);
             });
             return;
         }
-        startNetworkFetch(url, cachePath);
+        startNetworkFetch(m_state, url, cachePath);
     }
 
-    void startNetworkFetch(const QUrl& url, const QString& cachePath) {
+    ~AvatarResponse() override {
+        QMutexLocker locker(&m_state->mutex);
+        m_state->cancelled = true;
+        m_state->response = nullptr;
+    }
+
+    void cancel() override {
+        std::shared_ptr<State> s = m_state;
+        failState(s, QStringLiteral("cancelled"));
+        QMutexLocker locker(&s->mutex);
+        s->cancelled = true;
+    }
+
+    static void startNetworkFetch(const std::shared_ptr<State>& s, const QUrl& url, const QString& cachePath) {
         if (!url.isValid() || !url.scheme().startsWith("http")) {
-            failWith(QStringLiteral("unsupported URL"));
+            failState(s, QStringLiteral("unsupported URL"));
             return;
         }
 
@@ -151,52 +184,98 @@ public:
         req.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
         req.setAttribute(QNetworkRequest::Http2AllowedAttribute, false);
 
-        QPointer<AvatarResponse> self(this);
-        QMetaObject::invokeMethod(QCoreApplication::instance(), [self, req, cachePath]() {
-            if (!self) return;
+        const std::weak_ptr<State> weak = s;
+        QObject* app = QCoreApplication::instance();
+        if (!app) {
+            failState(s, QStringLiteral("unsupported URL"));
+            return;
+        }
+        QMetaObject::invokeMethod(app, [weak, req, cachePath]() {
+            const auto locked = weak.lock();
+            if (!locked) return;
+            {
+                QMutexLocker locker(&locked->mutex);
+                if (locked->cancelled || !locked->response) return;
+            }
             QNetworkAccessManager* nam = sharedNam();
+            if (!nam) {
+                failState(locked, QStringLiteral("not a decodable image"));
+                return;
+            }
             const QString key = req.url().toString();
             auto& waiters = inflight()[key];
             const bool running = !waiters.isEmpty();
-            waiters.append(self);
+            waiters.append(weak);
             if (!running) fetch(nam, req, cachePath, true);
         }, Qt::QueuedConnection);
     }
 
-    static QHash<QString, QList<QPointer<AvatarResponse>>>& inflight() {
-        static QHash<QString, QList<QPointer<AvatarResponse>>> map;
+    static QHash<QString, QList<std::weak_ptr<State>>>& inflight() {
+        static QHash<QString, QList<std::weak_ptr<State>>> map;
         return map;
     }
 
     static void fetch(QNetworkAccessManager* nam, QNetworkRequest req, const QString& cachePath, bool allowRetry) {
         QNetworkReply* reply = nam->get(req);
-        QObject::connect(reply, &QNetworkReply::finished, reply, [nam, req, reply, cachePath, allowRetry]() {
+        reply->setReadBufferSize(kMaxAvatarBytes + 1);
+        auto tooLarge = std::make_shared<bool>(false);
+        QObject::connect(reply, &QNetworkReply::downloadProgress, reply, [reply, tooLarge](qint64 got, qint64 total) {
+            if (got > kMaxAvatarBytes || total > kMaxAvatarBytes) {
+                *tooLarge = true;
+                reply->abort();
+            }
+        });
+        QObject::connect(reply, &QNetworkReply::readyRead, reply, [reply, tooLarge]() {
+            if (reply->bytesAvailable() > kMaxAvatarBytes) {
+                *tooLarge = true;
+                reply->abort();
+            }
+        });
+        QObject::connect(reply, &QNetworkReply::finished, reply, [nam, req, reply, cachePath, allowRetry, tooLarge]() {
             reply->deleteLater();
             const QString key = req.url().toString();
             const QNetworkReply::NetworkError error = reply->error();
-            const bool retryable = error == QNetworkReply::RemoteHostClosedError
-                                   || error == QNetworkReply::TemporaryNetworkFailureError
-                                   || error == QNetworkReply::TimeoutError;
+            const bool retryable = !*tooLarge
+                                   && (error == QNetworkReply::RemoteHostClosedError
+                                       || error == QNetworkReply::TemporaryNetworkFailureError
+                                       || error == QNetworkReply::TimeoutError);
             if (retryable && allowRetry) {
                 QTimer::singleShot(kRetryDelayMs, nam, [nam, req, cachePath]() { fetch(nam, req, cachePath, false); });
                 return;
             }
             const auto waiters = inflight().take(key);
+            if (*tooLarge) {
+                for (const auto& w : waiters) {
+                    if (const auto s = w.lock()) failState(s, QStringLiteral("not a decodable image"));
+                }
+                return;
+            }
             if (reply->error() != QNetworkReply::NoError || !reply->isOpen()) {
                 const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
                 const QString reason = reply->error() == QNetworkReply::NoError ? QStringLiteral("not a decodable image")
                                        : status > 0 ? QStringLiteral("HTTP %1").arg(status) : reply->errorString();
                 for (const auto& w : waiters) {
-                    if (w) w->failWith(reason);
+                    if (const auto s = w.lock()) failState(s, reason);
                 }
                 return;
             }
             QVector<Spec> specs;
             for (const auto& w : waiters) {
-                if (w) specs.append(Spec{w, w->m_diameter, w->m_circular, w->m_memKey});
+                const auto s = w.lock();
+                if (!s) continue;
+                QMutexLocker locker(&s->mutex);
+                if (!s->cancelled && s->response) {
+                    specs.append(Spec{w, s->diameter, s->circular, s->memKey});
+                }
             }
             if (specs.isEmpty()) return;
             const QByteArray bytes = reply->readAll();
+            if (bytes.size() > kMaxAvatarBytes) {
+                for (const auto& spec : std::as_const(specs)) {
+                    if (const auto s = spec.state.lock()) failState(s, QStringLiteral("not a decodable image"));
+                }
+                return;
+            }
             decodePool().start([bytes, cachePath, specs]() {
                 bool decodable = false;
                 {
@@ -205,8 +284,10 @@ public:
                     if (checkBuf.open(QIODevice::ReadOnly)) decodable = QImageReader(&checkBuf).canRead();
                 }
                 if (decodable) {
-                    QFile out(cachePath);
-                    if (out.open(QIODevice::WriteOnly)) out.write(bytes);
+                    QSaveFile out(cachePath);
+                    if (out.open(QIODevice::WriteOnly)) {
+                        if (out.write(bytes) == bytes.size()) out.commit();
+                    }
                 }
                 QVector<QImage> images(specs.size());
                 if (decodable) {
@@ -228,21 +309,19 @@ public:
                         }
                     }
                 }
-                QMetaObject::invokeMethod(QCoreApplication::instance(), [specs, images, decodable]() {
-                    for (int i = 0; i < specs.size(); ++i) {
-                        const QPointer<AvatarResponse>& w = specs[i].response;
-                        if (!w) continue;
-                        if (!decodable) w->failWith(QStringLiteral("not a decodable image"));
-                        else if (images[i].isNull()) w->failWith(QStringLiteral("decode failed"));
-                        else w->deliver(images[i]);
-                    }
-                }, Qt::QueuedConnection);
+                for (int i = 0; i < specs.size(); ++i) {
+                    const auto s = specs[i].state.lock();
+                    if (!s) continue;
+                    if (!decodable) failState(s, QStringLiteral("not a decodable image"));
+                    else if (images[i].isNull()) failState(s, QStringLiteral("decode failed"));
+                    else deliverState(s, images[i]);
+                }
             });
         });
     }
 
     struct Spec {
-        QPointer<AvatarResponse> response;
+        std::weak_ptr<State> state;
         int diameter;
         bool circular;
         QString memKey;
@@ -266,37 +345,37 @@ public:
     }
 
     QQuickTextureFactory* textureFactory() const override {
-        return QQuickTextureFactory::textureFactoryForImage(m_image);
+        QMutexLocker locker(&m_state->mutex);
+        return QQuickTextureFactory::textureFactoryForImage(m_state->image);
     }
 
     QString errorString() const override {
-        return m_image.isNull() ? (m_error.isEmpty() ? QStringLiteral("image unavailable") : m_error) : QString();
+        QMutexLocker locker(&m_state->mutex);
+        return m_state->image.isNull()
+            ? (m_state->error.isEmpty() ? QStringLiteral("image unavailable") : m_state->error)
+            : QString();
     }
 
 private:
-    void failWith(const QString& reason) {
-        m_error = reason;
-        finishWith({});
+    static void failState(const std::shared_ptr<State>& s, const QString& reason) {
+        QMutexLocker locker(&s->mutex);
+        if (s->cancelled || !s->response) return;
+        s->error = reason;
+        s->image = QImage();
+        QMetaObject::invokeMethod(s->response, &QQuickImageResponse::finished, Qt::QueuedConnection);
     }
 
-    void finishWith(const QImage& source) {
-        m_image = shape(source, m_diameter, m_circular);
-        if (!m_image.isNull()) {
-            AvatarImageProvider::insertMemCache(m_memKey, m_image);
-        }
-        QMetaObject::invokeMethod(this, &QQuickImageResponse::finished, Qt::QueuedConnection);
-    }
-
-    void deliver(const QImage& shaped) {
-        m_image = shaped;
-        QMetaObject::invokeMethod(this, &QQuickImageResponse::finished, Qt::QueuedConnection);
+    static void deliverState(const std::shared_ptr<State>& s, const QImage& shaped) {
+        QMutexLocker locker(&s->mutex);
+        if (s->cancelled || !s->response) return;
+        s->image = shaped;
+        QMetaObject::invokeMethod(s->response, &QQuickImageResponse::finished, Qt::QueuedConnection);
     }
 
     bool m_circular;
     int m_diameter;
     QString m_memKey;
-    QImage m_image;
-    QString m_error;
+    std::shared_ptr<State> m_state;
 };
 
 }

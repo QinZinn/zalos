@@ -37,6 +37,7 @@ public:
     static constexpr double kFloorDb = -24.0;
 
     ClipGuard(std::optional<std::string> source, std::shared_ptr<VolumeControl> control, bool async = true);
+    ~ClipGuard();
 
     void setSource(std::optional<std::string> source);
     void setPercent(int pct);
@@ -44,34 +45,41 @@ public:
     std::string report();
     void announce();
 
-    bool on() const { return m_on; }
-    bool manual() const { return m_manual.load(); }
-    int steps() const { return m_steps.load(); }
+    bool on() const { return m_state->on.load(); }
+    bool manual() const { return m_state->manual.load(); }
+    int steps() const { return m_state->steps.load(); }
     std::optional<std::string> source() const;
 
 private:
-    std::optional<int> percent();
-    std::optional<double> db();
-    void step(int clipped, double step);
+    struct State {
+        mutable std::mutex sourceLock;
+        std::optional<std::string> source;
+        std::shared_ptr<VolumeControl> control;
+        std::atomic<bool> on{false};
+        std::atomic<bool> busy{false};
+        std::atomic<bool> dead{false};
+        std::atomic<int64_t> totalClipped{0};
+        std::atomic<int> peak{0};
+        std::atomic<int> steps{0};
+        std::atomic<bool> manual{false};
+        std::recursive_mutex volLock;
+        std::optional<int> announcedPct;
+        double announcedAt{0};
+        std::optional<double> setDb;
+    };
+
+    static std::optional<std::string> stateSource(const State& st);
+    static std::optional<int> statePercent(State& st);
+    static std::optional<double> stateDb(State& st);
+    static void announceState(State& st);
+    static void stepState(const std::shared_ptr<State>& st, int clipped, double stepDb);
     bool computeOn() const;
 
-    mutable std::mutex m_sourceLock;
-    std::optional<std::string> m_source;
-    std::shared_ptr<VolumeControl> m_control;
     bool m_async;
-    bool m_on{false};
     int m_frames{0};
     int m_clipped{0};
     double m_lastStep{-1e9};
-    std::atomic<bool> m_busy{false};
-    std::atomic<int64_t> m_totalClipped{0};
-    std::atomic<int> m_peak{0};
-    std::atomic<int> m_steps{0};
-    std::atomic<bool> m_manual{false};
-    std::recursive_mutex m_volLock;
-    std::optional<int> m_announcedPct;
-    double m_announcedAt{0};
-    std::optional<double> m_setDb;
+    std::shared_ptr<State> m_state;
 };
 
 }

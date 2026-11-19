@@ -381,11 +381,17 @@ bool Processing::start(const MaybeName& mic, const MaybeName& speaker) {
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
     while (std::chrono::steady_clock::now() < deadline) {
         if (!m_proc->running()) break;
-        bool haveSource = false, haveSink = false;
-        for (const auto& n : pulseNames("sources")) haveSource = haveSource || n == m_source;
-        if (haveSource)
-            for (const auto& n : pulseNames("sinks")) haveSink = haveSink || n == m_sink;
-        if (haveSource && haveSink) {
+        bool ready = false;
+        if (PulseApi::available()) {
+            ready = PulseApi::hasSourceAndSink(m_source, m_sink);
+        } else {
+            bool haveSource = false, haveSink = false;
+            for (const auto& n : pulseNames("sources")) haveSource = haveSource || n == m_source;
+            if (haveSource)
+                for (const auto& n : pulseNames("sinks")) haveSink = haveSink || n == m_sink;
+            ready = haveSource && haveSink;
+        }
+        if (ready) {
             logLine("audio processing on (mic " + (mic ? *mic : std::string("default")) + ", speaker "
                     + (speaker ? *speaker : std::string("default")) + ", quantum 256)");
             return true;

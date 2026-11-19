@@ -37,6 +37,7 @@ public:
     static bool isRunning();
     static std::optional<std::string> defaultSource();
     static std::vector<std::string> listNames(bool sources);
+    static bool hasSourceAndSink(const std::string& source, const std::string& sink);
     static std::optional<int> getSourceVolumePercent(const std::string& source);
     static bool setSourceVolumeRaw(const std::string& source, uint32_t rawVolume);
 };

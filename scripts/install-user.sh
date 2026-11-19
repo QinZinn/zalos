@@ -41,7 +41,7 @@ echo "==> Creating desktop entry at ${APP_DIR}/zalos.desktop..."
 cat << EOF > "${APP_DIR}/zalos.desktop"
 [Desktop Entry]
 Name=Zalos
-Comment=Zalo desktop client ported to Qt6 (C++/QML) for Linux
+Comment=Native Qt6 (C++/QML) messaging client for Zalo on Linux
 Exec=${BIN_DIR}/zalos %u
 Icon=zalos
 Terminal=false

@@ -9,12 +9,14 @@
 #include <QDir>
 #include <QFile>
 #include <QJsonDocument>
+#include <QSaveFile>
 #include <QSet>
 #include <QStandardPaths>
 #include <QSqlQuery>
 #include <QSqlError>
 #include <QUrl>
 #include <QDebug>
+#include <QtEndian>
 
 namespace Zalos::Core::Offline {
 
@@ -24,21 +26,30 @@ ZaloOfflineStore::ZaloOfflineStore(QObject* parent)
 }
 
 ZaloOfflineStore::~ZaloOfflineStore() {
-    m_saveMessageQuery.reset();
-    m_checkCliMsgQuery.reset();
-    m_deleteMessageByIdQuery.reset();
-    m_ftsRowidQuery.reset();
-    m_ftsDeleteQuery.reset();
-    m_ftsInsertQuery.reset();
+    resetCachedQueries();
     maintenance();
     QString connName = m_db.connectionName();
     if (m_db.isOpen()) {
+        if (m_batchDepth > 0) {
+            m_db.commit();
+            m_batchDepth = 0;
+        }
         m_db.close();
     }
     m_db = QSqlDatabase();
     if (!connName.isEmpty()) {
         QSqlDatabase::removeDatabase(connName);
     }
+}
+
+void ZaloOfflineStore::resetCachedQueries() {
+    m_saveMessageQuery.reset();
+    m_checkCliMsgQuery.reset();
+    m_deleteMessageByIdQuery.reset();
+    m_ftsRowidQuery.reset();
+    m_ftsCheckQuery.reset();
+    m_ftsDeleteQuery.reset();
+    m_ftsInsertQuery.reset();
 }
 
 QByteArray ZaloOfflineStore::deriveSessionKey(const QString& zpwSekCookie) {
@@ -90,13 +101,17 @@ bool ZaloOfflineStore::writeEncryptedSession(const QString& directory, const QSt
 
     QDir().mkpath(directory);
     QString filePath = QDir(directory).filePath("linux-offline-session.enc");
-    QFile file(filePath);
+    QSaveFile file(filePath);
     if (!file.open(QIODevice::WriteOnly)) return false;
+    file.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner);
 
-    file.write(reinterpret_cast<const char*>(iv), sizeof(iv));
-    file.write(reinterpret_cast<const char*>(tag), sizeof(tag));
-    file.write(cipherText.constData(), outLen);
-    file.close();
+    const bool okWrite = file.write(reinterpret_cast<const char*>(iv), sizeof(iv)) == sizeof(iv)
+                         && file.write(reinterpret_cast<const char*>(tag), sizeof(tag)) == sizeof(tag)
+                         && file.write(cipherText.constData(), outLen) == outLen;
+    if (!okWrite || !file.commit()) {
+        file.cancelWriting();
+        return false;
+    }
     return true;
 }
 
@@ -279,6 +294,12 @@ void ZaloOfflineStore::migrateStorage() {
         m.bindValue(":v", value);
         m.exec();
     };
+    if (meta("media_label_cleanup") != QLatin1String("1")) {
+        QSqlQuery u(m_db);
+        u.exec("UPDATE messages SET text = '' WHERE message_type IN ('image', 'sticker', 'video') "
+               "AND trim(text) LIKE '[%]' AND length(trim(text)) <= 26;");
+        setMeta("media_label_cleanup", "1");
+    }
     if (m_ftsAvailable && meta("fts_version") != QLatin1String("1")) {
         m_db.transaction();
         QSqlQuery w(m_db);
@@ -312,12 +333,6 @@ void ZaloOfflineStore::migrateStorage() {
         }
         setMeta("ttl_version", "2");
         m_db.commit();
-    }
-    if (meta("media_label_cleanup") != QLatin1String("1")) {
-        QSqlQuery u(m_db);
-        u.exec("UPDATE messages SET text = '' WHERE message_type IN ('image', 'sticker', 'video') "
-               "AND trim(text) LIKE '[%]' AND length(trim(text)) <= 26;");
-        setMeta("media_label_cleanup", "1");
     }
     if (meta("dedup_cli_version") != QLatin1String("1")) {
         m_db.transaction();
@@ -363,7 +378,12 @@ QJsonObject ZaloOfflineStore::decodeRaw(const QVariant& stored) {
     QByteArray bytes;
     if (stored.typeId() == QMetaType::QByteArray) {
         bytes = stored.toByteArray();
-        if (!bytes.isEmpty() && bytes.at(0) != '{') bytes = qUncompress(bytes);
+        if (!bytes.isEmpty() && bytes.at(0) != '{') {
+            if (bytes.size() < 4) return {};
+            const quint32 expectedSize = qFromBigEndian<quint32>(bytes.constData());
+            if (expectedSize > 16u * 1024u * 1024u) return {};
+            bytes = qUncompress(bytes);
+        }
     } else {
         bytes = stored.toString().toUtf8();
     }
@@ -447,13 +467,16 @@ QVector<ZaloOfflineStore::SearchHit> ZaloOfflineStore::searchMessages(const QStr
     QVector<SearchHit> hits;
     const QString match = ftsQuery(query);
     if (!m_db.isOpen() || match.isEmpty()) return hits;
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
     if (!m_ftsAvailable) {
         const QStringList terms = Models::foldTerms(query);
         QSqlQuery s(m_db);
         s.setForwardOnly(true);
         s.prepare(QStringLiteral("SELECT id, conv_id, sender_name, text, ts FROM messages WHERE is_recalled = 0 "
-                                 "AND message_type <> 'system' AND length(text) > 0 %1 ORDER BY ts DESC LIMIT 20000;")
+                                 "AND message_type <> 'system' AND length(text) > 0 "
+                                 "AND (expire_on = 0 OR expire_on > :now) %1 ORDER BY ts DESC LIMIT 20000;")
                       .arg(convId.isEmpty() ? QString() : QStringLiteral("AND conv_id = :conv")));
+        s.bindValue(":now", now);
         if (!convId.isEmpty()) s.bindValue(":conv", convId);
         if (!s.exec()) return hits;
         while (s.next() && hits.size() < limit) {
@@ -465,11 +488,14 @@ QVector<ZaloOfflineStore::SearchHit> ZaloOfflineStore::searchMessages(const QStr
         return hits;
     }
     QSqlQuery q(m_db);
+    q.setForwardOnly(true);
     q.prepare(QStringLiteral("SELECT m.id, m.conv_id, m.sender_name, m.text, m.ts FROM messages_fts f "
-                             "JOIN messages m ON m.rowid = f.rowid WHERE messages_fts MATCH :match %1 "
+                             "JOIN messages m ON m.rowid = f.rowid WHERE messages_fts MATCH :match "
+                             "AND (m.expire_on = 0 OR m.expire_on > :now) %1 "
                              "ORDER BY m.ts DESC LIMIT :limit;")
                   .arg(convId.isEmpty() ? QString() : QStringLiteral("AND m.conv_id = :conv")));
     q.bindValue(":match", match);
+    q.bindValue(":now", now);
     if (!convId.isEmpty()) q.bindValue(":conv", convId);
     q.bindValue(":limit", limit);
     if (!q.exec()) return hits;
@@ -606,19 +632,19 @@ bool ZaloOfflineStore::bindOwner(const QString& uid) {
 
 void ZaloOfflineStore::clearCache() {
     if (!m_db.isOpen()) return;
-    m_saveMessageQuery.reset();
-    m_checkCliMsgQuery.reset();
-    m_deleteMessageByIdQuery.reset();
-    m_ftsRowidQuery.reset();
-    m_ftsCheckQuery.reset();
-    m_ftsDeleteQuery.reset();
-    m_ftsInsertQuery.reset();
+    resetCachedQueries();
+    if (m_batchDepth > 0) {
+        m_db.commit();
+        m_batchDepth = 0;
+    }
     m_ownerUid.clear();
     m_ownerUidLoaded = true;
     QSqlQuery q(m_db);
-    for (const char* table : {"messages", "reactions", "reaction_events", "conversations", "profiles", "meta"}) {
+    for (const char* table : {"messages", "reactions", "reaction_events", "conversations", "profiles"}) {
         q.exec(QStringLiteral("DELETE FROM %1;").arg(QLatin1String(table)));
     }
+    q.exec("DELETE FROM meta WHERE key NOT IN "
+           "('fts_version', 'ttl_version', 'media_label_cleanup', 'dedup_cli_version', 'raw_codec');");
 }
 
 bool ZaloOfflineStore::saveConversation(const Models::ConversationItem& item) {
@@ -719,7 +745,13 @@ bool ZaloOfflineStore::saveMessage(const QString& convId, const Models::MessageI
                   "message_type = CASE WHEN messages.is_recalled = 1 THEN messages.message_type ELSE excluded.message_type END, "
                   "media_url = CASE WHEN messages.is_recalled = 1 THEN '' ELSE excluded.media_url END, ts = excluded.ts, sender_id = excluded.sender_id, "
                   "sender_avatar = excluded.sender_avatar, "
-                  "status = CASE WHEN messages.status = 'seen' THEN messages.status ELSE excluded.status END, "
+                  "status = CASE "
+                  "WHEN messages.status = 'seen' THEN 'seen' "
+                  "WHEN excluded.status = 'seen' THEN 'seen' "
+                  "WHEN messages.status = 'delivered' THEN 'delivered' "
+                  "WHEN excluded.status = 'delivered' THEN 'delivered' "
+                  "WHEN messages.status = 'sent' THEN 'sent' "
+                  "ELSE excluded.status END, "
                   "is_recalled = MAX(messages.is_recalled, excluded.is_recalled), "
                   "cli_msg_id = excluded.cli_msg_id, quote_msg_id = excluded.quote_msg_id, "
                   "quote_sender = excluded.quote_sender, quote_text = excluded.quote_text, is_group = excluded.is_group, "
@@ -765,6 +797,9 @@ bool ZaloOfflineStore::saveMessage(const QString& convId, const Models::MessageI
 bool ZaloOfflineStore::deleteConversation(const QString& convId) {
     if (!m_db.isOpen()) return false;
     QSqlQuery q(m_db);
+    q.prepare("DELETE FROM reaction_events WHERE msg_id IN (SELECT id FROM messages WHERE conv_id = :conv_id);");
+    q.bindValue(":conv_id", convId);
+    q.exec();
     q.prepare("DELETE FROM messages WHERE conv_id = :conv_id;");
     q.bindValue(":conv_id", convId);
     bool ok = q.exec();
@@ -814,14 +849,23 @@ QVector<Models::MessageItem> ZaloOfflineStore::loadMessages(const QString& convI
     if (!m_db.isOpen()) return list;
 
     QSqlQuery q(m_db);
-    q.prepare("SELECT * FROM (SELECT id, sender_name, text, time_str, is_mine, is_e2ee, reaction, message_type, "
-              "media_url, ts, sender_id, sender_avatar, status, is_recalled, cli_msg_id, quote_msg_id, quote_sender, "
-              "quote_text, raw, href, file_size, rowid AS r, seen_uids FROM messages WHERE conv_id = :conv_id AND (:before <= 0 OR ts <= :before) "
-              "AND (expire_on = 0 OR expire_on > :now) ORDER BY ts DESC, r DESC LIMIT :limit) "
-              "ORDER BY ts ASC, r ASC;");
+    q.setForwardOnly(true);
+    if (beforeTs <= 0) {
+        q.prepare("SELECT * FROM (SELECT id, sender_name, text, time_str, is_mine, is_e2ee, reaction, message_type, "
+                  "media_url, ts, sender_id, sender_avatar, status, is_recalled, cli_msg_id, quote_msg_id, quote_sender, "
+                  "quote_text, raw, href, file_size, rowid AS r, seen_uids FROM messages WHERE conv_id = :conv_id "
+                  "AND (expire_on = 0 OR expire_on > :now) ORDER BY ts DESC, r DESC LIMIT :limit) "
+                  "ORDER BY ts ASC, r ASC;");
+    } else {
+        q.prepare("SELECT * FROM (SELECT id, sender_name, text, time_str, is_mine, is_e2ee, reaction, message_type, "
+                  "media_url, ts, sender_id, sender_avatar, status, is_recalled, cli_msg_id, quote_msg_id, quote_sender, "
+                  "quote_text, raw, href, file_size, rowid AS r, seen_uids FROM messages WHERE conv_id = :conv_id "
+                  "AND ts <= :before AND (expire_on = 0 OR expire_on > :now) ORDER BY ts DESC, r DESC LIMIT :limit) "
+                  "ORDER BY ts ASC, r ASC;");
+        q.bindValue(":before", beforeTs);
+    }
     q.bindValue(":conv_id", convId);
     q.bindValue(":limit", limit);
-    q.bindValue(":before", beforeTs);
     q.bindValue(":now", QDateTime::currentMSecsSinceEpoch());
     if (q.exec()) {
         while (q.next()) {
@@ -941,6 +985,9 @@ QVector<QPair<QString, QString>> ZaloOfflineStore::purgeExpired(qint64 now) {
         while (q.next()) gone.append({q.value(0).toString(), q.value(1).toString()});
     }
     if (gone.isEmpty()) return gone;
+    q.prepare("DELETE FROM reaction_events WHERE msg_id IN (SELECT id FROM messages WHERE expire_on > 0 AND expire_on <= :now);");
+    q.bindValue(":now", now);
+    q.exec();
     q.prepare("DELETE FROM messages WHERE expire_on > 0 AND expire_on <= :now;");
     q.bindValue(":now", now);
     q.exec();
@@ -973,6 +1020,9 @@ bool ZaloOfflineStore::markRecalled(const QString& msgId, const QString& placeho
 bool ZaloOfflineStore::deleteMessage(const QString& msgId) {
     if (!m_db.isOpen() || msgId.isEmpty()) return false;
     QSqlQuery q(m_db);
+    q.prepare("DELETE FROM reaction_events WHERE msg_id = :id;");
+    q.bindValue(":id", msgId);
+    q.exec();
     q.prepare("DELETE FROM messages WHERE id = :id;");
     q.bindValue(":id", msgId);
     return q.exec();
@@ -980,8 +1030,18 @@ bool ZaloOfflineStore::deleteMessage(const QString& msgId) {
 
 bool ZaloOfflineStore::deleteMessagesUpTo(const QString& convId, const QString& lastMsgId) {
     if (!m_db.isOpen() || convId.isEmpty()) return false;
+    bool numeric = false;
+    lastMsgId.toLongLong(&numeric);
+    if (!numeric) return false;
     QSqlQuery q(m_db);
-    q.prepare("DELETE FROM messages WHERE conv_id = :conv AND CAST(id AS INTEGER) <= CAST(:last AS INTEGER);");
+    q.prepare("DELETE FROM reaction_events WHERE msg_id IN "
+              "(SELECT id FROM messages WHERE conv_id = :conv AND id GLOB '[0-9]*' AND length(id) > 0 "
+              "AND CAST(id AS INTEGER) <= CAST(:last AS INTEGER));");
+    q.bindValue(":conv", convId);
+    q.bindValue(":last", lastMsgId);
+    q.exec();
+    q.prepare("DELETE FROM messages WHERE conv_id = :conv AND id GLOB '[0-9]*' AND length(id) > 0 "
+              "AND CAST(id AS INTEGER) <= CAST(:last AS INTEGER);");
     q.bindValue(":conv", convId);
     q.bindValue(":last", lastMsgId);
     return q.exec();
@@ -1014,11 +1074,15 @@ QVector<ZaloOfflineStore::CachedProfile> ZaloOfflineStore::loadProfiles() {
 }
 
 bool ZaloOfflineStore::beginBatch() {
-    return m_db.isOpen() && m_db.transaction();
+    if (!m_db.isOpen()) return false;
+    if (m_batchDepth == 0 && !m_db.transaction()) return false;
+    ++m_batchDepth;
+    return true;
 }
 
 void ZaloOfflineStore::endBatch() {
-    if (m_db.isOpen()) m_db.commit();
+    if (!m_db.isOpen() || m_batchDepth <= 0) return;
+    if (--m_batchDepth == 0) m_db.commit();
 }
 
 void ZaloOfflineStore::setOfflineActive(bool active) {

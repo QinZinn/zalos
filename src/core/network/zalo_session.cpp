@@ -53,6 +53,17 @@ QByteArray encodeQuery(const QList<QPair<QString, QString>>& items) {
     return out;
 }
 
+QString sanitizeUploadFilename(const QString& name) {
+    QString out;
+    out.reserve(name.size());
+    for (const QChar c : name) {
+        const ushort u = c.unicode();
+        if (u < 0x20 || u == 0x7f || c == QLatin1Char('"') || c == QLatin1Char('\\')) continue;
+        out.append(c);
+    }
+    return out.isEmpty() ? QStringLiteral("file") : out;
+}
+
 QJsonValue parseMaybeJsonString(const QJsonValue& value) {
     if (!value.isString()) return value;
     const QJsonDocument doc = QJsonDocument::fromJson(value.toString().toUtf8());
@@ -68,15 +79,23 @@ ZaloSession::ZaloSession(QNetworkAccessManager* nam, SessionCookieJar* jar, QObj
     m_pongWatchdog.setSingleShot(true);
     connect(&m_pongWatchdog, &QTimer::timeout, this, [this]() {
         logRealtime(QStringLiteral("no frame after ping or socket open: reconnecting"));
-        QMetaObject::invokeMethod(this, [this]() {
-            if (!m_ws) return;
-            m_ws->abort();
-            if (!m_ws) return;
-            logRealtime(QStringLiteral("socket never connected: dropping it and retrying"));
-            m_ws->disconnect(this);
-            m_ws->deleteLater();
+        QMetaObject::invokeMethod(this, [this, ws = QPointer<QWebSocket>(m_ws)]() {
+            if (!ws || ws != m_ws) return;
+            const bool wasReady = m_realtimeReady;
             m_ws = nullptr;
+            m_pingTimer.stop();
             m_realtimeReady = false;
+            m_cipherKey.clear();
+            m_serverQueues.clear();
+            m_pullPages.clear();
+            ws->disconnect(this);
+            ws->abort();
+            ws->deleteLater();
+            logRealtime(QStringLiteral("socket never connected: dropping it and retrying"));
+            if (wasReady) emit realtimeStateChanged(false);
+            if (m_replacedByOtherClient || m_secretKey.isEmpty()) return;
+            const QJsonArray all = m_loginInfo.value("zpw_ws").toArray();
+            m_wsUrlIndex = all.isEmpty() ? 0 : (m_wsUrlIndex + 1) % all.size();
             scheduleWsReconnect();
         }, Qt::QueuedConnection);
     });
@@ -101,10 +120,14 @@ void ZaloSession::logRealtime(const QString& line) const {
 }
 
 void ZaloSession::reset() {
+    ++m_sessionGen;
+    m_replacedByOtherClient = false;
     m_wsReconnectTimer.stop();
     disconnectRealtime();
     m_uploadWaiters.clear();
     m_earlyFileDone.clear();
+    m_pullPages.clear();
+    m_preferredHost.clear();
     m_secretKey.clear();
     m_uid.clear();
     m_loginInfo = {};
@@ -175,6 +198,7 @@ void ZaloSession::importCookies(SessionCookieJar* jar, const QJsonArray& cookies
 
 void ZaloSession::login(const QString& imei, const QString& userAgent, const QString& language) {
     reset();
+    const quint64 gen = ++m_sessionGen;
     m_imei = imei;
     m_userAgent = userAgent.isEmpty() ? kDefaultUserAgent : userAgent;
     m_language = language.isEmpty() ? QStringLiteral("vi") : language;
@@ -202,8 +226,9 @@ void ZaloSession::login(const QString& imei, const QString& userAgent, const QSt
     applyHeaders(req, false);
     QNetworkReply* reply = m_nam->get(req);
     const QByteArray encryptKey = encryptor.encryptKey().toUtf8();
-    connect(reply, &QNetworkReply::finished, this, [this, reply, encryptKey]() {
+    connect(reply, &QNetworkReply::finished, this, [this, reply, encryptKey, gen]() {
         reply->deleteLater();
+        if (gen != m_sessionGen) return;
         const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         if (status == 429 || status >= 500 || (reply->error() != QNetworkReply::NoError && status == 0)) {
             emit loginUnavailable(reply->errorString());
@@ -252,16 +277,20 @@ void ZaloSession::requestServerInfo(int retryCount) {
     applyHeaders(req, false);
     QNetworkReply* reply = m_nam->get(req);
     const QString keyAtStart = m_secretKey;
-    connect(reply, &QNetworkReply::finished, this, [this, reply, retryCount, keyAtStart]() {
+    const quint64 gen = m_sessionGen;
+    connect(reply, &QNetworkReply::finished, this, [this, reply, retryCount, keyAtStart, gen]() {
         reply->deleteLater();
+        if (gen != m_sessionGen) return;
         if (reply->error() == QNetworkReply::NoError && reply->isOpen()) {
             const QJsonObject data = QJsonDocument::fromJson(reply->readAll()).object().value("data").toObject();
             m_serverSettings = data.value("setttings").toObject();
             if (m_serverSettings.isEmpty()) m_serverSettings = data.value("settings").toObject();
             m_extraVer = data.value("extra_ver").toObject();
         } else if (retryCount < 2 && !keyAtStart.isEmpty()) {
-            QTimer::singleShot(1500, this, [this, retryCount, keyAtStart]() {
-                if (!m_secretKey.isEmpty() && m_secretKey == keyAtStart) requestServerInfo(retryCount + 1);
+            QTimer::singleShot(1500, this, [this, retryCount, keyAtStart, gen]() {
+                if (gen == m_sessionGen && !m_secretKey.isEmpty() && m_secretKey == keyAtStart) {
+                    requestServerInfo(retryCount + 1);
+                }
             });
         }
         if (retryCount == 0) emit loggedIn();
@@ -382,8 +411,14 @@ void ZaloSession::sendApi(const QString& service, const QString& path, bool post
     QNetworkReply* reply = post ? m_nam->post(req, paramsInQuery ? QByteArray() : encodeQuery({{"params", encrypted}}))
                                 : m_nam->get(req);
     const QString keyAtStart = m_secretKey;
+    const quint64 gen = m_sessionGen;
     connect(reply, &QNetworkReply::finished, this,
-            [this, reply, cb, service, path, post, params, extraQuery, attempt, index, hosts, maxAttempts, keyAtStart]() {
+            [this, reply, cb, service, path, post, params, extraQuery, attempt, index, hosts, maxAttempts, keyAtStart, gen]() {
+        if (gen != m_sessionGen || m_secretKey.isEmpty() || m_secretKey != keyAtStart) {
+            reply->deleteLater();
+            cb(false, {}, QStringLiteral("not_logged_in"), -1);
+            return;
+        }
         const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         const bool transient = isFailoverError(reply->error(), status) || status == 429;
         if ((reply->error() != QNetworkReply::NoError || status == 404 || status == 429)
@@ -392,8 +427,8 @@ void ZaloSession::sendApi(const QString& service, const QString& path, bool post
             if (attempt + 1 < int(hosts.size())) {
                 sendApi(service, path, post, params, cb, extraQuery, attempt + 1);
             } else {
-                QTimer::singleShot(600, this, [this, service, path, post, params, extraQuery, attempt, cb, keyAtStart]() {
-                    if (m_secretKey.isEmpty() || m_secretKey != keyAtStart) {
+                QTimer::singleShot(600, this, [this, service, path, post, params, extraQuery, attempt, cb, keyAtStart, gen]() {
+                    if (gen != m_sessionGen || m_secretKey.isEmpty() || m_secretKey != keyAtStart) {
                         cb(false, {}, QStringLiteral("not_logged_in"), -1);
                         return;
                     }
@@ -456,14 +491,15 @@ void ZaloSession::handleApiReply(QNetworkReply* reply, Callback cb) {
     const QString encoded = rawData.toString();
     if (encoded.size() > 32768) {
         const auto secretKey = m_secretKey;
+        const quint64 gen = m_sessionGen;
         QPointer<ZaloSession> self(this);
-        QThreadPool::globalInstance()->start([self, secretKey, encoded, cb, decodePayload, dispatchReply]() {
+        QThreadPool::globalInstance()->start([self, secretKey, gen, encoded, cb, decodePayload, dispatchReply]() {
             const DecodedApiReply res = decodePayload(secretKey, encoded);
             if (!self) return;
             QMetaObject::invokeMethod(
                 self,
-                [self, secretKey, cb, res, dispatchReply]() {
-                    if (!self || self->m_secretKey != secretKey) return;
+                [self, secretKey, gen, cb, res, dispatchReply]() {
+                    if (!self || gen != self->m_sessionGen || self->m_secretKey != secretKey) return;
                     dispatchReply(cb, res);
                 },
                 Qt::QueuedConnection);
@@ -889,6 +925,7 @@ void ZaloSession::sendGif(const QString& threadId, bool isGroup, const QString& 
     if (thumbBytes.isEmpty()) thumbBytes = gifBytes;
 
     const qint64 clientId = sendClientId.isEmpty() ? QDateTime::currentMSecsSinceEpoch() : sendClientId.toLongLong();
+    const quint64 gen = m_sessionGen;
     const QString thumbEnc = ZaloCrypto::encodeAES(
         m_secretKey, compactJson(QJsonObject{{"clientId", clientId}, {"imei", m_imei}}).toUtf8());
     QNetworkRequest thumbReq(makeUrl(base + QStringLiteral("/api/message/upthumb?"),
@@ -908,7 +945,16 @@ void ZaloSession::sendGif(const QString& threadId, bool isGroup, const QString& 
     const int gifW = width > 0 ? width : (!thumbImg.isNull() ? thumbImg.width() : 320);
     const int gifH = height > 0 ? height : (!thumbImg.isNull() ? thumbImg.height() : 240);
     connect(thumbReply, &QNetworkReply::finished, this, [=, this]() {
+        if (gen != m_sessionGen) {
+            thumbReply->deleteLater();
+            cb(false, {}, QStringLiteral("not_logged_in"), -1);
+            return;
+        }
         handleApiReply(thumbReply, [=, this](bool ok, const QJsonValue& data, const QString& err, int code) {
+            if (gen != m_sessionGen) {
+                cb(false, {}, QStringLiteral("not_logged_in"), -1);
+                return;
+            }
             if (!ok) {
                 cb(false, {}, err, code);
                 return;
@@ -946,12 +992,20 @@ void ZaloSession::sendGif(const QString& threadId, bool isGroup, const QString& 
             QHttpPart part;
             part.setHeader(QNetworkRequest::ContentTypeHeader, "application/octet-stream");
             part.setHeader(QNetworkRequest::ContentDispositionHeader,
-                           QStringLiteral("form-data; name=\"chunkContent\"; filename=\"%1\"").arg(fileName));
+                           QStringLiteral("form-data; name=\"chunkContent\"; filename=\"%1\"")
+                               .arg(sanitizeUploadFilename(fileName)));
             part.setBody(gifBytes);
             multi->append(part);
             QNetworkReply* reply = m_nam->post(req, multi);
             multi->setParent(reply);
-            connect(reply, &QNetworkReply::finished, this, [this, reply, cb]() { handleApiReply(reply, cb); });
+            connect(reply, &QNetworkReply::finished, this, [this, reply, cb, gen]() {
+                if (gen != m_sessionGen) {
+                    reply->deleteLater();
+                    cb(false, {}, QStringLiteral("not_logged_in"), -1);
+                    return;
+                }
+                handleApiReply(reply, cb);
+            });
         });
     });
 }
@@ -1002,11 +1056,16 @@ void ZaloSession::uploadChunks(const QString& threadId, bool isGroup, const QStr
     baseParams[isGroup ? "grid" : "toid"] = threadId;
     if (kind == UploadKind::Voice) baseParams["fileType"] = fileName.endsWith(".amr") ? "amr" : "aac";
 
+    const quint64 gen = m_sessionGen;
     auto md5 = std::make_shared<QCryptographicHash>(QCryptographicHash::Md5);
     auto hashedChunk = std::make_shared<int>(0);
     auto uploadOne = std::make_shared<std::function<void(int)>>();
     const std::weak_ptr<std::function<void(int)>> weakUpload = uploadOne;
     *uploadOne = [=, this](int index) {
+        if (gen != m_sessionGen) {
+            cb(false, {}, QStringLiteral("not_logged_in"), -1);
+            return;
+        }
         const auto keep = weakUpload.lock();
         if (!keep) return;
         QJsonObject params = baseParams;
@@ -1021,7 +1080,8 @@ void ZaloSession::uploadChunks(const QString& threadId, bool isGroup, const QStr
         QHttpPart part;
         part.setHeader(QNetworkRequest::ContentTypeHeader, "application/octet-stream");
         part.setHeader(QNetworkRequest::ContentDispositionHeader,
-                       QStringLiteral("form-data; name=\"chunkContent\"; filename=\"%1\"").arg(fileName));
+                       QStringLiteral("form-data; name=\"chunkContent\"; filename=\"%1\"")
+                           .arg(sanitizeUploadFilename(fileName)));
         QByteArray chunk;
         if (source->seek(qint64(index) * chunkSize)) chunk = source->read(chunkSize);
         if (chunk.isEmpty()) {
@@ -1039,7 +1099,16 @@ void ZaloSession::uploadChunks(const QString& threadId, bool isGroup, const QStr
         QNetworkReply* reply = m_nam->post(req, multi);
         multi->setParent(reply);
         connect(reply, &QNetworkReply::finished, this, [=, this]() {
+            if (gen != m_sessionGen) {
+                reply->deleteLater();
+                cb(false, {}, QStringLiteral("not_logged_in"), -1);
+                return;
+            }
             handleApiReply(reply, [=, this](bool ok, const QJsonValue& data, const QString& error, int code) {
+                if (gen != m_sessionGen) {
+                    cb(false, {}, QStringLiteral("not_logged_in"), -1);
+                    return;
+                }
                 if (!ok) {
                     cb(false, {}, error, code);
                     return;
@@ -1082,7 +1151,11 @@ void ZaloSession::uploadChunks(const QString& threadId, bool isGroup, const QStr
                 }
                 const QString checksum = QString::fromLatin1(md5->result().toHex());
                 source->close();
-                auto awaitFileDone = [this, cb](const QString& fid, std::function<void(const QJsonObject&)> onDone) {
+                auto awaitFileDone = [this, cb, gen](const QString& fid, std::function<void(const QJsonObject&)> onDone) {
+                    if (gen != m_sessionGen) {
+                        cb(false, {}, QStringLiteral("not_logged_in"), -1);
+                        return;
+                    }
                     const auto early = m_earlyFileDone.constFind(fid);
                     if (early != m_earlyFileDone.constEnd()) {
                         const QJsonObject data = early.value();
@@ -1091,12 +1164,18 @@ void ZaloSession::uploadChunks(const QString& threadId, bool isGroup, const QStr
                         return;
                     }
                     m_uploadWaiters.insert(fid, std::move(onDone));
-                    QTimer::singleShot(120000, this, [this, fid, cb]() {
-                        if (m_uploadWaiters.remove(fid) > 0) cb(false, {}, QStringLiteral("upload_timeout"), -1);
+                    QTimer::singleShot(120000, this, [this, fid, cb, gen]() {
+                        if (m_uploadWaiters.remove(fid) > 0) {
+                            cb(false, {}, gen == m_sessionGen ? QStringLiteral("upload_timeout") : QStringLiteral("not_logged_in"), -1);
+                        }
                     });
                 };
                 if (kind == UploadKind::Voice) {
                     awaitFileDone(fileId, [=, this](const QJsonObject& fileData) {
+                        if (gen != m_sessionGen) {
+                            cb(false, {}, QStringLiteral("not_logged_in"), -1);
+                            return;
+                        }
                         const QString aac = fileData.value("aac").toString();
                         const QString amr = fileData.value("amr").toString();
                         const QString voiceUrl = !amr.isEmpty() ? amr : !aac.isEmpty() ? aac
@@ -1109,7 +1188,7 @@ void ZaloSession::uploadChunks(const QString& threadId, bool isGroup, const QStr
                                                {"m4aUrl", !aac.isEmpty() ? aac : voiceUrl},
                                                {"fileSize", totalSize}};
                         QJsonObject send{
-                            {"ttl", 0},
+                            {"ttl", ttl},
                             {"zsource", -1},
                             {"msgType", 3},
                             {"clientId", sendClientId.isEmpty() ? QString::number(QDateTime::currentMSecsSinceEpoch())
@@ -1385,19 +1464,23 @@ void ZaloSession::fetchNoisedIds(const QStringList& userIds, const QStringList& 
            {{"fids", QJsonArray::fromStringList(userIds)}, {"gids", QJsonArray::fromStringList(groupIds)}}, cb);
 }
 
+static bool isZaloCookieHost(const QString& rawHost) {
+    const QString host = rawHost.toLower();
+    return host == QLatin1String("zalo.me") || host.endsWith(QLatin1String(".zalo.me"))
+        || host == QLatin1String("zaloapp.com") || host.endsWith(QLatin1String(".zaloapp.com"))
+        || host == QLatin1String("zdn.vn") || host.endsWith(QLatin1String(".zdn.vn"))
+        || host == QLatin1String("zadn.vn") || host.endsWith(QLatin1String(".zadn.vn"))
+        || host == QLatin1String("zalo.vn") || host.endsWith(QLatin1String(".zalo.vn"))
+        || host == QLatin1String("dlmd.me") || host.endsWith(QLatin1String(".dlmd.me"));
+}
+
 QNetworkReply* ZaloSession::getWithCookies(const QUrl& url) {
     QNetworkRequest req(url);
     req.setHeader(QNetworkRequest::UserAgentHeader, m_userAgent.isEmpty() ? kDefaultUserAgent : m_userAgent);
     req.setRawHeader("Accept", "*/*");
     req.setRawHeader("Accept-Language", "vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7");
 
-    const QString host = url.host().toLower();
-    const bool isZaloDomain = host == QLatin1String("zalo.me") || host.endsWith(QLatin1String(".zalo.me"))
-        || host == QLatin1String("zaloapp.com") || host.endsWith(QLatin1String(".zaloapp.com"))
-        || host == QLatin1String("zdn.vn") || host.endsWith(QLatin1String(".zdn.vn"))
-        || host == QLatin1String("zadn.vn") || host.endsWith(QLatin1String(".zadn.vn"))
-        || host == QLatin1String("zalo.vn") || host.endsWith(QLatin1String(".zalo.vn"))
-        || host == QLatin1String("dlmd.me") || host.endsWith(QLatin1String(".dlmd.me"));
+    const bool isZaloDomain = isZaloCookieHost(url.host());
 
     if (isZaloDomain) {
         QStringList parts;
@@ -1430,9 +1513,21 @@ QNetworkReply* ZaloSession::getWithCookies(const QUrl& url) {
     req.setAttribute(QNetworkRequest::CookieLoadControlAttribute, QNetworkRequest::Manual);
     req.setAttribute(QNetworkRequest::CookieSaveControlAttribute, QNetworkRequest::Manual);
     req.setAttribute(QNetworkRequest::Http2AllowedAttribute, false);
-    req.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
+    req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                     isZaloDomain ? QNetworkRequest::UserVerifiedRedirectPolicy
+                                  : QNetworkRequest::NoLessSafeRedirectPolicy);
     req.setTransferTimeout(150000);
-    return m_nam->get(req);
+    QNetworkReply* reply = m_nam->get(req);
+    if (isZaloDomain && reply) {
+        connect(reply, &QNetworkReply::redirected, reply, [reply](const QUrl& target) {
+            if (isZaloCookieHost(target.host())) {
+                reply->redirectAllowed();
+            } else {
+                reply->abort();
+            }
+        });
+    }
+    return reply;
 }
 
 void ZaloSession::fetchGroupMembersInfo(const QStringList& memberIds, Callback cb) {
@@ -2003,6 +2098,7 @@ void ZaloSession::probeRealtime() {
 
 void ZaloSession::connectRealtime() {
     m_wsReconnectTimer.stop();
+    m_replacedByOtherClient = false;
     const QJsonArray urls = m_loginInfo.value("zpw_ws").toArray();
     if (urls.isEmpty() || m_ws) return;
 
@@ -2033,7 +2129,7 @@ void ZaloSession::connectRealtime() {
             m_ws = nullptr;
         }
         if (wasReady) emit realtimeStateChanged(false);
-        if (closeCode == 3000 || m_secretKey.isEmpty()) return;
+        if (m_replacedByOtherClient || closeCode == 3000 || m_secretKey.isEmpty()) return;
         const QJsonArray all = m_loginInfo.value("zpw_ws").toArray();
         m_wsUrlIndex = all.isEmpty() ? 0 : (m_wsUrlIndex + 1) % all.size();
         scheduleWsReconnect();
@@ -2304,6 +2400,7 @@ void ZaloSession::onWsBinary(const QByteArray& frame) {
         return;
     }
     if (cmd == 3000) {
+        m_replacedByOtherClient = true;
         emit realtimeReplaced();
         logRealtime(QStringLiteral("cmd 3000: another client took over"));
         QMetaObject::invokeMethod(this, [this]() {
@@ -2359,11 +2456,14 @@ void ZaloSession::onWsBinary(const QByteArray& frame) {
     }
 
     const QJsonObject next = nextPullPage(data, cmd, subCmd);
+    const int queueKey = (cmd << 8) | subCmd;
     if (!next.isEmpty()) {
-        int& pages = m_pullPages[(cmd << 8) | subCmd];
+        int& pages = m_pullPages[queueKey];
         if (pages++ < kMaxPullPages) {
             sendWs(cmd, subCmd, next, isHistoryQueue(cmd, subCmd) ? QStringLiteral("req_id") : QStringLiteral("reqId"));
         }
+    } else {
+        m_pullPages.remove(queueKey);
     }
 
     if (data.contains("clearUnreads")) emit readPointsReceived(data.value("clearUnreads").toArray());
@@ -2503,7 +2603,8 @@ void ZaloSession::handleControls(const QJsonArray& controls) {
             }
         } else if (type == "voip") {
             emit voipControlReceived(content);
-        } else if (type == "syncmsgmb" || type == "transfer_msg" || type == "transfer_sync2") {
+        } else if (type == "syncmsgmb" || type == "transfer_msg" || type == "transfer_sync2"
+                   || type == "transfer_after_login") {
             emit mobileSyncControlReceived(content);
         } else if (type == "fr") {
             const QString act = content.value("act").toString();

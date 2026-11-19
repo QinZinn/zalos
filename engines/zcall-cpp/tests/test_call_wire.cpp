@@ -478,6 +478,61 @@ private Q_SLOTS:
         for (const QString& code : specific)
             QVERIFY2(qml.contains(QStringLiteral("case \"%1\"").arg(code)), qPrintable(code));
     }
+
+    void frameParserRejectsInvalidChunks() {
+        const QByteArray key = QByteArray(16, 'k');
+        int count = 0;
+        FrameParser parser(key, false, [&count](const IpcFrame&) { ++count; });
+        parser.push("dead#1#0#0#$dead#1#1000000#0#$dead#2#2#5#$");
+        QCOMPARE(count, 0);
+        const QByteArray good = ipcEncrypt(QByteArray(R"({"type":"ping"})"), key);
+        parser.push(good + '$');
+        QCOMPARE(count, 1);
+    }
+
+    void twccStatus3AndRefUnitsWrap() {
+        double now = 1000.0;
+        QStringList logs;
+        SendRate::Options o;
+        o.localSsrc = 4242;
+        o.log = [&logs](const QString& l) { logs << l; };
+        o.onProfile = [](const SendProfile&) {};
+        o.now = [&now] { return now; };
+        o.layers = {VideoRow{640, 360, 15, 300}, VideoRow{320, 180, 15, 150}};
+        SendRate sr(QJsonObject{}, o);
+
+        auto buildTwccPkt = [](uint16_t base, uint32_t refUnits, uint8_t fbCount, int st0, int st1, int8_t delta1) {
+            QByteArray p(24, '\0');
+            p[0] = char(0x8f);
+            p[1] = char(205);
+            p[3] = char(5);
+            p[7] = char(1);
+            p[10] = char((4242 >> 8) & 0xff);
+            p[11] = char(4242 & 0xff);
+            p[12] = char((base >> 8) & 0xff);
+            p[13] = char(base & 0xff);
+            p[15] = char(2);
+            p[16] = char((refUnits >> 16) & 0xff);
+            p[17] = char((refUnits >> 8) & 0xff);
+            p[18] = char(refUnits & 0xff);
+            p[19] = char(fbCount);
+            const uint16_t chunk = uint16_t(0xc000 | ((st0 & 3) << 12) | ((st1 & 3) << 10));
+            p[20] = char((chunk >> 8) & 0xff);
+            p[21] = char(chunk & 0xff);
+            p[22] = char(delta1);
+            return p;
+        };
+
+        sr.onSent(1, 100.0);
+        sr.onSent(2, 110.0);
+        sr.onSent(3, 200.0);
+        sr.onSent(4, 210.0);
+        sr.onRtcp('v', buildTwccPkt(1, 0xffffffU, 1, 3, 1, 8));
+        sr.onRtcp('v', buildTwccPkt(3, 0x000001U, 2, 1, 3, 8));
+        sr.tick(true, std::nullopt);
+        QCOMPARE(sr.totals().twccPkts, int64_t(4));
+        QCOMPARE(sr.totals().twccLost, int64_t(0));
+    }
 };
 
 QTEST_GUILESS_MAIN(TestCallWire)

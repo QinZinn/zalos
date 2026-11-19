@@ -6,6 +6,7 @@
 #include <QDirIterator>
 #include <QMediaPlayer>
 #include <QProcess>
+#include <QSet>
 #include <QSettings>
 #include <QSoundEffect>
 #include <QVariantMap>
@@ -108,6 +109,21 @@ SoundEngine::SoundEngine(QObject* parent)
     : QObject(parent) {
 }
 
+SoundEngine::~SoundEngine() {
+    if (m_effect) m_effect->stop();
+    if (m_player) m_player->stop();
+    if (m_process && m_process->state() != QProcess::NotRunning) {
+        m_externalLoop = false;
+        m_externalFile.clear();
+        m_externalStopping = true;
+        m_process->terminate();
+        if (!m_process->waitForFinished(300)) {
+            m_process->kill();
+            m_process->waitForFinished(200);
+        }
+    }
+}
+
 QSoundEffect* SoundEngine::ensureEffect() {
     if (!m_effect) {
         m_effect = new QSoundEffect(this);
@@ -147,7 +163,7 @@ QString SoundEngine::renderToFile(const QString& key) {
 QVariantList SoundEngine::systemSounds() {
     static const QStringList extensions = {"*.oga", "*.ogg", "*.wav", "*.flac", "*.mp3"};
     QVariantList out;
-    QStringList seen;
+    QSet<QString> seen;
     const QStringList roots = QStandardPaths::locateAll(QStandardPaths::GenericDataLocation, "sounds",
                                                         QStandardPaths::LocateDirectory);
     auto pretty = [](const QString& file) {
@@ -159,7 +175,7 @@ QVariantList SoundEngine::systemSounds() {
     auto add = [&](const QString& path, const QString& theme) {
         const QString base = QFileInfo(path).completeBaseName();
         if (base.startsWith("audio-channel-") || base == "audio-test-signal" || seen.contains(path)) return;
-        seen << path;
+        seen.insert(path);
         out.append(QVariantMap{{"key", "system:" + path},
                                {"label", QStringLiteral("%1 · %2").arg(theme, pretty(path))}});
     };
@@ -200,11 +216,14 @@ QMediaPlayer* SoundEngine::ensurePlayer() {
 }
 
 QString SoundEngine::externalPlayer() {
-    for (const char* tool : {"pw-play", "paplay", "canberra-gtk-play"}) {
-        const QString path = QStandardPaths::findExecutable(QString::fromLatin1(tool));
-        if (!path.isEmpty()) return path;
-    }
-    return {};
+    static const QString cached = []() {
+        for (const char* tool : {"pw-play", "paplay", "canberra-gtk-play"}) {
+            const QString path = QStandardPaths::findExecutable(QString::fromLatin1(tool));
+            if (!path.isEmpty()) return path;
+        }
+        return QString{};
+    }();
+    return cached;
 }
 
 void SoundEngine::startExternal() {

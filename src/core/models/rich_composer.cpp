@@ -212,8 +212,10 @@ bool RichComposer::apply(const QString& st, int start, int end) {
     if (!doc) return false;
     QTextCursor c(doc);
     const int max = doc->characterCount() - 1;
-    start = qBound(0, qMin(start, end), max);
-    end = qBound(0, qMax(start, end), max);
+    const int s = qBound(0, qMin(start, end), max);
+    const int e = qBound(0, qMax(start, end), max);
+    start = s;
+    end = e;
     if (start == end) {
         c.setPosition(start);
         c.select(QTextCursor::WordUnderCursor);
@@ -255,8 +257,10 @@ void RichComposer::toggleList(const QString& st, int start, int end) {
     QTextDocument* doc = document();
     if (!doc || (st != QLatin1String("lst_1") && st != QLatin1String("lst_2"))) return;
     const int max = doc->characterCount() - 1;
-    start = qBound(0, qMin(start, end), max);
-    end = qBound(0, qMax(start, end), max);
+    const int s = qBound(0, qMin(start, end), max);
+    const int e = qBound(0, qMax(start, end), max);
+    start = s;
+    end = e;
     QList<QTextBlock> blocks;
     for (QTextBlock b = doc->findBlock(start); b.isValid(); b = b.next()) {
         blocks << b;
@@ -289,8 +293,10 @@ void RichComposer::changeIndent(int delta, int start, int end) {
     QTextDocument* doc = document();
     if (!doc || delta == 0) return;
     const int max = doc->characterCount() - 1;
-    start = qBound(0, qMin(start, end), max);
-    end = qBound(0, qMax(start, end), max);
+    const int s = qBound(0, qMin(start, end), max);
+    const int e = qBound(0, qMax(start, end), max);
+    start = s;
+    end = e;
     QList<QTextBlock> blocks;
     for (QTextBlock b = doc->findBlock(start); b.isValid(); b = b.next()) {
         blocks << b;
@@ -318,8 +324,10 @@ void RichComposer::clearFormatting(int start, int end) {
         start = 0;
         end = max;
     }
-    start = qBound(0, qMin(start, end), max);
-    end = qBound(0, qMax(start, end), max);
+    const int s = qBound(0, qMin(start, end), max);
+    const int e = qBound(0, qMax(start, end), max);
+    start = s;
+    end = e;
     QTextCursor c(doc);
     c.beginEditBlock();
     c.setPosition(start);

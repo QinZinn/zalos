@@ -570,6 +570,34 @@ private slots:
         model.setTypeFilter(QStringLiteral("all"));
         QCOMPARE(model.rowCount(), 4);
     }
+
+    void testShowStatusAndEmoticonsAndStyledHtml() {
+        MessageModel model;
+        model.loadConversation("c1");
+        MessageItem m1; m1.id = "m1"; m1.ts = 1; m1.isMine = true; m1.text = "first";
+        MessageItem m2; m2.id = "m2"; m2.ts = 2; m2.isMine = false; m2.text = "peer";
+        MessageItem m3; m3.id = "m3"; m3.ts = 3; m3.isMine = true; m3.text = "second";
+        model.mergeMessages("c1", {m1, m2, m3});
+        QVERIFY(!model.data(model.index(0), MessageModel::ShowStatusRole).toBool());
+        QVERIFY(!model.data(model.index(1), MessageModel::ShowStatusRole).toBool());
+        QVERIFY(model.data(model.index(2), MessageModel::ShowStatusRole).toBool());
+        model.removeMessage("c1", "m3");
+        QVERIFY(model.data(model.index(0), MessageModel::ShowStatusRole).toBool());
+        model.clearAll();
+        QCOMPARE(model.rowCount(), 0);
+
+        QCOMPARE(MessageModel::linkify(QStringLiteral("plain text")), QStringLiteral("plain text"));
+        QVERIFY(MessageModel::linkify(QStringLiteral("hi :-) :v")).contains(QStringLiteral("🙂")));
+        QVERIFY(MessageModel::linkify(QStringLiteral("hi :v")).contains(QStringLiteral("pacman.png")));
+        QCOMPARE(MessageModel::linkify(QStringLiteral("https://example.com/path?q=:)&x=1")),
+                 QStringLiteral("<a href=\"https://example.com/path?q=:)&amp;x=1\">https://example.com/path?q=:)&amp;x=1</a>"));
+
+        const QString xss = MessageModel::styledHtml(
+            QStringLiteral("<script>alert(1)</script>"), {},
+            QVariantList{QVariantMap{{"start", 0}, {"len", 5}, {"st", "c_ff\"'><"}}});
+        QVERIFY(!xss.contains(QStringLiteral("<script>")));
+        QVERIFY(!xss.contains(QStringLiteral("\"'><")));
+    }
 };
 
 QTEST_MAIN(TestModels)

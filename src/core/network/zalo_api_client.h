@@ -6,6 +6,7 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QObject>
+#include <QPointer>
 #include <QString>
 #include <QTimer>
 
@@ -71,10 +72,12 @@ private:
     QString m_qrCode;
     QString m_qrImageUrl;
     int m_qrGeneration{0};
+    quint64 m_browserSyncGen{0};
     int m_qrPollRetries{0};
     bool m_isPollingScan{false};
     bool m_isPollingConfirm{false};
     QTimer m_qrRetryTimer;
+    QPointer<QNetworkReply> m_activeQrReply;
 };
 
 }

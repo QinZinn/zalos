@@ -121,8 +121,13 @@ void FrameParser::push(const QByteArray& chunk) {
             const QByteArray id = m.captured(2).toLatin1();
             const int total = m.captured(3).toInt();
             const int index = m.captured(4).toInt();
+            if (total <= 0 || total > 4096 || index < 0 || index >= total) continue;
+            if (!m_chunks.contains(id) && m_chunks.size() >= 64) {
+                const auto keys = m_chunks.keys();
+                m_chunks.remove(keys.first());
+            }
             auto& parts = m_chunks[id];
-            if (index >= parts.size()) parts.resize(index + 1);
+            if (parts.size() < total) parts.resize(total);
             parts[index] = m.captured(1).toLatin1();
             int have = 0;
             for (const auto& p : parts)

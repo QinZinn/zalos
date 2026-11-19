@@ -412,7 +412,7 @@ void ThemeManager::initSystemThemeDetection() {
         "org.freedesktop.portal.Settings",
         "SettingChanged",
         this,
-        SLOT(detectGnomeOrPortalTheme())
+        SLOT(onPortalSettingChanged(QString, QString))
     );
 
     watchKdeGlobals();
@@ -701,7 +701,13 @@ void ThemeManager::detectSystemFont() {
         if (!self) return;
         QString detectedFont;
         QDBusPendingReply<QDBusVariant> reply = *watcher;
-        if (reply.isValid()) detectedFont = familyFromFontSpec(reply.value().variant().toString());
+        if (reply.isValid()) {
+            QVariant v = reply.value().variant();
+            if (v.canConvert<QDBusVariant>()) {
+                v = v.value<QDBusVariant>().variant();
+            }
+            detectedFont = familyFromFontSpec(v.toString());
+        }
         if (!detectedFont.isEmpty() && QFontDatabase::hasFamily(detectedFont)) {
             QSettings("Zalos", "ZalosApp").setValue("appearance/cachedSystemFont", detectedFont);
             self->setSystemFontFamily(detectedFont);
@@ -709,6 +715,22 @@ void ThemeManager::detectSystemFont() {
             applyLocalFont();
         }
     });
+}
+
+void ThemeManager::onPortalSettingChanged(const QString& ns, const QString& key) {
+    if (key == QLatin1String("color-scheme")) {
+        detectGnomeOrPortalTheme();
+    } else if (key == QLatin1String("accent-color")) {
+        detectSystemAccentColor();
+    } else if (key == QLatin1String("font-name")) {
+        detectSystemFont();
+    } else if (ns == QLatin1String("org.freedesktop.appearance")) {
+        detectGnomeOrPortalTheme();
+        detectSystemAccentColor();
+    } else if (ns == QLatin1String("org.gnome.desktop.interface")) {
+        detectGnomeOrPortalTheme();
+        detectSystemFont();
+    }
 }
 
 }

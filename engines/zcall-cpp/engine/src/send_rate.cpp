@@ -244,7 +244,13 @@ void SendRate::onRtcp(char kind, const QByteArray& buf) {
 void SendRate::onTwcc(const QByteArray& pkt) {
     const auto fb = parseTwcc(pkt);
     if (!fb || fb->senderSsrc == m_localSsrc) return;
-    double arrivalMs = double(fb->refUnits) * 64;
+    if (m_lastRefUnits) {
+        const int32_t diff = int32_t(fb->refUnits) - int32_t(*m_lastRefUnits);
+        if (diff < -0x800000) m_refWrapOffset += 0x1000000ULL;
+        else if (diff > 0x800000 && m_refWrapOffset >= 0x1000000ULL) m_refWrapOffset -= 0x1000000ULL;
+    }
+    m_lastRefUnits = fb->refUnits;
+    double arrivalMs = double(m_refWrapOffset + fb->refUnits) * 64.0;
     size_t d = 0;
     for (size_t i = 0; i < fb->status.size(); ++i) {
         if (fb->status[i] == 0) {
@@ -252,6 +258,7 @@ void SendRate::onTwcc(const QByteArray& pkt) {
             continue;
         }
         ++m_win.twccRecv;
+        if (fb->status[i] != 1 && fb->status[i] != 2) continue;
         if (d >= fb->deltaQ.size()) continue;
         arrivalMs += fb->deltaQ[d++] / 4.0;
         const auto it = m_sent.find(uint16_t((fb->base + i) & 0xffff));

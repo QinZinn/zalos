@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.8] - 2026-11-19
+
+### Fixed
+- **Call Hangup Ending Remote Calls:** fixed `ElectronCallUi` leaving `m_reject` armed after `accept`, which caused post-accept `hangup` actions to invoke `reject` instead of `uiHangup()` and leave the remote peer ringing/connected; also clears callbacks when transitioning past `incoming`, sends UDP `EndCall` when cancelling pre-answer outgoing calls (`ZrtcMedia::stop`), handles `CallBridge::hangup()` cleanly before `m_uiSocket` connects, flushes `sendUi()`, guards >4 MiB video frames, and omits `undefined` keys instead of serializing `null` on group end/cancel (`12437`/`12438`).
+- **Group Sidebar Sender Prefix & Notifications:** fixed group chat sidebar previews (plus desktop notifications, birthday ecards, offline `sharedMedia`, and SQLite startup backfill) omitting sender names when `ZaloClient::toMessageItem()` omits cached sender strings; adds incremental `ConversationModel::setSenderPrefix()` updates when unknown members or aliases finish resolving.
+- **Image Click Preview:** fixed clicking photos in chat and the Info Panel failing to open `ImageViewer` (`openViewerRequested(msgId)` delegation, `MediaSource.toSource()`, and `sharedMedia` fallback).
+
+### Changed & Improved
+- **Performance, Media & Engine Hardening:** batched SQLite writes (`fetchFriends`, `applyGroupInfo`, `handleIncomingMessages`, deduped `handleReactions`), version-cached group sync (`m_groupVersions`), debounced contact/friend refreshes, cached `groupMembers` lookups, incremental model updates, paused hidden QML animations/timers, off-thread >32 KiB API decrypt/parse, single WebSocket reconnect timer, incremental upload MD5, streaming `MobileHistorySync` chunks, 64 MiB `fetchBytes` cap, static `.webp` detection, shared `ZConfirmDialog.qml` (removing `IncomingCallPopup.qml`), verified P2P candidate promotion, `thread_local` SRTP HMAC reuse, TWCC fixes, binary H.264 IPC framing, off-thread camera encoding (`YUV420P`/`NV12`/`YUYV`/`UYVY` fast paths), single-session PulseAudio probe, and `std::nth_element` jitter compaction.
+- **Documentation & Packaging Cleanup:** aligned project descriptions, updated READMEs, website, RPM/AppStream metadata, and hardened packaging/CI scripts.
+
 ## [1.2.7] - 2026-11-18
 
 ### Added & Improved

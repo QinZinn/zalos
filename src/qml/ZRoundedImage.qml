@@ -22,6 +22,10 @@ Item {
     readonly property bool gpu: GraphicsInfo.api !== GraphicsInfo.Software
     readonly property bool masked: gpu && maskLoader.status === Loader.Ready
 
+    onWidthChanged: if (masked && !contentLayer.live) contentLayer.scheduleUpdate()
+    onHeightChanged: if (masked && !contentLayer.live) contentLayer.scheduleUpdate()
+    onMaskedChanged: if (masked && !contentLayer.live) contentLayer.scheduleUpdate()
+
     Rectangle {
         anchors.fill: parent
         radius: root.radius
@@ -40,6 +44,8 @@ Item {
             smooth: true
             fillMode: Image.PreserveAspectCrop
             visible: !root.animReady
+            onStatusChanged: if (status === Image.Ready && root.masked && !contentLayer.live) contentLayer.scheduleUpdate()
+            onSourceChanged: if (root.masked && !contentLayer.live) contentLayer.scheduleUpdate()
         }
         Loader {
             id: animLoader
@@ -60,7 +66,7 @@ Item {
         anchors.fill: content
         sourceItem: root.masked ? content : null
         hideSource: root.masked
-        live: true
+        live: root.animReady
         visible: false
     }
     Item {
@@ -87,6 +93,7 @@ Item {
         onLoaded: {
             maskLoader.item.source = contentLayer;
             maskLoader.item.maskSource = maskShape;
+            if (!contentLayer.live) contentLayer.scheduleUpdate();
         }
     }
 }

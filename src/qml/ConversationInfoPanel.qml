@@ -51,11 +51,21 @@ Rectangle {
 
     function openViewer(msgId: string): void {
         const list = ZaloClient.messageModel.mediaItems();
-        let start = 0;
+        let found = -1;
         for (let i = 0; i < list.length; ++i) {
-            if (list[i].msgId === msgId) { start = i; break; }
+            if (list[i].msgId === msgId) { found = i; break; }
         }
-        ImageViewerState.show(list, start);
+        if (found >= 0) {
+            ImageViewerState.show(list, found);
+            return;
+        }
+        let sharedIdx = -1;
+        for (let i = 0; i < root.sharedMedia.length; ++i) {
+            if (root.sharedMedia[i].msgId === msgId) { sharedIdx = i; break; }
+        }
+        if (root.sharedMedia.length > 0) {
+            ImageViewerState.show(root.sharedMedia, Math.max(0, sharedIdx));
+        }
     }
 
     property string confirmAction: ""
@@ -100,22 +110,19 @@ Rectangle {
     }
     Timer { id: sharedTimer; interval: 400; onTriggered: root.refreshShared() }
 
-    Dialog {
+    ZConfirmDialog {
         id: confirmDialog
-        parent: T.Overlay.overlay
-        anchors.centerIn: parent
-        modal: true
         width: 340
+        danger: root.confirmAction !== "owner"
         onAboutToShow: leaveSilentCheck.checked = false
         title: root.confirmAction === "disperse" ? I18n.t("Giải tán nhóm?", "Disband group?")
              : root.confirmAction === "owner" ? I18n.t("Chuyển quyền trưởng nhóm?", "Transfer ownership?")
              : root.confirmAction === "block" ? I18n.t("Chặn khỏi nhóm?", "Block from group?")
              : root.confirmAction === "leave" ? I18n.t("Rời nhóm?", "Leave group?")
              : I18n.t("Xóa thành viên?", "Remove member?")
-        standardButtons: Dialog.Ok | Dialog.Cancel
 
         ColumnLayout {
-            width: parent.width
+            Layout.fillWidth: true
             spacing: 12
 
             Text {
@@ -159,14 +166,11 @@ Rectangle {
         }
     }
 
-    Dialog {
+    ZConfirmDialog {
         id: reminderDialog
-        parent: T.Overlay.overlay
-        anchors.centerIn: parent
-        modal: true
         width: 320
         title: I18n.t("Thêm nhắc hẹn", "Add reminder")
-        standardButtons: Dialog.Ok | Dialog.Cancel
+        okText: I18n.t("Thêm", "Add")
         onAboutToShow: {
             const d = new Date(Date.now() + 3600000);
             const p = (n) => ("0" + n).slice(-2);
@@ -177,7 +181,7 @@ Rectangle {
             remRepeat.currentIndex = 0;
         }
         ColumnLayout {
-            width: parent.width
+            Layout.fillWidth: true
             spacing: 8
             ZTextField {
                 id: remTitle

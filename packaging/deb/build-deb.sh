@@ -11,7 +11,7 @@ WORKSPACE_DIR="${WORKSPACE_DIR:-/workspace}"
 BUILD_DIR="${WORKSPACE_DIR}/build-deb"
 PKG_DIR="${BUILD_DIR}/pkg"
 OUTPUT_DIR="${WORKSPACE_DIR}/dist"
-ZALOS_VERSION="1.2.7"
+ZALOS_VERSION="1.2.8"
 REVISION="1"
 ARCH="$(dpkg --print-architecture)"
 . /etc/os-release
@@ -37,9 +37,14 @@ DESTDIR="${PKG_DIR}" cmake --install "${BUILD_DIR}" --strip
 echo "==> Resolving shared library dependencies..."
 # dpkg-shlibdeps needs a debian/control next to it; use a throwaway one.
 SHLIBS_TMP="$(mktemp -d)"
+trap 'rm -rf "${SHLIBS_TMP}"' EXIT
 mkdir -p "${SHLIBS_TMP}/debian"
 printf 'Source: zalos\n\nPackage: zalos\nArchitecture: any\n' > "${SHLIBS_TMP}/debian/control"
-SHLIB_DEPENDS=$(cd "${SHLIBS_TMP}" && dpkg-shlibdeps -O "${PKG_DIR}/usr/bin/zalos" 2>/dev/null | sed -n 's/^shlibs:Depends=//p')
+SHLIB_DEPENDS=$(cd "${SHLIBS_TMP}" && dpkg-shlibdeps -O \
+    "${PKG_DIR}/usr/bin/zalos" \
+    "${PKG_DIR}/usr/libexec/zalos/zalos-call" \
+    "${PKG_DIR}/usr/libexec/zalos/zalos-call-audio" \
+    2>/dev/null | sed -n 's/^shlibs:Depends=//p')
 rm -rf "${SHLIBS_TMP}"
 # Debian's Qt shlibs add an exact private-ABI pin (e.g. qt6-websockets-abi (= 6.4.2)) to every consumer; zalos uses
 # only public Qt API, which stays binary compatible across Qt 6, and the pin would block newer Ubuntu releases.
@@ -52,7 +57,7 @@ SHLIB_DEPENDS=$(echo "${SHLIB_DEPENDS}" | sed -E 's/([a-z0-9.+-]+)t64( \([^)]*\)
 QML_DEPENDS="qml6-module-qtquick, qml6-module-qtquick-controls, qml6-module-qtquick-layouts, \
 qml6-module-qtquick-templates, qml6-module-qtquick-window, qml6-module-qtquick-shapes, qml6-module-qtquick-dialogs, \
 qml6-module-qtqml-workerscript, qml6-module-qtmultimedia, qml6-module-qtcore, qt6-wayland, \
-libqt6svg6 (>= 6.4), qt6-image-formats-plugins" # libqt6svg6: SVG plugins; image-formats: WebP (animated stickers)
+libqt6svg6 (>= 6.4), libqt6sql6-sqlite, qt6-image-formats-plugins" # libqt6svg6: SVG plugins; image-formats: WebP (animated stickers)
 
 INSTALLED_SIZE=$(du -sk "${PKG_DIR}" | cut -f1)
 mkdir -p "${PKG_DIR}/DEBIAN"
@@ -66,12 +71,12 @@ Section: net
 Priority: optional
 Homepage: https://github.com/cpfriend1721994/zalos
 Depends: ${SHLIB_DEPENDS}, ${QML_DEPENDS}, libopus0, libpulse0
-Recommends: libopenh264-7 | libopenh264-8
-Description: Native Qt6 (C++/QML) desktop client for Zalo on Linux
- Zalos is a native Qt 6 client for the Zalo messenger: QR sign-in, messaging,
- groups, media and calls. Calls run on the bundled C++ call engine (zalos-call and
- zalos-call-audio in /usr/libexec/zalos); audio uses PulseAudio/PipeWire (libpulse0)
- and libopus. Call video uses the system's OpenH264, which is never bundled.
+Recommends: libopenh264-7 | libopenh264-8, qt6-xdgdesktopportal-platformtheme
+Description: Native Qt6 (C++/QML) messaging client for Zalo on Linux
+ Zalos is an open-source Qt 6 desktop client for Zalo:
+ QR sign-in, messaging, groups, media and calls. Calls run on the bundled C++ call
+ engine (zalos-call and zalos-call-audio in /usr/libexec/zalos); audio uses PulseAudio/
+ PipeWire (libpulse0) and libopus. Call video uses the system's OpenH264, which is never bundled.
 CONTROL
 
 echo "==> Building ${DEB_NAME}..."

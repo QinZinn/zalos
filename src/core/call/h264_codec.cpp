@@ -252,7 +252,10 @@ bool H264Encoder::open(QSize size, int fps, int bitrate, bool screenContent) {
         return false;
     }
     int videoFormat = videoFormatI420;
-    m_encoder->SetOption(ENCODER_OPTION_DATAFORMAT, &videoFormat);
+    if (m_encoder->SetOption(ENCODER_OPTION_DATAFORMAT, &videoFormat) != 0) {
+        close();
+        return false;
+    }
     m_size = size;
     return true;
 #else
@@ -273,6 +276,8 @@ void H264Encoder::close() {
 #endif
     m_encoder = nullptr;
     m_size = {};
+    m_picStorage.clear();
+    m_infoStorage.clear();
 }
 
 QByteArray H264Encoder::encodeI420(const QByteArray& i420, qint64 timestampMs, bool forceKey, bool* isKey) {
@@ -283,8 +288,10 @@ QByteArray H264Encoder::encodeI420(const QByteArray& i420, qint64 timestampMs, b
     if (!m_encoder || i420.size() < w * h * 3 / 2) return {};
     if (forceKey) m_encoder->ForceIntraFrame(true);
 
-    QByteArray picStorage(int(sizeof(SSourcePicture) + kTailSlack), '\0');
-    auto* pic = reinterpret_cast<SSourcePicture*>(picStorage.data());
+    const int picSize = int(sizeof(SSourcePicture) + kTailSlack);
+    if (m_picStorage.size() != picSize) m_picStorage.resize(picSize);
+    std::memset(m_picStorage.data(), 0, size_t(picSize));
+    auto* pic = reinterpret_cast<SSourcePicture*>(m_picStorage.data());
     auto* base = reinterpret_cast<unsigned char*>(const_cast<char*>(i420.constData()));
     pic->iColorFormat = videoFormatI420;
     pic->iPicWidth = w;
@@ -297,16 +304,18 @@ QByteArray H264Encoder::encodeI420(const QByteArray& i420, qint64 timestampMs, b
     pic->pData[2] = base + w * h + (w / 2) * (h / 2);
     pic->uiTimeStamp = timestampMs;
 
-    QByteArray infoStorage(int(qMax(sizeof(FrameBSInfo24), sizeof(FrameBSInfo26)) + kTailSlack), '\0');
-    if (m_encoder->EncodeFrame(pic, reinterpret_cast<SFrameBSInfo*>(infoStorage.data())) != cmResultSuccess) return {};
+    const int infoSize = int(qMax(sizeof(FrameBSInfo24), sizeof(FrameBSInfo26)) + kTailSlack);
+    if (m_infoStorage.size() != infoSize) m_infoStorage.resize(infoSize);
+    std::memset(m_infoStorage.data(), 0, size_t(infoSize));
+    if (m_encoder->EncodeFrame(pic, reinterpret_cast<SFrameBSInfo*>(m_infoStorage.data())) != cmResultSuccess) return {};
     EVideoFrameType type;
     QByteArray out;
     if (g_layout26) {
-        const auto& info = *reinterpret_cast<const FrameBSInfo26*>(infoStorage.constData());
+        const auto& info = *reinterpret_cast<const FrameBSInfo26*>(m_infoStorage.constData());
         type = info.eFrameType;
         if (type != videoFrameTypeSkip && type != videoFrameTypeInvalid) out = collectNals(info);
     } else {
-        const auto& info = *reinterpret_cast<const FrameBSInfo24*>(infoStorage.constData());
+        const auto& info = *reinterpret_cast<const FrameBSInfo24*>(m_infoStorage.constData());
         type = info.eFrameType;
         if (type != videoFrameTypeSkip && type != videoFrameTypeInvalid) out = collectNals(info);
     }
@@ -320,14 +329,14 @@ QByteArray H264Encoder::encodeI420(const QByteArray& i420, qint64 timestampMs, b
 #endif
 }
 
-QByteArray imageToI420(const QImage& source, QSize size) {
+bool imageToI420Into(const QImage& source, QSize size, QByteArray& out) {
     const int w = size.width() & ~1;
     const int h = size.height() & ~1;
-    if (w <= 0 || h <= 0 || source.isNull()) return {};
+    if (w <= 0 || h <= 0 || source.isNull()) return false;
 
     const int srcW = source.width();
     const int srcH = source.height();
-    if (srcW <= 0 || srcH <= 0) return {};
+    if (srcW <= 0 || srcH <= 0) return false;
 
     int cropX = 0, cropY = 0, cropW = srcW, cropH = srcH;
     const qreal target = qreal(w) / h;
@@ -346,7 +355,8 @@ QByteArray imageToI420(const QImage& source, QSize size) {
         image = image.convertToFormat(QImage::Format_RGB32);
     }
 
-    QByteArray out(w * h * 3 / 2, Qt::Uninitialized);
+    const int need = w * h * 3 / 2;
+    if (out.size() != need) out.resize(need);
     auto* y = reinterpret_cast<uchar*>(out.data());
     uchar* u = y + w * h;
     uchar* v = u + (w / 2) * (h / 2);
@@ -365,17 +375,23 @@ QByteArray imageToI420(const QImage& source, QSize size) {
             }
         }
     }
+    return true;
+}
+
+QByteArray imageToI420(const QImage& source, QSize size) {
+    QByteArray out;
+    if (!imageToI420Into(source, size, out)) return {};
     return out;
 }
 
-QByteArray frameToI420(const QVideoFrame& source, QSize size) {
+bool frameToI420Into(const QVideoFrame& source, QSize size, QByteArray& out) {
     const int w = size.width() & ~1;
     const int h = size.height() & ~1;
-    if (w <= 0 || h <= 0 || !source.isValid()) return {};
+    if (w <= 0 || h <= 0 || !source.isValid()) return false;
 
     const int srcW = source.width();
     const int srcH = source.height();
-    if (srcW <= 0 || srcH <= 0) return {};
+    if (srcW <= 0 || srcH <= 0) return false;
 
     int cropX = 0, cropY = 0, cropW = srcW, cropH = srcH;
     const qreal target = qreal(w) / h;
@@ -388,6 +404,7 @@ QByteArray frameToI420(const QVideoFrame& source, QSize size) {
         cropY = ((srcH - cropH) / 2) & ~1;
     }
 
+    const int need = w * h * 3 / 2;
     const auto fmt = source.pixelFormat();
     if (fmt == QVideoFrameFormat::Format_YUV420P || fmt == QVideoFrameFormat::Format_NV12) {
         QVideoFrame mapped(source);
@@ -400,7 +417,7 @@ QByteArray frameToI420(const QVideoFrame& source, QSize size) {
             const int strideV = (fmt == QVideoFrameFormat::Format_YUV420P) ? mapped.bytesPerLine(2) : 0;
 
             if (srcY && srcU && (fmt == QVideoFrameFormat::Format_NV12 || srcV)) {
-                QByteArray out(w * h * 3 / 2, Qt::Uninitialized);
+                if (out.size() != need) out.resize(need);
                 auto* dstY = reinterpret_cast<uchar*>(out.data());
                 uchar* dstU = dstY + w * h;
                 uchar* dstV = dstU + (w / 2) * (h / 2);
@@ -448,7 +465,7 @@ QByteArray frameToI420(const QVideoFrame& source, QSize size) {
                     }
                 }
                 mapped.unmap();
-                return out;
+                return true;
             }
             mapped.unmap();
         }
@@ -459,7 +476,7 @@ QByteArray frameToI420(const QVideoFrame& source, QSize size) {
             const uchar* src = mapped.bits(0);
             const int stride = mapped.bytesPerLine(0);
             if (src && stride > 0) {
-                QByteArray out(w * h * 3 / 2, Qt::Uninitialized);
+                if (out.size() != need) out.resize(need);
                 auto* dstY = reinterpret_cast<uchar*>(out.data());
                 uchar* dstU = dstY + w * h;
                 uchar* dstV = dstU + (w / 2) * (h / 2);
@@ -491,13 +508,19 @@ QByteArray frameToI420(const QVideoFrame& source, QSize size) {
                     }
                 }
                 mapped.unmap();
-                return out;
+                return true;
             }
             mapped.unmap();
         }
     }
 
-    return imageToI420(source.toImage(), size);
+    return imageToI420Into(source.toImage(), size, out);
+}
+
+QByteArray frameToI420(const QVideoFrame& source, QSize size) {
+    QByteArray out;
+    if (!frameToI420Into(source, size, out)) return {};
+    return out;
 }
 
 }

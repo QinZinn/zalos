@@ -138,10 +138,10 @@ std::unique_ptr<Process> Process::spawn(const std::vector<std::string>& argv, co
         }
         ::signal(SIGPIPE, SIG_DFL);
         if (options.in == Io::Pipe) ::dup2(inPipe[0], 0);
-        else if (options.in == Io::Null) ::dup2(devnull, 0);
+        else if (options.in == Io::Null && devnull >= 0) ::dup2(devnull, 0);
         if (options.out == Io::Pipe) ::dup2(outPipe[1], 1);
-        else if (options.out == Io::Null) ::dup2(devnull, 1);
-        if (options.err == Io::Null) ::dup2(devnull, 2);
+        else if (options.out == Io::Null && devnull >= 0) ::dup2(devnull, 1);
+        if (options.err == Io::Null && devnull >= 0) ::dup2(devnull, 2);
         ::execve(exec.path.c_str(), exec.argv.data(), exec.envp.data());
         ::_exit(127);
     }
@@ -239,7 +239,7 @@ RunResult run(const std::vector<std::string>& argv, int timeoutMs, bool cLocale)
     }
     if (pid == 0) {
         ::signal(SIGPIPE, SIG_DFL);
-        ::dup2(devnull, 0);
+        if (devnull >= 0) ::dup2(devnull, 0);
         ::dup2(outPipe[1], 1);
         ::dup2(errPipe[1], 2);
         ::execve(exec.path.c_str(), exec.argv.data(), exec.envp.data());
@@ -283,10 +283,10 @@ RunResult run(const std::vector<std::string>& argv, int timeoutMs, bool cLocale)
     int status = 0;
     if (result.timedOut) {
         ::kill(pid, SIGKILL);
-        ::waitpid(pid, &status, 0);
+        while (::waitpid(pid, &status, 0) < 0 && errno == EINTR) {}
         return result;
     }
-    ::waitpid(pid, &status, 0);
+    while (::waitpid(pid, &status, 0) < 0 && errno == EINTR) {}
     result.exitCode = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
     return result;
 }

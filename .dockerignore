@@ -4,13 +4,22 @@ build/
 build-*/
 dist/
 dist-*/
+_site/
 *.AppImage
 *.rpm
 *.deb
 *.flatpak
+*.tar.gz
+*.zsync
 .flatpak-builder/
 .git/
 .agents/
+.cache/
+.config/
+.local/
+AGENTS.md
+CLAUDE.md
+GEMINI.md
 __pycache__/
 *.pyc
 

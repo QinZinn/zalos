@@ -344,7 +344,8 @@ Item {
                 anchors.fill: parent
                 anchors.margins: -60
                 fillMode: Image.PreserveAspectCrop
-                source: ZaloClient.calls && ZaloClient.calls.peerAvatar.length > 0
+                source: (!root.minimized && !root.peerVideoShown && root.visible && root.phase !== ""
+                         && root.phase !== "ended" && ZaloClient.calls && ZaloClient.calls.peerAvatar.length > 0)
                         ? "image://avatar/" + encodeURIComponent(ZaloClient.calls.peerAvatar) : ""
                 sourceSize.width: 256
                 sourceSize.height: 256
@@ -353,8 +354,8 @@ Item {
             Loader {
                 id: blurLoader
                 anchors.fill: bgAvatar
-                active: !root.minimized && GraphicsInfo.api !== GraphicsInfo.Software
-                visible: !root.minimized && bgAvatar.status === Image.Ready
+                active: !root.minimized && !root.peerVideoShown && GraphicsInfo.api !== GraphicsInfo.Software
+                visible: !root.minimized && !root.peerVideoShown && bgAvatar.status === Image.Ready
                 source: "ZBlurEffect.qml"
                 onLoaded: blurLoader.item.source = bgAvatar
             }

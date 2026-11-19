@@ -296,16 +296,14 @@ Item {
         }
     }
 
-    Dialog {
+    ZConfirmDialog {
         id: deleteDialog
-        parent: T.Overlay.overlay
-        anchors.centerIn: parent
-        modal: true
         width: 340
+        danger: true
         title: I18n.t("Xóa thẻ phân loại?", "Delete label?")
-        standardButtons: Dialog.Ok | Dialog.Cancel
+        okText: I18n.t("Xóa", "Delete")
         Text {
-            width: parent.width
+            Layout.fillWidth: true
             wrapMode: Text.Wrap
             text: I18n.t("Thẻ “%1” sẽ bị gỡ khỏi mọi hội thoại trên tất cả thiết bị.",
                          "“%1” is removed from every conversation on all devices.").arg(root.deleteName)

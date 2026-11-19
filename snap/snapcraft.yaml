@@ -18,10 +18,10 @@ apps:
     common-id: io.github.cpfriend1721994.zalos
     desktop: usr/share/applications/zalos.desktop
     environment:
-      QT_PLUGIN_PATH: $SNAP/usr/lib/x86_64-linux-gnu/qt6/plugins:$SNAP/usr/lib/aarch64-linux-gnu/qt6/plugins
-      QML_IMPORT_PATH: $SNAP/usr/lib/x86_64-linux-gnu/qt6/qml:$SNAP/usr/lib/aarch64-linux-gnu/qt6/qml
-      QML2_IMPORT_PATH: $SNAP/usr/lib/x86_64-linux-gnu/qt6/qml:$SNAP/usr/lib/aarch64-linux-gnu/qt6/qml
-      LD_LIBRARY_PATH: $SNAP/usr/lib/x86_64-linux-gnu/pulseaudio:$SNAP/usr/lib/aarch64-linux-gnu/pulseaudio
+      QT_PLUGIN_PATH: $SNAP/usr/lib/x86_64-linux-gnu/qt6/plugins:$SNAP/usr/lib/aarch64-linux-gnu/qt6/plugins:$SNAP/usr/lib/arm-linux-gnueabihf/qt6/plugins:$SNAP/usr/lib/riscv64-linux-gnu/qt6/plugins
+      QML_IMPORT_PATH: $SNAP/usr/lib/x86_64-linux-gnu/qt6/qml:$SNAP/usr/lib/aarch64-linux-gnu/qt6/qml:$SNAP/usr/lib/arm-linux-gnueabihf/qt6/qml:$SNAP/usr/lib/riscv64-linux-gnu/qt6/qml
+      QML2_IMPORT_PATH: $SNAP/usr/lib/x86_64-linux-gnu/qt6/qml:$SNAP/usr/lib/aarch64-linux-gnu/qt6/qml:$SNAP/usr/lib/arm-linux-gnueabihf/qt6/qml:$SNAP/usr/lib/riscv64-linux-gnu/qt6/qml
+      LD_LIBRARY_PATH: $SNAP/usr/lib/x86_64-linux-gnu/pulseaudio:$SNAP/usr/lib/aarch64-linux-gnu/pulseaudio:$SNAP/usr/lib/arm-linux-gnueabihf/pulseaudio:$SNAP/usr/lib/riscv64-linux-gnu/pulseaudio
     plugs:
       - network
       - network-bind
@@ -87,7 +87,7 @@ parts:
       - qt6-qpa-plugins
       - qt6-wayland
       - qt6-image-formats-plugins
-      - qt6-gtk-platformtheme
+      - qt6-xdgdesktopportal-platformtheme
       - qml6-module-qtquick
       - qml6-module-qtquick-controls
       - qml6-module-qtquick-layouts
@@ -98,6 +98,7 @@ parts:
       - qml6-module-qtqml-workerscript
       - qml6-module-qtmultimedia
       - qml6-module-qtcore
+      - libopenh264-7
       - libopus0
       - libpulse0
       - libzstd1

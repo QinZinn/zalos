@@ -117,18 +117,31 @@ QVariantList MessageScheduler::entriesFor(const QString& convId) const {
 
 void MessageScheduler::runDue(qint64 nowMs) {
     if (!m_sender || (m_ready && !m_ready())) return;
-    bool started = false;
+    struct DueItem {
+        QString id;
+        QString convId;
+        bool isGroup{false};
+        QString text;
+    };
+    QVector<DueItem> due;
     for (auto& e : m_entries) {
         if (e.state != "pending" || e.sendAt > nowMs) continue;
-        started = true;
         e.state = QStringLiteral("sending");
-        const QString id = e.id;
-        QPointer<MessageScheduler> self(this);
-        m_sender(e.convId, e.isGroup, e.text, [self, id](bool ok, const QString& error) {
+        due.append({e.id, e.convId, e.isGroup, e.text});
+    }
+    if (due.isEmpty()) {
+        updateTimer();
+        return;
+    }
+    QPointer<MessageScheduler> self(this);
+    for (const auto& item : due) {
+        if (!self) return;
+        const QString id = item.id;
+        m_sender(item.convId, item.isGroup, item.text, [self, id](bool ok, const QString& error) {
             if (!self) return;
-            for (auto& item : self->m_entries) {
-                if (item.id != id) continue;
-                item.state = ok ? QStringLiteral("sent") : QStringLiteral("failed");
+            for (auto& entry : self->m_entries) {
+                if (entry.id != id) continue;
+                entry.state = ok ? QStringLiteral("sent") : QStringLiteral("failed");
                 if (!ok) emit self->sendFailed(error);
             }
             self->save();
@@ -136,8 +149,9 @@ void MessageScheduler::runDue(qint64 nowMs) {
             emit self->changed();
         });
     }
+    if (!self) return;
     updateTimer();
-    if (started) emit changed();
+    emit changed();
 }
 
 void MessageScheduler::save() const {

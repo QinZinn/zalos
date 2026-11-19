@@ -36,7 +36,8 @@ DirectorySizeResult FileUtils::getDirectorySize(const QString& path, int workers
         return result;
     }
 
-    QDirIterator it(path, QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot | QDir::Hidden, QDirIterator::Subdirectories);
+    QDirIterator it(path, QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot | QDir::Hidden | QDir::NoSymLinks,
+                    QDirIterator::Subdirectories);
     while (it.hasNext()) {
         it.next();
         QFileInfo info = it.fileInfo();
@@ -61,9 +62,10 @@ static DirectoryTreeNode scanNode(const QString& rootPath, const QString& curren
     }
 
     QDir dir(currentPath);
-    QFileInfoList entries = dir.entryInfoList(QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot | QDir::Hidden, QDir::Name);
+    QFileInfoList entries = dir.entryInfoList(QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot | QDir::Hidden | QDir::NoSymLinks, QDir::Name);
 
     for (const auto& entry : entries) {
+        if (entry.isSymLink()) continue;
         if (entry.isDir()) {
             node.dirCount += 1.0;
             if (maxDepth < 0 || depth < maxDepth) {
@@ -97,7 +99,7 @@ qint64 FileUtils::cleanCacheDirectory(const QString& dirPath, qint64 maxAgeSecon
     if (!dir.exists()) return 0;
 
     QDateTime cutoff = QDateTime::currentDateTime().addSecs(-maxAgeSeconds);
-    QDirIterator it(dirPath, QDir::Files | QDir::NoDotAndDotDot, QDirIterator::Subdirectories);
+    QDirIterator it(dirPath, QDir::Files | QDir::NoDotAndDotDot | QDir::NoSymLinks, QDirIterator::Subdirectories);
 
     while (it.hasNext()) {
         it.next();

@@ -42,9 +42,14 @@ private:
     void onData();
     void onAction(const QJsonObject& m);
     void useFallback();
+    void clearIncomingCallbacks();
+    AcceptFn takeAccept();
+    RejectFn takeReject();
 
     QTcpSocket* m_sock{nullptr};
     QByteArray m_buf;
+    qint64 m_pendingBinBytes{0};
+    QJsonObject m_pendingBinHead;
     QJsonObject m_state;
     bool m_hasState{false};
     AcceptFn m_accept;

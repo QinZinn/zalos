@@ -27,6 +27,7 @@ class TestSyncV2 : public QObject {
 private slots:
     void framesSplitInLittleEndianLength();
     void framesRejectTruncatedBody();
+    void framesRejectOversizedLength();
     void protoParsesVarintBytesAndFixed32();
     void protoRejectsTruncatedAndGroups();
     void zstdRawBlockFrame();
@@ -54,6 +55,12 @@ void TestSyncV2::framesRejectTruncatedBody() {
     QVector<QByteArray> frames;
     QVERIFY(!splitFrames(bytesOf({4, 0, 0, 0, 'a'}), &frames));
     QVERIFY(!splitFrames(bytesOf({1, 0}), &frames));
+}
+
+void TestSyncV2::framesRejectOversizedLength() {
+    QVector<QByteArray> frames;
+    QVERIFY(!splitFrames(bytesOf({0xff, 0xff, 0xff, 0x7f, 'a', 'b'}), &frames));
+    QVERIFY(!splitFrames(bytesOf({0x01, 0x00, 0x00, 0x04, 'a', 'b'}), &frames));
 }
 
 void TestSyncV2::protoParsesVarintBytesAndFixed32() {

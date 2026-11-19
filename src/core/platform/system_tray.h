@@ -97,7 +97,13 @@ private:
     QAction* m_openAction{nullptr};
     QAction* m_themeAction{nullptr};
     QAction* m_quitAction{nullptr};
+    bool m_windowVisible{true};
     QString m_language{QStringLiteral("vi")};
+    QPixmap m_basePixmap;
+    int m_lastBadgeCount{-1};
+    bool m_lastBadgeMentions{false};
+    bool m_lastBadgeAntiPeeking{false};
+    QString m_lastBadgeCallPhase;
 };
 
 }

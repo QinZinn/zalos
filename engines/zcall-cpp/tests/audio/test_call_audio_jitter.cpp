@@ -236,6 +236,32 @@ private slots:
         Playout q(&sink, nullptr, 3, 100, 0);
         QCOMPARE(q.maxTarget(), 5);
     }
+
+    void streamCursorCompactsAndTracksSpread() {
+        Harness h(2, 12);
+        int16_t out[kFrame];
+        int played = 0;
+        for (int i = 0; i < 50; ++i) {
+            const double jitter = (i % 10 == 0) ? 0.09 : ((i % 4) * 0.005);
+            h.push(i, i * 0.02 + jitter);
+            if (i >= 5) {
+                QVERIFY(h.pull(out));
+                QVERIFY(same(out, expectedFrame(played++, 1)));
+            }
+        }
+        QVERIFY(h.s.target() >= 4);
+        while (played < 50) {
+            QVERIFY(h.pull(out));
+            QVERIFY(same(out, expectedFrame(played++, 1)));
+        }
+        QVERIFY(!h.s.hasCarry());
+        for (int i = 50; i < 54; ++i) h.push(i, i * 0.02, 1, 3);
+        for (int f = 0; f < 12; ++f) {
+            QVERIFY(h.pull(out));
+            QVERIFY(same(out, expectedFrame(50 + f / 3, 1, (f % 3) * kFrame)));
+        }
+        QVERIFY(!h.s.hasCarry());
+    }
 };
 
 QTEST_GUILESS_MAIN(TestCallAudioJitter)

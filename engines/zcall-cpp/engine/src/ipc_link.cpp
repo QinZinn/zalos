@@ -84,7 +84,8 @@ void IpcLink::emitFrame(const QJsonObject& frame) {
         m_recv->write(hex + '$');
         return;
     }
-    const qint64 id = QDateTime::currentMSecsSinceEpoch();
+    static qint64 nextId = 0;
+    const qint64 id = ++nextId;
     for (const QByteArray& part : ipcChunks(hex, id)) m_recv->write(part);
 }
 

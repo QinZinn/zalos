@@ -6,6 +6,13 @@ OUT_DIR="${2:?Usage: $0 <input-pkgs-dir> <output-repo-dir>}"
 REPO_BASE_URL="${REPO_BASE_URL:-https://cpfriend1721994.github.io/zalos}"
 REDIRECT_URL="${REDIRECT_URL:-https://zalos.pages.dev/}"
 
+if [ -n "${GPG_PRIVATE_KEY_FILE:-}" ] && [ -r "${GPG_PRIVATE_KEY_FILE}" ]; then
+    GPG_PRIVATE_KEY="$(cat "${GPG_PRIVATE_KEY_FILE}")"
+fi
+if [ -n "${GPG_PASSPHRASE_FILE:-}" ] && [ -r "${GPG_PASSPHRASE_FILE}" ]; then
+    GPG_PASSPHRASE="$(cat "${GPG_PASSPHRASE_FILE}")"
+fi
+
 if [ -z "${GPG_PRIVATE_KEY:-}" ]; then
     echo "GPG_PRIVATE_KEY is required" >&2
     exit 1
@@ -64,7 +71,9 @@ APT_DIR="${OUT_DIR}/apt"
 mkdir -p "${APT_DIR}/pool/main"
 find "${INPUT_DIR}" -maxdepth 2 -type f -name '*.deb' -exec cp -f {} "${APT_DIR}/pool/main/" \;
 
-if find "${APT_DIR}/pool/main" -maxdepth 1 -type f -name '*.deb' | grep -q .; then
+shopt -s nullglob
+DEB_FILES=("${APT_DIR}/pool/main/"*.deb)
+if [ "${#DEB_FILES[@]}" -gt 0 ]; then
     for arch in amd64 arm64; do
         BIN_DIR="${APT_DIR}/dists/stable/main/binary-${arch}"
         mkdir -p "${BIN_DIR}"
@@ -98,7 +107,8 @@ for arch in x86_64 aarch64; do
     mkdir -p "${RPM_ARCH_DIR}/Packages"
     find "${INPUT_DIR}" -maxdepth 2 -type f -name "*.${arch}.rpm" -exec cp -f {} "${RPM_ARCH_DIR}/Packages/" \;
 
-    if find "${RPM_ARCH_DIR}/Packages" -maxdepth 1 -type f -name '*.rpm' | grep -q .; then
+    RPM_FILES=("${RPM_ARCH_DIR}/Packages/"*.rpm)
+    if [ "${#RPM_FILES[@]}" -gt 0 ]; then
         rpmsign \
             --define "_gpg_name ${KEY_FP}" \
             --define "__gpg ${GPG_WRAPPER}" \

@@ -33,10 +33,10 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
-  contents: write
+  contents: read
   packages: read # pull the prebuilt multiarch base images from ghcr.io (built once by base-images.yml)
 
 jobs:
@@ -235,6 +235,8 @@ jobs:
     name: GitHub release
     needs: [package]
     if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
     runs-on: [self-hosted, Linux, X64, tunnm-cicd]
     steps:
       - uses: actions/checkout@v7
@@ -303,19 +305,34 @@ jobs:
           GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         run: |
+          GPG_KEY_HOST="${RUNNER_TEMP}/zalos-gpg.key"
+          GPG_PASS_HOST="${RUNNER_TEMP}/zalos-gpg.pass"
+          (
+            umask 077
+            printf '%s\n' "${GPG_PRIVATE_KEY}" > "${GPG_KEY_HOST}"
+            printf '%s' "${GPG_PASSPHRASE}" > "${GPG_PASS_HOST}"
+          )
+          CID=""
+          cleanup() {
+            rm -f "${GPG_KEY_HOST}" "${GPG_PASS_HOST}"
+            [ -n "${CID}" ] && docker rm -f "${CID}" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
           CID=$(docker create \
-            -e GPG_PRIVATE_KEY \
-            -e GPG_PASSPHRASE \
+            -e GPG_PRIVATE_KEY_FILE=/tmp/zalos-gpg.key \
+            -e GPG_PASSPHRASE_FILE=/tmp/zalos-gpg.pass \
             ubuntu:24.04 bash -c "
               set -e
               export DEBIAN_FRONTEND=noninteractive
               apt-get update -qq
               apt-get install -y --no-install-recommends dpkg-dev apt-utils createrepo-c rpm gnupg ca-certificates
               bash /tmp/scripts/build-pkg-repo.sh /tmp/repo-pkgs /tmp/_repo
+              rm -f /tmp/zalos-gpg.key /tmp/zalos-gpg.pass
             ")
-          trap 'docker rm -f "${CID}" >/dev/null 2>&1 || true' EXIT
           docker cp "${GITHUB_WORKSPACE}/scripts" "${CID}:/tmp/scripts"
           docker cp "${GITHUB_WORKSPACE}/repo-pkgs" "${CID}:/tmp/repo-pkgs"
+          docker cp "${GPG_KEY_HOST}" "${CID}:/tmp/zalos-gpg.key"
+          docker cp "${GPG_PASS_HOST}" "${CID}:/tmp/zalos-gpg.pass"
           docker start -a "${CID}"
           docker cp "${CID}:/tmp/_repo" "${GITHUB_WORKSPACE}/_repo"
       - name: Setup GitHub Pages

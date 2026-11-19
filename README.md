@@ -2,7 +2,7 @@
 
 <div align="center">
 
-**A high-performance, ultra-lightweight native Zalo desktop client for Linux**
+**High-performance, ultra-lightweight native Qt 6 client for Zalo on Linux**
 
 [![CI/CD Pipeline](https://github.com/cpfriend1721994/zalos/actions/workflows/ci.yml/badge.svg)](https://github.com/cpfriend1721994/zalos/actions/workflows/ci.yml)
 [![Latest Release](https://img.shields.io/github/v/release/cpfriend1721994/zalos?color=blue)](https://github.com/cpfriend1721994/zalos/releases/latest)
@@ -22,9 +22,8 @@
 
 ## 📖 Overview
 
-**Zalos** is an open-source, **high-performance and ultra-lightweight** native desktop client for Zalo on Linux.
-Written completely in native C++17 and Qt 6 QML, it replaces the resource-heavy Electron/Chromium runtime with a lean,
-purpose-built architecture:
+**Zalos** is an open-source native Linux client for Zalo, built with C++17 and Qt 6 QML
+with a lean, purpose-built architecture:
 
 - **Ultra-lightweight:** Compact native `.deb`/`.rpm` (~6 MB) or self-contained AppImage (~22 MB with Qt 6.4 fallback) and minimal memory footprint (~40–65 MB RAM, saving over 90% compared to 450–1,800+ MB on Electron wrappers).
 - **High performance:** Instant startup (<0.5s), hardware-accelerated 60 FPS graphics, multi-threaded C++ cryptographic decoding, and smooth responsiveness even on low-spec hardware.
@@ -48,7 +47,7 @@ purpose-built architecture:
 - **Wayland & X11** — runs on both, with native window controls on GNOME and KDE, plus a GPU hardware-acceleration toggle with instant restart in Settings.
 - **Automatic light/dark theme** — follows your system colour scheme in real time.
 - **Messaging** — one-to-one and group chats, animated Stickers & GIFs, emoji, 54 Zalo reactions, rich formatting (with indent), replies,
-  forwards, polls, bank cards, pinned messages, labels, conversation type filters (All / Groups / Direct), and full-history search.
+  forwards, polls, bank cards, pinned messages, labels, conversation filters (All / Groups / Direct / Friends / Strangers), and full-history search.
 - **Smart mobile history sync** — detects empty group histories on sign-in and offers encrypted phone sync.
 - **Voice & video calls** — 1-1 voice/video calls with OpenH264 video encoding, in-call screen sharing (X11 & Wayland), floating PiP minimize mode, and in-call device/mic-volume picker; group calls are in beta.
 - **My Documents** — the personal storage thread with instant filters for photos, videos, files and links.
@@ -60,7 +59,7 @@ purpose-built architecture:
 - **In-app update support** — GitHub Releases check with SHA-256 verification (atomic self-update + `gh-releases-zsync` for AppImage; `pkexec`/system installer for `.deb`/`.rpm`).
 - **Bilingual interface** — instant switching between Vietnamese and English.
 
-> **Disclaimer:** Zalos is an independent open-source project and is **not** affiliated with, endorsed, or
+> **Disclaimer:** Zalos is a community open-source project and is **not** affiliated with, endorsed, or
 > sponsored by VNG Corporation or Zalo. All trademarks and logos are the property of their respective owners.
 
 ---
@@ -99,13 +98,13 @@ sudo dnf install -y zalos
 ### Ubuntu 24.04+ (`.deb` single file)
 ```bash
 ARCH=$(dpkg --print-architecture)
-wget "https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.2.7-1~ubuntu24.04_${ARCH}.deb"
-sudo apt install "./zalos_1.2.7-1~ubuntu24.04_${ARCH}.deb"
+wget "https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.2.8-1~ubuntu24.04_${ARCH}.deb"
+sudo apt install "./zalos_1.2.8-1~ubuntu24.04_${ARCH}.deb"
 ```
 
 ### Fedora 43+ (`.rpm` single file)
 ```bash
-sudo dnf install "https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.2.7-1.fc43.$(uname -m).rpm"
+sudo dnf install "https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.2.8-1.fc43.$(uname -m).rpm"
 ```
 
 ### Snap
@@ -133,9 +132,9 @@ nix profile install github:cpfriend1721994/zalos
 ### AppImage (portable, glibc ≥ 2.35)
 ```bash
 ARCH=$(uname -m)
-wget "https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.2.7-${ARCH}.AppImage"
-chmod +x "Zalos-1.2.7-${ARCH}.AppImage"
-"./Zalos-1.2.7-${ARCH}.AppImage"
+wget "https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.2.8-${ARCH}.AppImage"
+chmod +x "Zalos-1.2.8-${ARCH}.AppImage"
+"./Zalos-1.2.8-${ARCH}.AppImage"
 ```
 The AppImage (~22 MB) uses your host Qt 6 when available and automatically falls back to its bundled Qt 6.4 runtime on systems without Qt 6 (requiring only standard desktop libraries and `glibc ≥ 2.35`, e.g. Ubuntu 22.04+, Debian 12+, Fedora, openSUSE, Arch).
 
@@ -144,8 +143,8 @@ No prebuilt native package is published for Arch Linux. Use **Flatpak**, **Snap*
 follow [Building from source](#️-building-from-source).
 
 ### Optional: calls
-Voice and video calls run on Zalos's own C++ call engine (`zalos-call` and `zalos-call-audio`, in `libexec/zalos`),
-which follows the call protocol of [zalo-for-linux](https://github.com/VN-Linux-Family/zalo-for-linux) (BSD-3-Clause).
+Voice and video calls run on Zalos's own C++ call engine (`zalos-call` and `zalos-call-audio`, in `libexec/zalos`;
+see `engines/zcall-cpp/LICENSE` for third-party BSD-3-Clause notices).
 Zalos has no Python or Node.js dependency at all:
 
 - **Voice calls work out of the box** on `.deb`, `.rpm`, `Nix`, and the **AppImage** (the AppImage bundles a `libopus.so.0` fallback and connects directly to PulseAudio / PipeWire via `libpulse-simple.so.0`, which is already preinstalled on standard desktop Linux distributions; only minimal systems without PulseAudio/PipeWire client libraries need `libpulse0` on Ubuntu/Debian or `pulseaudio-libs` on Fedora).
@@ -171,7 +170,7 @@ docker compose run --rm package-rpm      # dist/*.x86_64.rpm
 docker compose run --rm package-nix      # dist/*-nixos.tar.gz
 ```
 
-Pushing a semantic tag (`git tag v1.2.6 && git push origin v1.2.6`) builds the full package set and publishes
+Pushing a semantic tag (`git tag v1.2.8 && git push origin v1.2.8`) builds the full package set and publishes
 a GitHub Release.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the contributor workflow.

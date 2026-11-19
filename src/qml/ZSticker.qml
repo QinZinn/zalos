@@ -27,7 +27,7 @@ Item {
         asynchronous: true
         cache: true
         fillMode: Image.PreserveAspectFit
-        sourceSize.width: Math.ceil(root.width * (Screen.devicePixelRatio || 1))
+        sourceSize.width: Math.max(1, Math.ceil(root.width * (Screen.devicePixelRatio || 1)))
         visible: !(animLoader.item && animLoader.item.status === Image.Ready)
                  && !(root.spriteMode && spriteImage.status === Image.Ready)
     }
@@ -60,7 +60,7 @@ Item {
             width: root.side * root.frames
             x: -root.frame * root.side
             fillMode: Image.Stretch
-            sourceSize.height: Math.ceil(root.side * (Screen.devicePixelRatio || 1))
+            sourceSize.height: Math.max(1, Math.ceil(root.side * (Screen.devicePixelRatio || 1)))
         }
     }
     Timer {

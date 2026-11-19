@@ -128,17 +128,19 @@ std::optional<QVector<ProtoField>> parseProto(const QByteArray& data) {
 }
 
 ZstdStatus zstdDecompress(const QByteArray& compressed, QByteArray* out, QByteArray* detail) {
+    if (!out) return ZstdStatus::Error;
     const ZstdApi* api = loadZstd();
     if (!api) return ZstdStatus::Unavailable;
     const unsigned long long size = api->contentSize(compressed.constData(), static_cast<size_t>(compressed.size()));
     constexpr unsigned long long kUnknownSize = 0ULL - 1ULL;
     constexpr unsigned long long kError = 0ULL - 2ULL;
+    constexpr unsigned long long kMaxZstdSize = 64ULL * 1024 * 1024;
     if (size == kUnknownSize) return ZstdStatus::UnknownSize;
-    if (size == kError) {
-        if (detail) *detail = "invalid zstd frame";
+    if (size == kError || size > kMaxZstdSize) {
+        if (detail) *detail = size > kMaxZstdSize ? QByteArrayLiteral("zstd frame too large") : QByteArrayLiteral("invalid zstd frame");
         return ZstdStatus::Error;
     }
-    out->resize(static_cast<int>(size));
+    out->resize(static_cast<qsizetype>(size));
     const size_t written = api->decompress(out->data(), static_cast<size_t>(size), compressed.constData(),
                                            static_cast<size_t>(compressed.size()));
     if (api->isError(written) || written != static_cast<size_t>(size)) {

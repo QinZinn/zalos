@@ -42,6 +42,7 @@ VoiceRecorder::VoiceRecorder(QObject* parent) : QObject(parent) {
 
 VoiceRecorder::~VoiceRecorder() {
     if (m_recording) finish(false);
+    if (!m_path.isEmpty()) QFile::remove(std::exchange(m_path, QString()));
 }
 
 void VoiceRecorder::ensurePassiveProbe() const {
@@ -55,7 +56,7 @@ void VoiceRecorder::ensurePassiveProbe() const {
 void VoiceRecorder::refreshAvailability() {
     m_probed = true;
     QString reason;
-    if (!hasCaptureDeviceNode() || QMediaDevices::audioInputs().isEmpty()) {
+    if (QMediaDevices::audioInputs().isEmpty()) {
         reason = QStringLiteral("no_microphone");
     } else if (!aacFormat().isSupported(QMediaFormat::Encode)) {
         reason = QStringLiteral("no_aac_encoder");
@@ -105,6 +106,14 @@ bool VoiceRecorder::start() {
     m_durationMs = 0;
     m_recording = true;
     m_recorder->record();
+    if (m_recorder->recorderState() == QMediaRecorder::StoppedState) {
+        m_recording = false;
+        m_keepOnStop = false;
+        m_tick.stop();
+        if (!m_path.isEmpty()) QFile::remove(std::exchange(m_path, QString()));
+        emit recordingChanged();
+        return false;
+    }
     m_tick.start();
     emit durationChanged();
     emit recordingChanged();

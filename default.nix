@@ -2,7 +2,7 @@
 
 pkgs.stdenv.mkDerivation rec {
   pname = "zalos";
-  version = "1.2.3";
+  version = "1.2.8";
 
   # Only sources: never sessions (zsess.json), offline caches (.local/.config/.cache written by containers with
   # HOME=/workspace), screenshots, build trees or packages — the Nix store is world-readable.
@@ -11,14 +11,17 @@ pkgs.stdenv.mkDerivation rec {
     filter = path: type:
       let
         base = baseNameOf (toString path);
-        privateDirs = [ "build" "build-appimage" "dist" ".git" ".cache" ".config" ".local" ".flatpak-builder" "__pycache__" ];
+        privateDirs = [ "build" "build-appimage" "dist" ".git" ".cache" ".config" ".local" ".flatpak-builder" ".agents" "__pycache__" ];
       in
-      !(type == "directory" && builtins.elem base privateDirs) &&
-      !(type == "regular" && (base == "zsess.json" || pkgs.lib.hasSuffix ".png" base && pkgs.lib.hasPrefix "zalos_" base)) &&
+      !(type == "directory" && (builtins.elem base privateDirs || pkgs.lib.hasPrefix "build-" base || pkgs.lib.hasPrefix "dist-" base)) &&
+      !(type == "regular" && (base == "zsess.json" || base == "AGENTS.md" || base == "CLAUDE.md" || base == "GEMINI.md" || pkgs.lib.hasSuffix ".png" base && pkgs.lib.hasPrefix "zalos_" base)) &&
       !(type == "regular" && pkgs.lib.hasSuffix ".AppImage" base) &&
+      !(type == "regular" && pkgs.lib.hasSuffix ".deb" base) &&
       !(type == "regular" && pkgs.lib.hasSuffix ".rpm" base) &&
       !(type == "regular" && pkgs.lib.hasSuffix ".flatpak" base) &&
-      !(type == "regular" && pkgs.lib.hasSuffix ".tar.gz" base);
+      !(type == "regular" && pkgs.lib.hasSuffix ".tar.gz" base) &&
+      !(type == "regular" && pkgs.lib.hasSuffix ".zsync" base) &&
+      !(type == "regular" && pkgs.lib.hasSuffix ".session.json" base);
   };
 
   nativeBuildInputs = with pkgs; [
@@ -44,12 +47,11 @@ pkgs.stdenv.mkDerivation rec {
   ];
 
   # NixOS has no global library path for dlopen("libopenh264.so.N"): point the app at the store copy.
-  # The C++ call engines (libexec/zalos) play and record through pactl/pacat (pulseaudio tools, PipeWire-compatible)
-  # and dlopen() libopus.so.0.
+  # The C++ call engines (libexec/zalos) dlopen() libpulse-simple.so.0 / libpulse.so.0 and libopus.so.0 directly.
   qtWrapperArgs = [
     "--set-default ZALOS_OPENH264 ${pkgs.openh264}/lib/libopenh264.so"
     "--prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.pulseaudio ]}"
-    "--prefix LD_LIBRARY_PATH : ${pkgs.lib.makeLibraryPath [ pkgs.libopus ]}"
+    "--prefix LD_LIBRARY_PATH : ${pkgs.lib.makeLibraryPath [ pkgs.libopus pkgs.libpulseaudio ]}"
   ];
 
   cmakeFlags = [
@@ -58,7 +60,7 @@ pkgs.stdenv.mkDerivation rec {
   ] ++ pkgs.lib.optional pkgs.stdenv.hostPlatform.isAarch64 "-DZALOS_QML_AOT=OFF";
 
   meta = with pkgs.lib; {
-    description = "Native Qt6 (C++/QML) desktop client for Zalo on Linux";
+    description = "Native Qt6 (C++/QML) messaging client for Zalo on Linux";
     homepage = "https://github.com/cpfriend1721994/zalos";
     license = licenses.mit;
     platforms = platforms.linux;

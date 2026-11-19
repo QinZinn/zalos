@@ -1866,8 +1866,8 @@ Item {
                                             Text {
                                                 Layout.fillWidth: true
                                                 wrapMode: Text.WordWrap
-                                                text: I18n.t("Ứng dụng nhắn tin Zalo dành cho Linux (C++/Qt6, mã nguồn mở MIT).",
-                                                             "Native Zalo desktop client for Linux (C++/Qt6, MIT open source).")
+                                                text: I18n.t("Ứng dụng Zalo Desktop native cho Linux bằng C++/Qt6 (mã nguồn mở MIT).",
+                                                             "Native Qt6 (C++/QML) desktop client for Zalo on Linux (MIT open source).")
                                                 font.family: Theme.fontFamily
                                                 font.pixelSize: 12
                                                 color: ThemeManager.secondaryTextColor

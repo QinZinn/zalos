@@ -60,11 +60,23 @@ void Stream::push(int64_t idx, const uint8_t* payload, size_t len, double now) {
     if (m_transit.size() > kWindow) m_transit.pop_front();
     if (m_transit.size() >= 20) {
         m_sorted.assign(m_transit.begin(), m_transit.end());
-        std::sort(m_sorted.begin(), m_sorted.end());
         const size_t at = static_cast<size_t>(static_cast<double>(m_sorted.size()) * 0.95) - 1;
-        const double spread = m_sorted[at] - m_sorted[0];
+        const auto nth = m_sorted.begin() + static_cast<std::ptrdiff_t>(at);
+        std::nth_element(m_sorted.begin(), nth, m_sorted.end());
+        const double minVal = *std::min_element(m_sorted.begin(), nth + 1);
+        const double spread = m_sorted[at] - minVal;
         m_target = std::min(m_maxTarget, std::max(m_minTarget, static_cast<int>(std::ceil(spread / 0.02)) + 1));
     }
+}
+
+void Stream::compactCarry() {
+    if (m_carryPos == 0) return;
+    if (m_carryPos >= m_carry.size()) {
+        m_carry.clear();
+    } else {
+        m_carry.erase(m_carry.begin(), m_carry.begin() + static_cast<std::ptrdiff_t>(m_carryPos));
+    }
+    m_carryPos = 0;
 }
 
 void Stream::decodeInto(const std::vector<uint8_t>* payload, bool fec) {
@@ -81,14 +93,22 @@ void Stream::decodeInto(const std::vector<uint8_t>* payload, bool fec) {
 }
 
 void Stream::take(int16_t* out) {
-    const size_t have = std::min(m_carry.size(), size_t(kFrame));
-    std::copy(m_carry.begin(), m_carry.begin() + static_cast<std::ptrdiff_t>(have), out);
+    const size_t avail = carrySize();
+    const size_t have = std::min(avail, size_t(kFrame));
+    const auto start = m_carry.begin() + static_cast<std::ptrdiff_t>(m_carryPos);
+    std::copy(start, start + static_cast<std::ptrdiff_t>(have), out);
     std::fill(out + have, out + kFrame, int16_t(0));
-    m_carry.erase(m_carry.begin(), m_carry.begin() + static_cast<std::ptrdiff_t>(have));
+    m_carryPos += have;
+    if (m_carryPos == m_carry.size()) {
+        m_carry.clear();
+        m_carryPos = 0;
+    } else if (m_carryPos >= 2048) {
+        compactCarry();
+    }
 }
 
 bool Stream::ensure(size_t samples) {
-    while (m_carry.size() < samples && m_hasNext) {
+    while (carrySize() < samples && m_hasNext) {
         auto it = m_packets.find(m_next);
         if (it == m_packets.end()) break;
         std::vector<uint8_t> payload = std::move(it->second);
@@ -98,7 +118,7 @@ bool Stream::ensure(size_t samples) {
         m_expand = 0;
         m_stats.add(Stat::OpusOk);
     }
-    return m_carry.size() >= samples;
+    return carrySize() >= samples;
 }
 
 int64_t Stream::span() const {
@@ -115,6 +135,7 @@ int64_t Stream::discardTo(int keep) {
     m_packets.erase(m_packets.begin(), m_packets.lower_bound(cut));
     m_next = m_packets.empty() ? cut : m_packets.begin()->first;
     m_carry.clear();
+    m_carryPos = 0;
     m_expand = 0;
     m_stats.add(Stat::Reset);
     return extra;
@@ -122,7 +143,7 @@ int64_t Stream::discardTo(int keep) {
 
 bool Stream::pull(int16_t* out) {
     if (!m_playing) {
-        if (m_carry.empty() && static_cast<int>(m_packets.size()) < m_target) return false;
+        if (!hasCarry() && static_cast<int>(m_packets.size()) < m_target) return false;
         m_playing = true;
         if (!m_packets.empty()) {
             const int64_t first = m_packets.begin()->first;
@@ -140,12 +161,14 @@ bool Stream::pull(int16_t* out) {
         s = span();
     }
     if (s > m_target + 2 && m_sinceDrop >= 10 && ensure(size_t(kFrame) * 2)) {
-        if (rms(m_carry.data(), size_t(kFrame)) < 800) {
+        if (rms(m_carry.data() + m_carryPos, size_t(kFrame)) < 800) {
             m_sinceDrop = 0;
             m_stats.add(Stat::Accelerate);
+            compactCarry();
             std::vector<int16_t> rest;
             wsolaShrink(m_carry, out, rest);
             m_carry.swap(rest);
+            m_carryPos = 0;
             return true;
         }
     }

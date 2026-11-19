@@ -3,6 +3,7 @@
 #include <QtQml/qqmlregistration.h>
 
 #include <QByteArray>
+#include <QElapsedTimer>
 #include <QObject>
 #include <QTimer>
 
@@ -23,6 +24,7 @@ public:
     static constexpr int kPenaltySeconds = 30;
 
     explicit AppLock(QObject* parent = nullptr);
+    ~AppLock() override;
 
     bool hasPasscode() const { return !m_hash.isEmpty(); }
     bool locked() const { return m_locked; }
@@ -36,6 +38,7 @@ public:
     Q_INVOKABLE bool unlock(const QString& passcode);
 
     void noteActivity();
+    bool isEventFilterInstalledForTesting() const { return m_filterInstalled; }
 
 protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
@@ -49,6 +52,7 @@ signals:
 private:
     bool verify(const QString& passcode) const;
     void restartIdle();
+    void syncEventFilter();
 
     QByteArray m_salt;
     QByteArray m_hash;
@@ -58,6 +62,8 @@ private:
     qint64 m_blockedUntil{0};
     QTimer m_idle;
     QTimer m_retryTick;
+    bool m_filterInstalled{false};
+    QElapsedTimer m_lastActivity;
 };
 
 }
