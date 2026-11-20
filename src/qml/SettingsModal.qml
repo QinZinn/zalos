@@ -677,10 +677,34 @@ Item {
 
                                 ToggleRow {
                                     title: I18n.t("Tăng tốc phần cứng (GPU)", "Hardware acceleration (GPU)")
-                                    subtitle: I18n.t("Tắt tùy chọn này để dùng kết xuất phần mềm và giảm RAM đồ họa (cần khởi động lại Zalos)",
-                                                     "Turn off to use software rendering and reduce GPU memory usage (requires restarting Zalos)")
+                                    subtitle: I18n.t("Mặc định tắt để chạy ổn định trên mọi máy. Nếu bật mà card đồ họa gặp lỗi, Zalos sẽ tự chuyển về chế độ thường (cần khởi động lại Zalos)",
+                                                     "Off by default so Zalos runs reliably on every machine. If the graphics card fails after you turn it on, Zalos switches back automatically (requires restarting Zalos)")
                                     checked: ZaloClient.hardwareAcceleration
                                     onToggled: (value) => ZaloClient.hardwareAcceleration = value
+                                }
+
+                                Rectangle {
+                                    visible: ZaloClient.hardwareAccelerationFailed
+                                    Layout.fillWidth: true
+                                    implicitHeight: gpuFailedText.implicitHeight + 16
+                                    radius: Theme.radiusMedium
+                                    color: ThemeManager.cardBackgroundColor
+                                    border.color: ThemeManager.borderColor
+                                    border.width: 1
+
+                                    Text {
+                                        id: gpuFailedText
+                                        anchors.left: parent.left
+                                        anchors.right: parent.right
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        anchors.margins: 12
+                                        wrapMode: Text.WordWrap
+                                        text: I18n.t("Tăng tốc phần cứng không chạy được trên máy này ở lần mở trước nên Zalos đã tự tắt và chuyển về chế độ thường. Bạn có thể bật lại để thử.",
+                                                     "Hardware acceleration did not work on this machine last time, so Zalos turned it off and switched back to normal mode. You can turn it on again to retry.")
+                                        font.family: Theme.fontFamily
+                                        font.pixelSize: 12
+                                        color: ThemeManager.textColor
+                                    }
                                 }
 
                                 Rectangle {

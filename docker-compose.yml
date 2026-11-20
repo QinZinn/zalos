@@ -223,6 +223,62 @@ services:
       - .:/workspace:z
     command: bash /workspace/scripts/test-deb.sh
 
+  # Dependency matrix (scripts/test-deps.sh): fewest system packages per format; Zalos must still start and
+  # report optional dependencies honestly. AppImage hosts have no Qt, only a desktop baseline.
+  test-deps-deb:
+    image: docker.io/library/ubuntu:24.04
+    user: "0:0"
+    volumes:
+      - .:/workspace:z
+    environment:
+      - TARGET=deb
+    command: bash /workspace/scripts/test-deps.sh
+
+  test-deps-rpm:
+    image: docker.io/library/fedora:43
+    user: "0:0"
+    volumes:
+      - .:/workspace:z
+    environment:
+      - TARGET=rpm
+    command: bash /workspace/scripts/test-deps.sh
+
+  test-deps-appimage-ubuntu2204:
+    image: docker.io/library/ubuntu:22.04
+    user: "0:0"
+    volumes:
+      - .:/workspace:z
+    environment:
+      - TARGET=appimage
+    command: bash /workspace/scripts/test-deps.sh
+
+  test-deps-appimage-debian12:
+    image: docker.io/library/debian:12
+    user: "0:0"
+    volumes:
+      - .:/workspace:z
+    environment:
+      - TARGET=appimage
+    command: bash /workspace/scripts/test-deps.sh
+
+  test-deps-appimage-arch:
+    image: docker.io/library/archlinux:latest
+    user: "0:0"
+    volumes:
+      - .:/workspace:z
+    environment:
+      - TARGET=appimage
+    command: bash /workspace/scripts/test-deps.sh
+
+  test-deps-appimage-opensuse:
+    image: docker.io/opensuse/tumbleweed:latest
+    user: "0:0"
+    volumes:
+      - .:/workspace:z
+    environment:
+      - TARGET=appimage
+    command: bash /workspace/scripts/test-deps.sh
+
   test-deb-ubuntu-latest:
     image: docker.io/library/ubuntu:rolling
     user: "0:0"

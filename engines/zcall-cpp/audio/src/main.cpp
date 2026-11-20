@@ -8,6 +8,7 @@
 #include "opus_api.h"
 #include "options.h"
 #include "playout.h"
+#include "pulse_api.h"
 #include "sink.h"
 #include "wire.h"
 
@@ -16,6 +17,7 @@
 #include <chrono>
 #include <cmath>
 #include <csignal>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <mutex>
@@ -134,8 +136,20 @@ MaybeName orElse(const MaybeName& a, const std::function<MaybeName()>& b) { retu
 
 }
 
+int checkDeps() {
+    std::string error;
+    const auto opus = OpusApi::load(&error);
+    std::printf("opus=%s\n", opus ? opus->origin().c_str() : ("missing (" + error + ")").c_str());
+    std::string simpleError;
+    const auto simple = PulseSimpleApi::load(&simpleError);
+    std::printf("pulse-simple=%s\n", simple ? "system" : ("missing (" + simpleError + ")").c_str());
+    std::printf("pulse=%s\n", PulseApi::available() ? "system" : "missing");
+    return opus ? 0 : 1;
+}
+
 int main(int argc, char** argv) {
     std::signal(SIGPIPE, SIG_IGN);
+    if (argc > 1 && std::strcmp(argv[1], "--check-deps") == 0) return checkDeps();
     Options args;
     if (const int code = parseOptions(argc, argv, args); code >= 0) return code;
 

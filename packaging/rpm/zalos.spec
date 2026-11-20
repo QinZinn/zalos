@@ -4,12 +4,16 @@
 %global _find_debuginfo_dwz_opts %{nil}
 
 Name:           zalos
-Version:        1.2.8
+Version:        1.2.9
 Release:        1%{?dist}
 Summary:        Native Qt6 (C++/QML) messaging client for Zalo on Linux
 License:        MIT AND BSD-3-Clause
 URL:            https://github.com/cpfriend1721994/zalos
 Source0:        %{name}-%{version}.tar.gz
+
+# The private fallback copy of libopus must not satisfy or add dependencies of other packages.
+%global __provides_exclude_from ^%{_libdir}/%{name}/fallback/.*$
+%global __requires_exclude_from ^%{_libdir}/%{name}/fallback/.*$
 
 BuildRequires:  cmake >= 3.22
 BuildRequires:  gcc-c++
@@ -28,6 +32,7 @@ BuildRequires:  openssl-devel
 BuildRequires:  xz-devel
 BuildRequires:  sqlite-devel
 BuildRequires:  desktop-file-utils
+BuildRequires:  opus
 
 Requires:       qt6-qtbase >= 6.4
 Requires:       qt6-qtdeclarative >= 6.4
@@ -36,9 +41,10 @@ Requires:       qt6-qtimageformats
 Requires:       qt6-qtwayland
 Requires:       qt6-qtwebsockets
 Requires:       qt6-qtmultimedia
-# C++ call engine (zalos-call, zalos-call-audio in libexec/zalos): libopus and libpulse-simple are dlopen()ed.
-Requires:       opus
-Requires:       pulseaudio-libs
+# C++ call engine (zalos-call, zalos-call-audio in libexec/zalos): libopus and libpulse-simple are dlopen()ed;
+# the system libopus is preferred and a private copy in %{_libdir}/zalos/fallback covers systems without it.
+Recommends:     opus
+Recommends:     pulseaudio-libs
 Requires:       xcb-util-cursor
 Requires:       openssl
 Requires:       sqlite
@@ -68,6 +74,8 @@ export CXXFLAGS="$(echo %{build_cxxflags} | sed 's/-g[a-z0-9=-]*//g') -g0 -DNDEB
 
 %install
 %cmake_install
+install -d %{buildroot}%{_libdir}/%{name}/fallback
+install -m 0644 "$(readlink -f %{_libdir}/libopus.so.0)" %{buildroot}%{_libdir}/%{name}/fallback/libopus.so.0
 
 %check
 desktop-file-validate %{buildroot}%{_datadir}/applications/%{name}.desktop
@@ -76,12 +84,21 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/%{name}.desktop
 %{_bindir}/%{name}
 %{_libexecdir}/%{name}/zalos-call
 %{_libexecdir}/%{name}/zalos-call-audio
+%{_libdir}/%{name}/fallback/libopus.so.0
 %license %{_datadir}/licenses/%{name}/zcall-cpp.LICENSE
 %{_datadir}/applications/%{name}.desktop
 %{_datadir}/icons/hicolor/scalable/apps/%{name}.svg
 %{_datadir}/metainfo/io.github.cpfriend1721994.zalos.metainfo.xml
 
 %changelog
+* Fri Nov 20 2026 Zalos Team <dev@zalos.local> - 1.2.9-1
+- Add Zalo PC-style polls: info lines for every poll event, card under the latest event, full vote dialog (single/multiple choice, change or remove votes, add options, voters per option, close and share), all creation settings with Zalo's limits, and pinned polls.
+- Fix chats read on the phone staying unread (persistent per-conversation read points applied in order, get-last-seen sync after reconnect/window show/every 15 minutes).
+- Fix phone history sync failing with code -1 when the phone app goes to the background after confirming.
+- Fix poll votes replacing earlier choices, double votes when adding options, and the placeholder poll card; release viewer memory on close and stop caching full-size photos; fix Window attached-property QML warnings.
+- Default to software rendering with automatic fallback to software when a hardware renderer fails.
+- Require fewer system packages (libopus, PulseAudio and OpenH264 are recommendations; a private libopus copy is used only when the system has none), read the browser key over D-Bus, keep working without Qt Multimedia codecs, and add zalos --check-deps.
+
 * Thu Nov 19 2026 Zalos Team <dev@zalos.local> - 1.2.8-1
 - Fix call hangup not ending remote calls (clear both incoming callbacks on accept/reject/non-incoming state, pre-UI-socket hangup cancellation, sendUi flush, >4 MiB video guard, UDP EndCall on pre-answer cancel, and omitted undefined fields on group end/cancel).
 - Fix group chat sidebar previews (plus desktop notifications, birthday ecards, and offline SQLite startup backfill) missing sender names with incremental updates on async profile or alias resolution.

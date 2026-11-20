@@ -594,8 +594,17 @@ void MobileHistorySync::handleControl(const QJsonObject& content) {
                    "The phone is restoring data and can't send messages now. Try again later."));
         }
     } else if (act == "transfer_error" && samePc) {
-        const int phoneCode = data.value("error_code").toInt();
-        if (phoneCode != 0) {
+        switch (classifyTransferError(data)) {
+        case TransferErrorKind::PhoneIdle:
+            setState(PhonePreparing, L("Hãy mở Zalo trên điện thoại và giữ màn hình sáng để tiếp tục sao lưu.",
+                                       "Keep Zalo open on your phone so the backup can continue."), 15);
+            break;
+        case TransferErrorKind::PhoneActive:
+            setState(PhonePreparing, L("Điện thoại đang sao lưu tin nhắn...", "The phone is backing up messages..."), 20);
+            m_timeout.start(kBackupTimeoutMs);
+            break;
+        case TransferErrorKind::Failed: {
+            const int phoneCode = data.value("error_code").toInt();
             Network::ErrorCatalog::trace("phone-sync", QStringLiteral("transfer_error code=%1 name=%2 status=%3")
                                                   .arg(phoneCode).arg(Network::ErrorCatalog::phoneSyncName(phoneCode))
                                                   .arg(data.value("status").toInt(-1)));
@@ -606,15 +615,21 @@ void MobileHistorySync::handleControl(const QJsonObject& content) {
                  + (unmapped ? L(" Nếu bạn dùng iPhone, Zalos có thể chưa hỗ trợ cách đồng bộ của Zalo trên iPhone.",
                                  " If you use an iPhone, Zalos may not support the way Zalo on iPhone syncs yet.")
                              : QString()));
-        } else if (data.value("status").toInt() == 2) {
-            setState(PhonePreparing, L("Hãy mở Zalo trên điện thoại và giữ màn hình sáng để tiếp tục sao lưu.",
-                                       "Keep Zalo open on your phone so the backup can continue."), 15);
-        } else if (data.value("status").toInt() == 1) {
-            setState(PhonePreparing, L("Điện thoại đang sao lưu tin nhắn...", "The phone is backing up messages..."), 20);
+            break;
+        }
+        case TransferErrorKind::Ignore:
+            break;
         }
     } else if (act == "syncmsg_info") {
         onBackupReady(data);
     }
+}
+
+MobileHistorySync::TransferErrorKind MobileHistorySync::classifyTransferError(const QJsonObject& data) {
+    const int status = data.value("status").toInt(-1);
+    if (status == 2) return TransferErrorKind::PhoneIdle;
+    if (status == 1) return TransferErrorKind::PhoneActive;
+    return data.value("error_code").toInt() != 0 ? TransferErrorKind::Failed : TransferErrorKind::Ignore;
 }
 
 void MobileHistorySync::onBackupReady(const QJsonObject& data) {

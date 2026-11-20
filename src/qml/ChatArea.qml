@@ -1430,7 +1430,7 @@ Rectangle {
                                 color: Theme.zaloBlue
 
                                 SequentialAnimation on y {
-                                    running: typingIndicatorPill.isPartnerTyping && (Window.window ? (Window.window.visible && Window.window.visibility !== Window.Minimized) : true)
+                                    running: typingIndicatorPill.isPartnerTyping && (typingIndicatorPill.Window.window ? (typingIndicatorPill.Window.window.visible && typingIndicatorPill.Window.window.visibility !== Window.Minimized) : true)
                                     loops: Animation.Infinite
                                     PauseAnimation { duration: dot.dotIndex * 140 }
                                     NumberAnimation { from: 0; to: -3; duration: 240; easing.type: Easing.OutQuad }
@@ -1788,7 +1788,7 @@ Rectangle {
                         radius: 6
                         color: Theme.badgeRed
                         SequentialAnimation on opacity {
-                            running: ZaloClient.voiceRecorder.recording && root.visible && (Window.window ? (Window.window.visible && Window.window.visibility !== Window.Minimized) : true)
+                            running: ZaloClient.voiceRecorder.recording && root.visible && (root.Window.window ? (root.Window.window.visible && root.Window.window.visibility !== Window.Minimized) : true)
                             loops: Animation.Infinite
                             NumberAnimation { to: 0.25; duration: 600 }
                             NumberAnimation { to: 1.0; duration: 600 }
@@ -2127,7 +2127,9 @@ Rectangle {
                                               ? I18n.t("Ghi âm tin nhắn thoại (Ctrl+Shift+V)", "Record a voice message (Ctrl+Shift+V)")
                                               : (ZaloClient.voiceRecorder.unavailableReason === "no_microphone"
                                                  ? I18n.t("Không tìm thấy micro", "No microphone found")
-                                                 : I18n.t("Thiếu bộ mã hóa AAC nên chưa ghi âm được", "No AAC encoder: recording unavailable"))
+                                                 : (ZaloClient.voiceRecorder.unavailableReason === "no_multimedia"
+                                                    ? I18n.t("Máy thiếu thành phần ghi âm (Qt Multimedia)", "No Qt Multimedia recording components")
+                                                    : I18n.t("Thiếu bộ mã hóa AAC nên chưa ghi âm được", "No AAC encoder: recording unavailable")))
                                 onClicked: ZaloClient.voiceRecorder.start()
                             }
                         }
@@ -2698,6 +2700,16 @@ Rectangle {
                                 cursorShape: Qt.PointingHandCursor
                                 onClicked: pinDetailPopup.close()
                             }
+                        }
+                    }
+                    ZButton {
+                        visible: pinDetailPopup.detail.type === 3 && Number(pinDetailPopup.detail.pollId || 0) > 0
+                        Layout.fillWidth: true
+                        variant: "tonal"
+                        text: I18n.t("Xem bình chọn", "View poll")
+                        onClicked: {
+                            ZaloClient.openPollDialog(Number(pinDetailPopup.detail.pollId), ZaloClient.currentConversationId, false);
+                            pinDetailPopup.close();
                         }
                     }
                     Text {

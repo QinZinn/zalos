@@ -1,4 +1,5 @@
 #include "voice_recorder.h"
+#include "platform/multimedia_support.h"
 
 #include <QAudioDevice>
 #include <QAudioInput>
@@ -56,7 +57,9 @@ void VoiceRecorder::ensurePassiveProbe() const {
 void VoiceRecorder::refreshAvailability() {
     m_probed = true;
     QString reason;
-    if (QMediaDevices::audioInputs().isEmpty()) {
+    if (!Platform::MultimediaSupport::available()) {
+        reason = QStringLiteral("no_multimedia");
+    } else if (QMediaDevices::audioInputs().isEmpty()) {
         reason = QStringLiteral("no_microphone");
     } else if (!aacFormat().isSupported(QMediaFormat::Encode)) {
         reason = QStringLiteral("no_aac_encoder");

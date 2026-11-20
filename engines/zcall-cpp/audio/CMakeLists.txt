@@ -17,6 +17,8 @@ add_library(zcall_audio_core STATIC
     src/jitter.h
     src/log.cpp
     src/log.h
+    src/native_lib.cpp
+    src/native_lib.h
     src/opus_api.cpp
     src/opus_api.h
     src/options.cpp

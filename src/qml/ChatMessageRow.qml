@@ -112,6 +112,7 @@ Item {
     required property list<string> seenUids
     required property var extra
     required property var pollData
+    required property bool pollCard
 
     ListView.onReused: msgText.deselect()
 
@@ -129,7 +130,7 @@ Item {
     readonly property bool isContactCard: messageType === "card"
     readonly property bool isLocation: messageType === "location"
     readonly property bool isBankCard: messageType === "bankcard"
-    readonly property bool hasCard: isFile || isLink || isVoice || isCall || isPoll || isContactCard || isLocation
+    readonly property bool hasCard: isFile || isLink || isVoice || isCall || isContactCard || isLocation
                                     || isBankCard
     readonly property bool bubbleless: (isPhoto && text.length === 0 && quoteText.length === 0) || isSticker
     readonly property real maxBubble: Math.min(msgRow.listWidth * 0.7, 560)
@@ -314,9 +315,26 @@ Item {
             }
         }
 
+        Loader {
+            active: msgRow.isPoll && !msgRow.isRecalled
+            visible: active
+            Layout.fillWidth: true
+            Layout.topMargin: 6
+            Layout.bottomMargin: 6
+            sourceComponent: ChatPollBlock {
+                isMine: msgRow.isMine
+                senderName: msgRow.senderName
+                pollData: msgRow.pollData
+                extra: msgRow.extra
+                showCard: msgRow.pollCard
+                question: msgRow.text
+                availableWidth: msgRow.listWidth
+            }
+        }
+
         RowLayout {
             id: bubbleRow
-            visible: !msgRow.isSystem && !msgRow.isEcard
+            visible: !msgRow.isSystem && !msgRow.isEcard && !msgRow.isPoll
             Layout.fillWidth: true
             spacing: 8
 
@@ -1181,200 +1199,6 @@ Item {
                             }
                         }
 
-                        Loader {
-                            active: msgRow.isPoll && !msgRow.isRecalled
-                            visible: active
-                            Layout.preferredWidth: Math.min(320, bubbleRect.innerMax)
-                            sourceComponent: ColumnLayout {
-                                id: pollCard
-                                spacing: 6
-                                readonly property var poll: msgRow.isPoll ? msgRow.pollData : ({})
-                                readonly property int total: pollCard.poll.num_vote || 0
-                                readonly property var pollId: msgRow.isPoll ? (msgRow.pollData.poll_id || 0) : 0
-                                function refresh(): void {
-                                    if (pollCard.pollId > 0) ZaloClient.refreshPoll(pollCard.pollId, false);
-                                }
-                                Component.onCompleted: pollCard.refresh()
-                                onPollIdChanged: pollCard.refresh()
-                                Text {
-                                    text: I18n.t("BÌNH CHỌN", "POLL")
-                                    font.family: Theme.fontFamily
-                                    font.pixelSize: 11
-                                    font.weight: Font.DemiBold
-                                    color: ThemeManager.secondaryTextColor
-                                }
-                                Text {
-                                    Layout.fillWidth: true
-                                    text: msgRow.text
-                                    wrapMode: Text.Wrap
-                                    font.family: Theme.fontFamily
-                                    font.pixelSize: 15
-                                    font.weight: Font.DemiBold
-                                    color: ThemeManager.textColor
-                                }
-                                Repeater {
-                                    model: pollCard.poll.options || []
-                                    delegate: Rectangle {
-                                        id: optRow
-                                        required property var modelData
-                                        Layout.fillWidth: true
-                                        implicitHeight: 34
-                                        radius: 6
-                                        color: ThemeManager.hoverColor
-                                        border.color: optRow.modelData.voted ? Theme.zaloBlue : "transparent"
-                                        border.width: 1
-                                        Rectangle {
-                                            width: pollCard.total > 0 ? parent.width * (optRow.modelData.votes / pollCard.total) : 0
-                                            height: parent.height
-                                            radius: 6
-                                            color: Theme.zaloBlueLight
-                                        }
-                                        RowLayout {
-                                            anchors.fill: parent
-                                            anchors.leftMargin: 10
-                                            anchors.rightMargin: 10
-                                            Text {
-                                                Layout.fillWidth: true
-                                                text: optRow.modelData.content
-                                                elide: Text.ElideRight
-                                                font.family: Theme.fontFamily
-                                                font.pixelSize: 13
-                                                color: ThemeManager.textColor
-                                            }
-                                            Text {
-                                                text: optRow.modelData.votes
-                                                font.family: Theme.fontFamily
-                                                font.pixelSize: 12
-                                                color: ThemeManager.secondaryTextColor
-                                            }
-                                        }
-                                        MouseArea {
-                                            anchors.fill: parent
-                                            enabled: !pollCard.poll.closed && !optRow.modelData.voted
-                                            cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-                                            onClicked: ZaloClient.votePoll(pollCard.poll.poll_id, optRow.modelData.option_id)
-                                        }
-                                    }
-                                }
-                                RowLayout {
-                                    id: addOptionRow
-                                    visible: !pollCard.poll.closed && pollCard.poll.allow_add_new_option !== false && (pollCard.poll.poll_id || 0) > 0
-                                    Layout.fillWidth: true
-                                    spacing: 6
-                                    function submitOption(): void {
-                                        Qt.inputMethod.commit();
-                                        const text = (pollOptionInput.preeditText.length > 0
-                                                      ? pollOptionInput.text + pollOptionInput.preeditText
-                                                      : pollOptionInput.text).trim();
-                                        if (text.length === 0) return;
-                                        Qt.inputMethod.reset();
-                                        pollOptionInput.text = "";
-                                        ZaloClient.addPollOption(pollCard.poll.poll_id, text);
-                                    }
-                                    TextField {
-                                        id: pollOptionInput
-                                        Layout.fillWidth: true
-                                        implicitHeight: 30
-                                        placeholderText: I18n.t("+ Thêm lựa chọn...", "+ Add option...")
-                                        font.family: Theme.fontFamily
-                                        font.pixelSize: 12
-                                        color: ThemeManager.textColor
-                                        placeholderTextColor: ThemeManager.secondaryTextColor
-                                        background: Rectangle {
-                                            color: ThemeManager.inputFillColor
-                                            border.color: pollOptionInput.activeFocus ? Theme.zaloBlue : ThemeManager.borderColor
-                                            border.width: 1
-                                            radius: 6
-                                        }
-                                        onAccepted: addOptionRow.submitOption()
-                                        Keys.onReturnPressed: function(event) { event.accepted = true; addOptionRow.submitOption(); }
-                                        Keys.onEnterPressed: function(event) { event.accepted = true; addOptionRow.submitOption(); }
-                                    }
-                                    Rectangle {
-                                        Layout.preferredWidth: 30
-                                        Layout.preferredHeight: 30
-                                        radius: 6
-                                        color: addOptMouse.containsMouse ? Theme.zaloBlueHover : Theme.zaloBlueLight
-                                        ZIcon {
-                                            anchors.centerIn: parent
-                                            name: "plus"
-                                            size: 16
-                                            color: addOptMouse.containsMouse ? "#FFFFFF" : Theme.zaloBlueTonalText
-                                        }
-                                        MouseArea {
-                                            id: addOptMouse
-                                            anchors.fill: parent
-                                            hoverEnabled: true
-                                            cursorShape: Qt.PointingHandCursor
-                                            onClicked: addOptionRow.submitOption()
-                                        }
-                                    }
-                                }
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    spacing: 8
-                                    Text {
-                                        Layout.fillWidth: true
-                                        wrapMode: Text.Wrap
-                                        text: !pollCard.poll.loaded
-                                              ? ((pollCard.poll.poll_id || 0) > 0 ? I18n.t("Đang tải kết quả bình chọn…", "Loading poll results…")
-                                                                                 : I18n.t("Không đọc được mã bình chọn", "Poll id unavailable"))
-                                              : (pollCard.total + I18n.t(" lượt bình chọn", " votes")
-                                                 + (pollCard.poll.closed ? I18n.t(" · Đã khóa", " · Closed") : ""))
-                                        font.family: Theme.fontFamily
-                                        font.pixelSize: 12
-                                        color: ThemeManager.secondaryTextColor
-                                    }
-                                    Rectangle {
-                                        visible: (pollCard.poll.poll_id || 0) > 0
-                                        implicitWidth: sharePollLbl.implicitWidth + 14
-                                        implicitHeight: 24
-                                        radius: 6
-                                        color: sharePollMouse.containsMouse ? ThemeManager.hoverColor : Theme.zaloBlueLight
-                                        Text {
-                                            id: sharePollLbl
-                                            anchors.centerIn: parent
-                                            text: I18n.t("Chia sẻ", "Share")
-                                            font.family: Theme.fontFamily
-                                            font.pixelSize: 11
-                                            color: Theme.zaloBlueTonalText
-                                        }
-                                        MouseArea {
-                                            id: sharePollMouse
-                                            anchors.fill: parent
-                                            hoverEnabled: true
-                                            cursorShape: Qt.PointingHandCursor
-                                            onClicked: ZaloClient.sharePoll(pollCard.poll.poll_id)
-                                        }
-                                    }
-                                    Rectangle {
-                                        visible: !pollCard.poll.closed && (pollCard.poll.poll_id || 0) > 0
-                                        implicitWidth: lockPollLbl.implicitWidth + 14
-                                        implicitHeight: 24
-                                        radius: 6
-                                        color: lockPollMouse.containsMouse ? ThemeManager.hoverColor : ThemeManager.surfaceColor
-                                        border.color: ThemeManager.borderColor
-                                        border.width: 1
-                                        Text {
-                                            id: lockPollLbl
-                                            anchors.centerIn: parent
-                                            text: I18n.t("Khóa", "Close")
-                                            font.family: Theme.fontFamily
-                                            font.pixelSize: 11
-                                            color: ThemeManager.secondaryTextColor
-                                        }
-                                        MouseArea {
-                                            id: lockPollMouse
-                                            anchors.fill: parent
-                                            hoverEnabled: true
-                                            cursorShape: Qt.PointingHandCursor
-                                            onClicked: ZaloClient.lockPoll(pollCard.poll.poll_id)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
                         TextEdit {
                             id: msgText
                             visible: !msgRow.hasCard && msgRow.text.length > 0 && !msgRow.isRecalled
@@ -1416,7 +1240,7 @@ Item {
 
                 Item {
                     id: reactionRow
-                    readonly property bool canReact: !msgRow.isRecalled && !msgRow.isSystem && !msgRow.isEcard
+                    readonly property bool canReact: !msgRow.isRecalled && !msgRow.isSystem && !msgRow.isEcard && !msgRow.isPoll
                                                      && !msgRow.msgId.startsWith("local-") && ZaloClient.isLoggedIn
                     readonly property real contentEdge: Math.max(
                         bubbleRect.visible ? bubbleRect.x + bubbleRect.width : 0,
@@ -1612,7 +1436,7 @@ Item {
     }
 
     Loader {
-        active: rowHover.hovered && !msgRow.isRecalled && !msgRow.isSystem && !msgRow.isEcard && !msgRow.msgId.startsWith("local-")
+        active: rowHover.hovered && !msgRow.isRecalled && !msgRow.isSystem && !msgRow.isEcard && !msgRow.isPoll && !msgRow.msgId.startsWith("local-")
         y: bubbleRow.y + (senderNameText.visible ? (senderNameText.height + 4) : 0) + 2
         x: msgRow.mine ? contentCol.x + Math.min(reactionRow.contentLeft, contentCol.width) - width - 8
                        : contentCol.x + Math.max(reactionRow.contentEdge, 0) + 8

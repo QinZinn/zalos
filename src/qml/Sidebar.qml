@@ -733,7 +733,7 @@ Rectangle {
             property double now: Date.now()
             Timer {
                 interval: 60000
-                running: convList.visible && (Window.window ? (Window.window.visible && Window.window.visibility !== Window.Minimized) : true)
+                running: convList.visible && (convList.Window.window ? (convList.Window.window.visible && convList.Window.window.visibility !== Window.Minimized) : true)
                 repeat: true
                 onTriggered: convList.now = Date.now()
             }

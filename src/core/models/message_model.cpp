@@ -1,4 +1,6 @@
 #include "message_model.h"
+
+#include <QScopeGuard>
 #include "text_fold.h"
 #include <QDateTime>
 #include <QRegularExpression>
@@ -75,6 +77,7 @@ QVariant MessageModel::data(const QModelIndex& index, int role) const {
         case StatusRole: return item.status;
         case IsRecalledRole: return item.isRecalled;
         case PollDataRole: return item.pollData;
+        case PollCardRole: return item.pollCard;
         case QuoteMsgIdRole: return item.quoteMsgId;
         case QuoteSenderRole: return item.quoteSender;
         case QuoteTextRole: return item.quoteText;
@@ -152,6 +155,7 @@ QHash<int, QByteArray> MessageModel::roleNames() const {
         {StatusRole, "status"},
         {IsRecalledRole, "isRecalled"},
         {PollDataRole, "pollData"},
+        {PollCardRole, "pollCard"},
         {QuoteMsgIdRole, "quoteMsgId"},
         {QuoteSenderRole, "quoteSender"},
         {QuoteTextRole, "quoteText"},
@@ -269,6 +273,11 @@ void MessageModel::addMessageDirect(const QString& convId, const QString& id, co
 
 void MessageModel::mergeMessages(const QString& convId, const QVector<MessageItem>& items) {
     if (items.isEmpty()) return;
+    const bool hasPoll = std::any_of(items.cbegin(), items.cend(),
+                                     [](const MessageItem& m) { return m.messageType == QLatin1String("poll"); });
+    const auto pollCards = qScopeGuard([this, hasPoll, &convId]() {
+        if (hasPoll) refreshPollCards(convId);
+    });
     const bool isActive = !convId.isEmpty() && m_currentConvId == convId;
     QVector<MessageItem>& base = threadFor(convId);
     const int baseSize = base.size();
@@ -1097,6 +1106,22 @@ QString MessageModel::styledHtml(const QString& text, const QVector<MessageMenti
         out += open + html + close;
     }
     return out;
+}
+
+void MessageModel::refreshPollCards(const QString& convId) {
+    const bool isActive = !convId.isEmpty() && convId == m_currentConvId;
+    QVector<MessageItem>& thread = threadFor(convId);
+    QSet<qint64> seen;
+    for (int i = int(thread.size()) - 1; i >= 0; --i) {
+        MessageItem& m = thread[i];
+        if (m.messageType != QLatin1String("poll")) continue;
+        const qint64 pollId = m.pollData.value(QStringLiteral("poll_id")).toLongLong();
+        const bool card = pollId <= 0 || !seen.contains(pollId);
+        if (pollId > 0) seen.insert(pollId);
+        if (m.pollCard == card) continue;
+        m.pollCard = card;
+        if (isActive) emit dataChanged(index(i), index(i), {PollCardRole});
+    }
 }
 
 void MessageModel::setPollData(qint64 pollId, const QVariantMap& data) {

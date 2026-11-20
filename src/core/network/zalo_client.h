@@ -9,6 +9,7 @@ class QJSEngine;
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QObject>
+#include <functional>
 #include <QPointer>
 #include <QSet>
 #include <QString>
@@ -139,6 +140,10 @@ class ZaloClient : public QObject {
     Q_PROPERTY(QString forwardMode READ forwardMode NOTIFY forwardModalChanged FINAL)
     Q_PROPERTY(QString forwardCardUid READ forwardCardUid NOTIFY forwardModalChanged FINAL)
     Q_PROPERTY(bool showCreatePollModal READ showCreatePollModal WRITE setShowCreatePollModal NOTIFY createPollModalChanged FINAL)
+    Q_PROPERTY(qint64 pollDialogId READ pollDialogId NOTIFY pollDialogChanged FINAL)
+    Q_PROPERTY(QString pollDialogGroupId READ pollDialogGroupId NOTIFY pollDialogChanged FINAL)
+    Q_PROPERTY(bool pollDialogVoters READ pollDialogVoters NOTIFY pollDialogChanged FINAL)
+    Q_PROPERTY(int pollRevision READ pollRevision NOTIFY pollRevisionChanged FINAL)
     Q_PROPERTY(bool showBusinessToolsModal READ showBusinessToolsModal WRITE setShowBusinessToolsModal NOTIFY businessToolsModalChanged FINAL)
     Q_PROPERTY(QString businessTab READ businessTab WRITE setBusinessTab NOTIFY businessTabChanged FINAL)
     Q_PROPERTY(bool hasBusinessPackage READ hasBusinessPackage NOTIFY userProfileChanged FINAL)
@@ -186,9 +191,11 @@ class ZaloClient : public QObject {
     Q_PROPERTY(bool showKikiButton READ showKikiButton WRITE setShowKikiButton NOTIFY settingsChanged FINAL)
     Q_PROPERTY(bool hardwareAcceleration READ hardwareAcceleration WRITE setHardwareAcceleration NOTIFY settingsChanged FINAL)
     Q_PROPERTY(bool hardwareAccelerationRestartRequired READ hardwareAccelerationRestartRequired NOTIFY settingsChanged FINAL)
+    Q_PROPERTY(bool hardwareAccelerationFailed READ hardwareAccelerationFailed NOTIFY settingsChanged FINAL)
     Q_PROPERTY(QString appVersion READ appVersion CONSTANT FINAL)
     Q_PROPERTY(QString qtRuntimeVersion READ qtRuntimeVersion CONSTANT FINAL)
     Q_PROPERTY(QString rendererBackend READ rendererBackend NOTIFY appLanguageChanged FINAL)
+    Q_PROPERTY(bool multimediaAvailable READ multimediaAvailable CONSTANT FINAL)
     Q_PROPERTY(QString platformName READ platformName CONSTANT FINAL)
     Q_PROPERTY(bool checkingUpdate READ checkingUpdate NOTIFY updateCheckChanged FINAL)
     Q_PROPERTY(bool updateAvailable READ updateAvailable NOTIFY updateCheckChanged FINAL)
@@ -348,7 +355,7 @@ public:
     Q_INVOKABLE void openConversationWithContact(const QString& id, const QString& name, const QString& avatarUrl);
     Call::ZCallEngine* callEngine() const { return m_callEngine; }
     Offline::ZaloOfflineStore* offlineStore() const { return m_offlineStore; }
-    static constexpr int kCacheParseVersion = 4;
+    static constexpr int kCacheParseVersion = 5;
     ZaloApiClient* apiClient() const { return m_apiClient; }
 
     bool showSettingsModal() const { return m_showSettingsModal; }
@@ -381,6 +388,7 @@ public:
     int residentThreadCountForTesting() const { return int(m_residentThreads.size()); }
     int rawMessageCountForTesting() const { return int(m_rawMessages.size()); }
     Q_INVOKABLE void trimMemoryForBackground();
+    Q_INVOKABLE void requestMemoryTrim();
     void setWindowVisible(bool visible);
     bool profileLoading() const;
 
@@ -410,9 +418,23 @@ public:
     void setShowCreatePollModal(bool show);
     Q_INVOKABLE void openCreatePollModal();
     Q_INVOKABLE void closeCreatePollModal();
-    Q_INVOKABLE void createPoll(const QString& groupId, const QString& question, const QStringList& options, bool allowMultiChoices);
-    Q_INVOKABLE void votePoll(qint64 pollId, int optionId);
-    Q_INVOKABLE void addPollOption(qint64 pollId, const QString& content);
+    Q_INVOKABLE void createPoll(const QString& groupId, const QString& question, const QStringList& options,
+                                const QVariantMap& settings);
+    Q_INVOKABLE QString pollDraftError(const QString& question, const QStringList& options) const;
+    Q_INVOKABLE void submitPollChoices(qint64 pollId, const QVariantList& selectedIds, const QStringList& newOptions,
+                                       const QVariantList& newVoted);
+    Q_INVOKABLE void openPollDialog(qint64 pollId, const QString& groupId, bool voters = false);
+    Q_INVOKABLE void closePollDialog();
+    Q_INVOKABLE QVariantMap pollView(qint64 pollId) const;
+    qint64 pollDialogId() const { return m_pollDialogId; }
+    QString pollDialogGroupId() const { return m_pollDialogGroupId; }
+    bool pollDialogVoters() const { return m_pollDialogVoters; }
+    int pollRevision() const { return m_pollRevision; }
+    using PersonLookup = std::function<QPair<QString, QString>(const QString& uid)>;
+    static QVariantMap buildPollView(const QJsonObject& detail, const QString& myUid, bool canManage, qint64 nowMs,
+                                     const PersonLookup& person);
+    static QString pollDraftCode(const QString& question, const QStringList& options);
+    static QString pollTemplateText(const QString& raw);
     Q_INVOKABLE void sharePoll(qint64 pollId);
     Q_INVOKABLE void lockPoll(qint64 pollId);
 
@@ -472,11 +494,13 @@ public:
     bool hardwareAcceleration() const { return m_hardwareAcceleration; }
     void setHardwareAcceleration(bool val);
     bool hardwareAccelerationRestartRequired() const { return m_hardwareAcceleration != m_startupHardwareAcceleration; }
+    bool hardwareAccelerationFailed() const { return m_hardwareAccelerationFailed; }
     Q_INVOKABLE void restartApp();
 
     QString appVersion() const;
     QString qtRuntimeVersion() const;
     QString rendererBackend() const;
+    bool multimediaAvailable() const;
     QString platformName() const;
     bool checkingUpdate() const { return m_checkingUpdate; }
     bool updateAvailable() const { return m_updateAvailable; }
@@ -570,6 +594,7 @@ public:
         m_cachedUid = uid;
         return loadOfflineCache();
     }
+    qulonglong readPointForTesting(const QString& convId) { return readPointOf(convId); }
     void setLoggedInForTesting(bool loggedIn) {
         m_isLoggedIn = loggedIn;
         m_restoringSession = false;
@@ -855,6 +880,8 @@ signals:
     void conversationInfoChanged();
     void forwardModalChanged();
     void createPollModalChanged();
+    void pollDialogChanged();
+    void pollRevisionChanged();
     void businessToolsModalChanged();
     void businessTabChanged();
     void pinnedMessageChanged();
@@ -864,6 +891,7 @@ signals:
     void settingsChanged();
     void updateCheckChanged();
     void restartRequested();
+    void memoryTrimRequested();
     void privacySettingsChanged();
     void soundSettingsChanged();
     void previewPlayingChanged();
@@ -963,6 +991,11 @@ private:
     void applyStrangerRank(const QString& id, const QJsonObject& data);
     void persistProfile(const QString& id, bool isGroup);
     void applyReadPoints(const QJsonArray& clearUnreads);
+    qulonglong readPointOf(const QString& convId);
+    bool advanceReadPoint(const QString& convId, const QString& msgId);
+    void resetReadPoints();
+    void scheduleReadPointSync(int delayMs = 4000);
+    void syncReadPoints();
     bool isThreadMuted(const QString& threadId);
     void showMessageNotification(const QString& threadId, const QString& title, const QString& body);
     void onNotificationAction(const QString& key, const QString& action, const QString& activationToken);
@@ -1113,6 +1146,15 @@ private:
     QSet<QString> m_compositeAsked;
     QSet<QString> m_unresolvedMembers;
     QHash<qint64, qint64> m_pollFetchedAt;
+    QHash<qint64, QJsonObject> m_pollDetails;
+    QHash<qint64, QString> m_pollGroups;
+    qint64 m_pollDialogId{0};
+    QString m_pollDialogGroupId;
+    bool m_pollDialogVoters{false};
+    int m_pollRevision{0};
+    void storePollDetail(qint64 pollId, const QJsonObject& detail);
+    bool canManagePoll(qint64 pollId, const QJsonObject& detail) const;
+    QString pollErrorText(const QString& prefix, const QString& err, int code) const;
     QVariantList m_quickMessages;
     QHash<QString, int> m_serverSettings;
     QVariantList m_reminders;
@@ -1124,6 +1166,12 @@ private:
     QHash<QString, QString> m_aliases;
     bool m_realtimeWasUp{false};
     QTimer* m_labelDebounce{nullptr};
+    QTimer* m_readPointSyncTimer{nullptr};
+    QTimer* m_memoryTrimTimer{nullptr};
+    QHash<QString, qulonglong> m_readPoints;
+    bool m_readPointsLoaded{false};
+    int m_readPointSyncInFlight{0};
+    int m_readPointSyncRetries{0};
     QTimer* m_profileRefreshTimer{nullptr};
     QTimer* m_friendEventDebounce{nullptr};
     QTimer* m_rebuildContactsTimer{nullptr};
@@ -1239,8 +1287,9 @@ private:
     bool m_showLabelFolders{false};
     bool m_showBusinessButton{true};
     bool m_showKikiButton{true};
-    bool m_hardwareAcceleration{true};
-    bool m_startupHardwareAcceleration{true};
+    bool m_hardwareAcceleration{false};
+    bool m_startupHardwareAcceleration{false};
+    bool m_hardwareAccelerationFailed{false};
     bool m_checkingUpdate{false};
     bool m_updateAvailable{false};
     bool m_updatingApp{false};

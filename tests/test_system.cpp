@@ -31,6 +31,7 @@
 #include <QUrl>
 #include <QUrlQuery>
 #include <QVideoSink>
+#include "multimedia_support.h"
 #include "platform/app_updater.h"
 
 #include "core/network/zalo_client.h"
@@ -970,6 +971,251 @@ private slots:
     // zbusiness/OA chats are skipped by applyReadPoints (sub-chat cursors carry type=2 + sct), so the server
     // read-point never re-heals their badge. Reading a chat must write the zeroed unread back to offline.db,
     // otherwise the stale unread_count resurfaces as a "new message" badge on every launch.
+    // A poll message must render in the real chat (card + info line) without QML component errors on every Qt we
+    // ship (Qt 6.4 rejects inline Loader components under `pragma ComponentBehavior: Bound`).
+    void testPollMessageRendersInChat() {
+        QTest::failOnWarning(QRegularExpression(QStringLiteral("ChatPollBlock|PollVoteDialog|bound component")));
+        ZaloClient client;
+        ThemeManager themeMgr;
+        SystemTrayController trayCtrl;
+        client.setLoggedInForTesting(true);
+        client.setMyUidForTesting(QStringLiteral("u-me"));
+        client.setGroupForTesting(QStringLiteral("g-poll-ui"), QStringLiteral("Fixture Poll Group"), QString());
+        client.setUserForTesting(QStringLiteral("u-voter"), QStringLiteral("Fixture Voter"), QString());
+        auto* session = client.apiClient()->session();
+        const QJsonObject params{{"pollId", 8801}, {"question", "Fixture poll question"},
+                                 {"msg", QJsonObject{{"vi", QString::fromUtf8("%1$s tham gia cuộc bình chọn %2$s")},
+                                                     {"en", "%1$s voted in the poll %2$s"}}}};
+        const qint64 base = QDateTime::currentMSecsSinceEpoch() - 60000;
+        QJsonArray msgs;
+        for (int i = 0; i < 2; ++i) {
+            const QString id = QString::number(88010 + i);
+            msgs.append(QJsonObject{{"msgId", id}, {"cliMsgId", id}, {"uidFrom", "u-voter"}, {"idTo", "g-poll-ui"},
+                                    {"msgType", "group.poll"}, {"ts", QString::number(base + i * 1000)},
+                                    {"content", QJsonObject{{"action", i == 0 ? "create" : "vote"},
+                                                            {"params", QString::fromUtf8(QJsonDocument(params).toJson(QJsonDocument::Compact))}}}});
+        }
+        emit session->messagesReceived(msgs, true, true);
+        client.selectConversation(QStringLiteral("g-poll-ui"), QStringLiteral("Fixture Poll Group"), QString());
+
+        QQmlApplicationEngine engine;
+        engine.addImageProvider("avatar", new AvatarImageProvider);
+        engine.addImageProvider("media", new AvatarImageProvider(false));
+        engine.addImageProvider("icon", new Zalos::Core::Platform::IconImageProvider);
+        engine.addImportPath("qrc:/");
+        engine.addImportPath("qrc:/qt/qml");
+        loadMainWindow(engine);
+        auto window = qobject_cast<QQuickWindow*>(engine.rootObjects().value(0));
+        QVERIFY(window != nullptr);
+        window->resize(1280, 800);
+        QTest::qWait(800);
+        QCOMPARE(client.messageModel()->rowCount(), 2);
+        window->grabWindow().save(QStringLiteral("test_poll_chat.png"));
+        client.openPollDialog(8801, QStringLiteral("g-poll-ui"));
+        QTest::qWait(300);
+        client.closePollDialog();
+        QTest::qWait(100);
+    }
+
+    // Without a loadable Qt Multimedia backend (no GStreamer/FFmpeg on the host) Qt 6.4 aborts on the first media
+    // object; every media entry point must check MultimediaSupport first and degrade honestly instead.
+    void testNoMultimediaBackendDegradesHonestly() {
+        qputenv("ZALOS_NO_MULTIMEDIA", "1");
+        QVERIFY(!Zalos::Core::Platform::MultimediaSupport::available());
+        QVERIFY(!Zalos::Core::Platform::MultimediaSupport::unavailableReason().isEmpty());
+        {
+            ZaloClient client;
+            QVERIFY(!client.multimediaAvailable());
+            QSignalSpy notices(&client, &ZaloClient::notice);
+            client.toggleVoice(QStringLiteral("m-fixture"), QStringLiteral("https://example.invalid/voice.m4a"));
+            QCOMPARE(notices.count(), 1);
+            client.voiceRecorder()->refreshAvailability();
+            QCOMPARE(client.voiceRecorder()->unavailableReason(), QStringLiteral("no_multimedia"));
+            QVERIFY(!Zalos::Core::Call::CameraSender::cameraAvailable());
+            QVERIFY(client.calls()->cameraDevices().isEmpty());
+            QVERIFY(client.calls()->audioInputDevices().isEmpty());
+        }
+        qunsetenv("ZALOS_NO_MULTIMEDIA");
+    }
+
+    // Poll parity with Zalo PC: computed view (percent by votes, distinct voters, who can vote/lock/see voters),
+    // draft validation limits, info lines for every group.poll event, and the card only under the latest one.
+    void testPollViewAndMessages() {
+        using ZC = Zalos::Core::Network::ZaloClient;
+        auto person = [](const QString& uid) { return qMakePair(QStringLiteral("Fixture ") + uid, QString()); };
+        const QJsonObject detail{
+            {"poll_id", 501}, {"question", "Fixture question"}, {"creator", "u-creator"}, {"joined", false},
+            {"closed", false}, {"allow_multi_choices", true}, {"allow_add_new_option", true},
+            {"is_anonymous", false}, {"is_hide_vote_preview", false}, {"expired_time", 0}, {"num_vote", 0},
+            {"options", QJsonArray{
+                QJsonObject{{"option_id", 1}, {"content", "A"}, {"votes", 3}, {"voted", false},
+                            {"voters", QJsonArray{"u1", "u2", "u3"}}},
+                QJsonObject{{"option_id", 2}, {"content", "B"}, {"votes", 1}, {"voted", false},
+                            {"voters", QJsonArray{"u1"}}}}}};
+        QVariantMap v = ZC::buildPollView(detail, "u-me", false, 1000, person);
+        QCOMPARE(v.value("total_votes").toInt(), 4);
+        QCOMPARE(v.value("voter_count").toInt(), 3);
+        QCOMPARE(v.value("action").toString(), QStringLiteral("vote"));
+        QVERIFY(v.value("can_vote").toBool());
+        QVERIFY(v.value("can_add_option").toBool());
+        QVERIFY(v.value("can_view_voters").toBool());
+        QVERIFY(!v.value("can_manage").toBool());
+        const QVariantMap a = v.value("options").toList().at(0).toMap();
+        QCOMPARE(a.value("percent").toInt(), 75);
+        QCOMPARE(a.value("voters").toList().size(), 3);
+        QCOMPARE(a.value("preview").toList().size(), 2);
+        QCOMPARE(a.value("voters").toList().at(0).toMap().value("name").toString(), QStringLiteral("Fixture u1"));
+
+        QJsonObject joined = detail;
+        joined["joined"] = true;
+        QCOMPARE(ZC::buildPollView(joined, "u-me", false, 1000, person).value("action").toString(), QStringLiteral("change"));
+        joined["is_hide_vote_preview"] = true;
+        v = ZC::buildPollView(joined, "u-me", true, 1000, person);
+        QCOMPARE(v.value("action").toString(), QStringLiteral("view"));
+        QCOMPARE(v.value("lock_reason").toString(), QStringLiteral("after_vote"));
+        QVERIFY(!v.value("can_vote").toBool());
+        QVERIFY(v.value("can_manage").toBool());
+
+        QJsonObject hidden = detail;
+        hidden["is_hide_vote_preview"] = true;
+        v = ZC::buildPollView(hidden, "u-me", false, 1000, person);
+        QVERIFY(v.value("hide_results").toBool());
+        QVERIFY(!v.value("can_view_voters").toBool());
+        QVERIFY(v.value("can_vote").toBool());
+
+        QJsonObject anonymous = detail;
+        anonymous["is_anonymous"] = true;
+        QVERIFY(!ZC::buildPollView(anonymous, "u-me", false, 1000, person).value("can_view_voters").toBool());
+
+        QJsonObject expired = detail;
+        expired["expired_time"] = 999;
+        v = ZC::buildPollView(expired, "u-me", false, 1000, person);
+        QVERIFY(v.value("expired").toBool());
+        QCOMPARE(v.value("lock_reason").toString(), QStringLiteral("expired"));
+        QCOMPARE(v.value("action").toString(), QStringLiteral("view"));
+        QJsonObject closed = detail;
+        closed["closed"] = true;
+        QCOMPARE(ZC::buildPollView(closed, "u-me", false, 1000, person).value("lock_reason").toString(), QStringLiteral("closed"));
+
+        QCOMPARE(ZC::pollDraftCode("", {"A", "B"}), QStringLiteral("question"));
+        QCOMPARE(ZC::pollDraftCode(QString(201, 'q'), {"A", "B"}), QStringLiteral("question_length"));
+        QCOMPARE(ZC::pollDraftCode("Q", {"A", ""}), QStringLiteral("min_options"));
+        QCOMPARE(ZC::pollDraftCode("Q", {"A", " a "}), QStringLiteral("duplicate"));
+        QCOMPARE(ZC::pollDraftCode("Q", {"A", QString(121, 'x')}), QStringLiteral("option_length"));
+        QStringList many;
+        for (int i = 0; i < 31; ++i) many << QString::number(i);
+        QCOMPARE(ZC::pollDraftCode("Q", many), QStringLiteral("max_options"));
+        QVERIFY(ZC::pollDraftCode("Q", {"A", "B"}).isEmpty());
+        QCOMPARE(ZC::pollTemplateText(QStringLiteral("%1$s tham gia cuộc bình chọn %2$s")),
+                 QStringLiteral("tham gia cuộc bình chọn"));
+
+        ZC client;
+        client.setMyUidForTesting(QStringLiteral("u-me"));
+        auto pollMsg = [](const char* id, const char* action, const QJsonObject& params) {
+            return QJsonObject{{"msgId", id}, {"cliMsgId", id}, {"uidFrom", "u-voter"}, {"idTo", "g-poll"},
+                               {"msgType", "group.poll"}, {"ts", QString::number(1700000000000LL + QByteArray(id).toLongLong())},
+                               {"content", QJsonObject{{"action", action},
+                                                       {"params", QString::fromUtf8(QJsonDocument(params).toJson(QJsonDocument::Compact))}}}};
+        };
+        const QJsonObject createParams{{"pollId", 77}, {"question", "Fixture Q"}};
+        const QJsonObject voteParams{{"pollId", 77}, {"question", "Fixture Q"}, {"isAnonymous", true},
+                                     {"msg", QJsonObject{{"vi", QString::fromUtf8("Có thành viên tham gia cuộc bình chọn %2$s")},
+                                                         {"en", "A member voted in the poll %2$s"}}}};
+        const auto created = client.toMessageItemForTesting(pollMsg("9001", "create", createParams), true);
+        QCOMPARE(created.messageType, QStringLiteral("poll"));
+        QCOMPARE(created.pollData.value("poll_id").toLongLong(), 77LL);
+        QVERIFY(!created.extra.contains("pollEvent"));
+        QCOMPARE(created.extra.value("pollTextVi").toString(), QString::fromUtf8("tạo cuộc bình chọn mới"));
+        const auto voted = client.toMessageItemForTesting(pollMsg("9002", "vote", voteParams), true);
+        QCOMPARE(voted.messageType, QStringLiteral("poll"));
+        QCOMPARE(voted.extra.value("pollEvent").toString(), QStringLiteral("vote"));
+        QVERIFY(voted.extra.value("pollAnonActor").toBool());
+        QCOMPARE(voted.extra.value("pollTextVi").toString(), QString::fromUtf8("tham gia cuộc bình chọn"));
+        QCOMPARE(voted.extra.value("pollTextEn").toString(), QStringLiteral("voted in the poll"));
+
+        MessageModel model;
+        model.mergeMessages("g-poll", {created});
+        QVERIFY(model.threadOf("g-poll").at(0).pollCard);
+        model.mergeMessages("g-poll", {voted});
+        QVERIFY(!model.threadOf("g-poll").at(0).pollCard);
+        QVERIFY(model.threadOf("g-poll").at(1).pollCard);
+    }
+
+    // Read points are kept per thread, only move forward and survive restarts, so a point that arrives before
+    // (or in the same frame as) the messages it covers still keeps them read; groups not loaded yet keep theirs.
+    void testReadPointsPersistAndCoverLateMessages() {
+        using ZS = Zalos::Core::Network::ZaloSession;
+        const QJsonObject rp{{"idTo", "u-rp"}, {"lastMsgId", "1"}};
+        QCOMPARE(ZS::readPointsOf(QJsonObject{{"clearUnreads", QJsonArray{rp}}}).size(), 1);
+        QCOMPARE(ZS::readPointsOf(QJsonObject{{"clearUnreadInfo", QJsonArray{rp, rp}}}).size(), 2);
+        QCOMPARE(ZS::readPointsOf(QJsonObject{{"statusMap", QJsonObject{{"clearUnreads", QJsonArray{rp}}}}}).size(), 1);
+        QCOMPARE(ZS::readPointsOf(QJsonObject{{"data", QJsonObject{{"clearUnreadInfo", QJsonArray{rp}}}}}).size(), 1);
+        QVERIFY(ZS::readPointsOf(QJsonObject{{"msgs", QJsonArray{}}}).isEmpty());
+
+        const QString owner = QStringLiteral("u-rp-owner");
+        {
+            ZaloOfflineStore store;
+            store.clearCache();
+            store.bindOwner(owner);
+        }
+        auto msg = [](const char* id, const char* from) {
+            return QJsonObject{{"msgId", id}, {"cliMsgId", id}, {"uidFrom", from}, {"idTo", "u-me"},
+                               {"msgType", "webchat"}, {"content", QStringLiteral("Fixture text")},
+                               {"ts", QString::number(1700000000000LL + QByteArray(id).toLongLong())}};
+        };
+        {
+            ZaloClient client;
+            client.setMyUidForTesting(QStringLiteral("u-me"));
+            client.openOfflineCacheForTesting(owner);
+            ZS* session = client.apiClient()->session();
+
+            emit session->readPointsReceived(QJsonArray{QJsonObject{{"idTo", "u-rp-a"}, {"lastMsgId", "8802"}, {"isGroup", 0}}});
+            emit session->messagesReceived(QJsonArray{msg("8801", "u-rp-a"), msg("8802", "u-rp-a")}, false, false);
+            QCOMPARE(client.conversationModel()->conversation("u-rp-a").unreadCount, 0);
+            emit session->messagesReceived(QJsonArray{msg("8803", "u-rp-a")}, false, false);
+            QCOMPARE(client.conversationModel()->conversation("u-rp-a").unreadCount, 1);
+
+            emit session->messagesReceived(QJsonArray{msg("8811", "u-rp-b"), msg("8812", "u-rp-b")}, false, false);
+            QCOMPARE(client.conversationModel()->conversation("u-rp-b").unreadCount, 2);
+            emit session->readPointsReceived(QJsonArray{QJsonObject{{"idTo", "u-rp-b"}, {"lastMsgId", "8812"}}});
+            QCOMPARE(client.conversationModel()->conversation("u-rp-b").unreadCount, 0);
+
+            emit session->readPointsReceived(QJsonArray{QJsonObject{{"idTo", "u-rp-b"}, {"lastMsgId", "8805"}}});
+            QCOMPARE(client.readPointForTesting("u-rp-b"), 8812ULL);
+
+            emit session->readPointsReceived(QJsonArray{QJsonObject{{"idTo", "g-rp-late"}, {"lastMsgId", "9901"}, {"isGroup", 1}}});
+            QCOMPARE(client.readPointForTesting("g-rp-late"), 9901ULL);
+            emit session->seenReceived("g-rp-late", "9907", "u-me", true);
+            QCOMPARE(client.readPointForTesting("g-rp-late"), 9907ULL);
+            emit session->readPointsReceived(QJsonArray{QJsonObject{{"idTo", "u-rp-sub"}, {"lastMsgId", "9"}, {"type", 2}, {"sct", 1}}});
+            QCOMPARE(client.readPointForTesting("u-rp-sub"), 0ULL);
+        }
+        {
+            ZaloClient reloaded;
+            reloaded.setMyUidForTesting(QStringLiteral("u-me"));
+            reloaded.openOfflineCacheForTesting(owner);
+            QCOMPARE(reloaded.readPointForTesting("u-rp-b"), 8812ULL);
+            QCOMPARE(reloaded.readPointForTesting("g-rp-late"), 9907ULL);
+            reloaded.offlineStore()->clearCache();
+            ZaloClient wiped;
+            wiped.openOfflineCacheForTesting(owner);
+            QCOMPARE(wiped.readPointForTesting("u-rp-b"), 0ULL);
+        }
+    }
+
+    // Zalo PC checks transfer_error status 2 (phone idle) / 1 (active) before error_code: an idle phone
+    // (Zalo sent to background after confirming) must keep waiting instead of failing with "mã -1".
+    void testPhoneSyncTransferErrorOrder() {
+        using MHS = Zalos::Core::Sync::MobileHistorySync;
+        using K = MHS::TransferErrorKind;
+        QVERIFY(MHS::classifyTransferError(QJsonObject{{"status", 2}, {"error_code", -1}}) == K::PhoneIdle);
+        QVERIFY(MHS::classifyTransferError(QJsonObject{{"status", 1}, {"error_code", -1}}) == K::PhoneActive);
+        QVERIFY(MHS::classifyTransferError(QJsonObject{{"status", 1}}) == K::PhoneActive);
+        QVERIFY(MHS::classifyTransferError(QJsonObject{{"error_code", -1}}) == K::Failed);
+        QVERIFY(MHS::classifyTransferError(QJsonObject{{"status", 0}, {"error_code", 7}}) == K::Failed);
+        QVERIFY(MHS::classifyTransferError(QJsonObject{{"status", 0}, {"error_code", 0}}) == K::Ignore);
+    }
+
     void testReadChatUnreadPersistedForSubChat() {
         const QString owner = QStringLiteral("u-subchat-owner");
         const QString peer = QStringLiteral("u-subchat-oa");
@@ -1711,10 +1957,19 @@ private slots:
     }
 
 
-    // Rendering is chosen from the hardware, never by asking the user.
+    // Rendering defaults to software; with acceleration on, the backend is chosen from the hardware.
     void testRenderProfileDecisions() {
         using RP = Zalos::Core::Platform::RenderProfile;
+        RP::Inputs fresh;                    // default settings: software even with a capable GPU
+        fresh.hasRenderNode = true;
+        fresh.gpuVendor = "0x1002";
+        fresh.mesaVulkanIcd = true;
+        fresh.qtHasVulkan = true;
+        QCOMPARE(RP::decide(fresh).backend, RP::Backend::Software);
+        QVERIFY(!RP::decide(fresh).guarded());
+
         RP::Inputs vm;                       // VM / remote desktop: no GPU node
+        vm.hardwareAcceleration = true;
         vm.memTotalKb = 8LL * 1024 * 1024;
         vm.cpuCores = 8;
         QCOMPARE(RP::decide(vm).backend, RP::Backend::Software);
@@ -1726,6 +1981,7 @@ private slots:
         amd.mesaVulkanIcd = true;
         amd.qtHasVulkan = true;
         QCOMPARE(RP::decide(amd).backend, RP::Backend::Vulkan);
+        QVERIFY(RP::decide(amd).guarded());
         amd.vulkanFailedBefore = true;       // crash guard tripped earlier
         QCOMPARE(RP::decide(amd).backend, RP::Backend::Default);
 
@@ -1742,11 +1998,14 @@ private slots:
         RP::Inputs forced = vm;              // explicit override wins
         forced.override = "opengl";
         QCOMPARE(RP::decide(forced).backend, RP::Backend::OpenGL);
+        QVERIFY(!RP::decide(forced).guarded());
 
         RP::Inputs sw = amd;
         sw.vulkanFailedBefore = false;
         sw.hardwareAcceleration = false;
         QCOMPARE(RP::decide(sw).backend, RP::Backend::Software);
+        sw.hardwareFailed = "opengl";
+        QVERIFY(RP::decide(sw).reason.contains("software fallback"));
         sw.override = "vulkan";
         QCOMPARE(RP::decide(sw).backend, RP::Backend::Vulkan);
     }
@@ -1769,10 +2028,70 @@ private slots:
         s.sync();
         QVERIFY(!RG::vulkanFailedBefore());
         s.sync();
-        QCOMPARE(s.value("render/guardVersion").toInt(), 2);
+        QCOMPARE(s.value("render/guardVersion").toInt(), 3);
         s.remove("render/vulkanBroken");
         s.remove("render/pending");
         s.remove("render/guardVersion");
+        s.remove("render/hardwareFailed");
+    }
+
+    // GPU off by default; any hardware renderer failure (crash before first frame or scene graph error)
+    // turns acceleration off and falls back to software, and turning it back on retries.
+    void testRenderGuardFallsBackToSoftware() {
+        namespace RG = Zalos::Core::Platform::RenderGuard;
+        using RP = Zalos::Core::Platform::RenderProfile;
+        QSettings s("Zalos", "ZalosApp");
+        for (const char* k : {"render/guardVersion", "render/hardwareAcceleration", "render/hardwareFailed",
+                              "render/vulkanBroken", "render/pending"}) s.remove(k);
+        s.setValue("render/guardVersion", 2);
+        s.setValue("render/hardwareAcceleration", true);
+        s.sync();
+        QVERIFY(!RG::hardwareAccelerationEnabled());
+        QVERIFY(!RP::probeSystem().hardwareAcceleration);
+        QVERIFY(RG::lastFailure().isEmpty());
+
+        RG::setHardwareAccelerationEnabled(true);
+        QVERIFY(RP::probeSystem().hardwareAcceleration);
+        RG::markAttempt(RP::Backend::OpenGL);
+        RG::markFirstFrame();
+        QVERIFY(RP::probeSystem().hardwareAcceleration);
+
+        RG::markAttempt(RP::Backend::Default);
+        const RP::Inputs afterCrash = RP::probeSystem();
+        QVERIFY(!afterCrash.hardwareAcceleration);
+        QCOMPARE(afterCrash.hardwareFailed, QStringLiteral("default"));
+        QVERIFY(!afterCrash.vulkanFailedBefore);
+        QCOMPARE(RP::decide(afterCrash).backend, RP::Backend::Software);
+        {
+            Zalos::Core::Network::ZaloClient client;
+            QVERIFY(!client.hardwareAcceleration());
+            QVERIFY(client.hardwareAccelerationFailed());
+            QVERIFY(!client.hardwareAccelerationRestartRequired());
+            client.setHardwareAcceleration(true);
+            QVERIFY(!client.hardwareAccelerationFailed());
+            QVERIFY(client.hardwareAccelerationRestartRequired());
+        }
+        QVERIFY(RG::lastFailure().isEmpty());
+        QVERIFY(RG::hardwareAccelerationEnabled());
+
+        RG::recordFailure(RP::Backend::Vulkan);
+        QVERIFY(!RG::hardwareAccelerationEnabled());
+        QCOMPARE(RG::lastFailure(), QStringLiteral("vulkan"));
+        QVERIFY(RG::vulkanFailedBefore());
+        RG::setHardwareAccelerationEnabled(true);
+        RP::Inputs retry = RP::probeSystem();
+        retry.hasRenderNode = true;
+        retry.gpuVendor = "0x8086";
+        retry.mesaVulkanIcd = true;
+        retry.qtHasVulkan = true;
+        QCOMPARE(RP::decide(retry).backend, RP::Backend::Default);
+
+        RG::recordFailure(RP::Backend::Software);
+        QVERIFY(RG::hardwareAccelerationEnabled());
+
+        for (const char* k : {"render/guardVersion", "render/hardwareAcceleration", "render/hardwareFailed",
+                              "render/vulkanBroken", "render/pending"}) s.remove(k);
+        s.sync();
     }
 
     // The audio backend is only loaded by the first sound.
@@ -2602,7 +2921,7 @@ private slots:
         QCOMPARE(voice.href, QString("https://example.org/v.aac"));
         QCOMPARE(voice.extra.value("durationMs").toLongLong(), 12672);
 
-        // group.poll: "create" is a card with the poll id from params; other actions only refresh it.
+        // group.poll: every action is a poll info row with the poll id from params; non-create ones carry pollEvent.
         QJsonObject pollMsg = base("group.poll", QJsonObject{{"action", "create"}, {"title", "Q"},
                                                               {"params", params({{"pollId", 4242}})}});
         pollMsg["idTo"] = "g-fixture";
@@ -2610,7 +2929,9 @@ private slots:
         QCOMPARE(poll.messageType, QString("poll"));
         QCOMPARE(poll.pollData.value("poll_id").toLongLong(), 4242);
         pollMsg["content"] = QJsonObject{{"action", "vote"}, {"params", params({{"pollId", 4242}})}};
-        QCOMPARE(client.toMessageItemForTesting(pollMsg, true).messageType, QString("poll_update"));
+        const auto pollEvent = client.toMessageItemForTesting(pollMsg, true);
+        QCOMPARE(pollEvent.messageType, QString("poll"));
+        QCOMPARE(pollEvent.extra.value("pollEvent").toString(), QString("vote"));
 
         // Mentions become profile links in the rendered text.
         QJsonObject mentionMsg = base("webchat", QString("@Fixture hi"));
@@ -2921,28 +3242,23 @@ private slots:
         client.openCreatePollModal();
         QCOMPARE(client.showCreatePollModal(), true);
 
-        // Test create poll with insufficient options (< 2 options fails)
+        // Invalid drafts are refused with a notice; offline creation is refused honestly (no fake poll card).
         QSignalSpy noticeSpy(&client, &ZaloClient::notice);
-        client.createPoll("grp-100", "Ăn gì?", {"Cơm"}, false);
+        client.createPoll("grp-100", QString::fromUtf8("Ăn gì?"), {QString::fromUtf8("Cơm")}, {});
         QVERIFY(noticeSpy.count() >= 1);
-
-        // Valid poll
-        client.createPoll("grp-100", "Họp vào mấy giờ?", {"9h", "10h", "14h"}, false);
-        QCOMPARE(client.showCreatePollModal(), false);
-        QCOMPARE(client.messageModel()->rowCount(), 1);
-
-        QModelIndex pollIdx = client.messageModel()->index(0);
-        QCOMPARE(client.messageModel()->data(pollIdx, MessageModel::MessageTypeRole).toString(), QString("poll"));
-        QVariantMap pData = client.messageModel()->data(pollIdx, MessageModel::PollDataRole).toMap();
-        QCOMPARE(pData.value("question").toString(), QString("Họp vào mấy giờ?"));
-        QCOMPARE(pData.value("options").toList().size(), 3);
+        const int beforeOffline = noticeSpy.count();
+        client.createPoll("grp-100", QString::fromUtf8("Họp vào mấy giờ?"), {"9h", "10h", "14h"},
+                          QVariantMap{{"allowMultiChoices", true}});
+        QVERIFY(noticeSpy.count() > beforeOffline);
+        QCOMPARE(client.showCreatePollModal(), true);
+        QCOMPARE(client.messageModel()->rowCount(), 0);
+        client.closeCreatePollModal();
 
         // Voting offline changes nothing: the card only follows the server (/api/poll/detail after the vote).
         const int noticesBefore = noticeSpy.count();
-        client.votePoll(pData.value("poll_id").toLongLong(), 2);
-        QVariantMap pDataAfter = client.messageModel()->data(pollIdx, MessageModel::PollDataRole).toMap();
-        QCOMPARE(pDataAfter.value("num_vote").toInt(), 0);
+        client.submitPollChoices(4242, {2}, {}, {});
         QVERIFY(noticeSpy.count() > noticesBefore);
+        QCOMPARE(client.pollView(4242).value("loaded").toBool(), false);
 
         // 2. Test Group Management APIs
         client.changeGroupName("grp-100", "Nhóm Dự Án 2026");
@@ -5433,7 +5749,7 @@ private slots:
         Zalos::Core::Network::ZaloClient client;
         QCOMPARE(client.showBusinessButton(), true);
         QCOMPARE(client.showKikiButton(), true);
-        QCOMPARE(client.hardwareAcceleration(), true);
+        QCOMPARE(client.hardwareAcceleration(), false);
 
         client.setCurrentNavigationTab(QStringLiteral("kiki"));
         QCOMPARE(client.currentNavigationTab(), QStringLiteral("kiki"));
@@ -5447,14 +5763,19 @@ private slots:
         QCOMPARE(client.showBusinessButton(), false);
         QCOMPARE(client.showBusinessToolsModal(), false);
 
+        client.setHardwareAcceleration(true);
+        QCOMPARE(client.hardwareAcceleration(), true);
+        settings.sync();
+        QCOMPARE(settings.value("render/hardwareAcceleration").toBool(), true);
+        QCOMPARE(Zalos::Core::Platform::RenderProfile::probeSystem().hardwareAcceleration, true);
         client.setHardwareAcceleration(false);
         QCOMPARE(client.hardwareAcceleration(), false);
+        settings.sync();
         QCOMPARE(settings.value("render/hardwareAcceleration").toBool(), false);
         QCOMPARE(Zalos::Core::Platform::RenderProfile::probeSystem().hardwareAcceleration, false);
 
         client.setShowBusinessButton(true);
         client.setShowKikiButton(true);
-        client.setHardwareAcceleration(true);
     }
 
     void testSmartMobileSyncOfferLogic() {
@@ -5569,7 +5890,7 @@ private slots:
             writer.setShowBusinessButton(false);
             writer.setShowKikiButton(false);
             writer.setShowLabelFolders(true);
-            writer.setHardwareAcceleration(false);
+            writer.setHardwareAcceleration(true);
         }
 
         {
@@ -5577,11 +5898,11 @@ private slots:
             QCOMPARE(reader.showBusinessButton(), false);
             QCOMPARE(reader.showKikiButton(), false);
             QCOMPARE(reader.showLabelFolders(), true);
-            QCOMPARE(reader.hardwareAcceleration(), false);
+            QCOMPARE(reader.hardwareAcceleration(), true);
             reader.setShowBusinessButton(true);
             reader.setShowKikiButton(true);
             reader.setShowLabelFolders(false);
-            reader.setHardwareAcceleration(true);
+            reader.setHardwareAcceleration(false);
 
             QSignalSpy noticeSpy(&reader, &Zalos::Core::Network::ZaloClient::notice);
             reader.openExternalUrl(QStringLiteral("javascript:alert(1)"));

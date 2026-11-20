@@ -33,14 +33,20 @@ PinBoard::PinBoard(Hooks hooks, QObject* parent) : QObject(parent), m_hooks(std:
 
 QVariantMap PinBoard::normalizeTopic(const QJsonValue& raw) {
     QJsonObject o = asObject(raw);
+    const int boardType = o.value("boardType").toVariant().toInt();
     if (o.contains("data") && !o.contains("params")) o = asObject(o.value("data"));
-    const QString id = idString(o.contains("id") ? o.value("id") : o.value("topicId"));
+    const qint64 pollId = o.value("poll_id").toVariant().toLongLong();
+    QString id = idString(o.contains("id") ? o.value("id") : o.value("topicId"));
+    if (id.isEmpty() && pollId > 0) id = QStringLiteral("poll-%1").arg(pollId);
     if (id.isEmpty()) return {};
-    const int type = (o.contains("type") ? o.value("type") : o.value("topicType")).toVariant().toInt();
+    int type = (o.contains("type") ? o.value("type") : o.value("topicType")).toVariant().toInt();
+    if (type == 0 && (boardType == 3 || pollId > 0)) type = 3;
     const QJsonObject p = asObject(o.value("params"));
     QString title = p.value("title").toString();
     if (title.isEmpty()) title = p.value("linkCaption").toString();
+    if (title.isEmpty()) title = o.value("question").toString();
     return {{"id", id},
+            {"pollId", pollId > 0 ? pollId : p.value("pollId").toVariant().toLongLong()},
             {"type", type},
             {"title", title},
             {"senderUid", idString(p.value("senderUid"))},

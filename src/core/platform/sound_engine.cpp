@@ -1,4 +1,5 @@
 #include "sound_engine.h"
+#include "multimedia_support.h"
 
 #include <QDir>
 #include <QFile>
@@ -264,6 +265,10 @@ void SoundEngine::startExternal() {
 }
 
 void SoundEngine::playWithMediaPlayer(const QString& file, bool loop) {
+    if (!MultimediaSupport::available()) {
+        emit playingChanged(false);
+        return;
+    }
     ensurePlayer();
     m_player->stop();
     m_player->setSource(QUrl::fromLocalFile(file));
@@ -300,6 +305,13 @@ void SoundEngine::play(const QString& kind, const QString& key, bool loop) {
     if (!findRecipe(effective)) effective = kind == "ringtone" ? QStringLiteral("classic") : QStringLiteral("pop");
     const QString path = renderToFile(effective);
     if (path.isEmpty()) return;
+    if (!MultimediaSupport::available()) {
+        if (externalPlayer().isEmpty()) return;
+        m_externalFile = path;
+        m_externalLoop = loop;
+        startExternal();
+        return;
+    }
     ensureEffect();
     m_effect->stop();
     m_effect->setSource(QUrl::fromLocalFile(path));

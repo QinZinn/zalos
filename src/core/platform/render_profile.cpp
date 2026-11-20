@@ -33,15 +33,25 @@ QString RenderProfile::backendName(Backend b) {
     }
 }
 
+RenderProfile::Backend RenderProfile::backendFromName(const QString& name) {
+    if (name == QLatin1String("vulkan")) return Backend::Vulkan;
+    if (name == QLatin1String("opengl")) return Backend::OpenGL;
+    if (name == QLatin1String("software")) return Backend::Software;
+    return Backend::Default;
+}
+
 RenderProfile RenderProfile::decide(const Inputs& in) {
     RenderProfile p;
     const QString o = in.override.toLower();
     if (o == "vulkan" || o == "opengl" || o == "software") {
         p.backend = o == "vulkan" ? Backend::Vulkan : o == "opengl" ? Backend::OpenGL : Backend::Software;
+        p.fromOverride = true;
         p.reason = QStringLiteral("ZALOS_RENDERER=%1").arg(o);
     } else if (!in.hardwareAcceleration) {
         p.backend = Backend::Software;
-        p.reason = QStringLiteral("hardware acceleration disabled in settings");
+        p.reason = in.hardwareFailed.isEmpty()
+                       ? QStringLiteral("hardware acceleration off in settings (default)")
+                       : QStringLiteral("%1 renderer failed earlier: software fallback").arg(in.hardwareFailed);
     } else if (!in.hasRenderNode) {
         p.backend = Backend::Software;
         p.reason = QStringLiteral("no GPU render node: software renderer instead of llvmpipe");
@@ -87,7 +97,8 @@ RenderProfile::Inputs RenderProfile::probeSystem() {
     in.qtHasVulkan = true;
 #endif
     in.vulkanFailedBefore = RenderGuard::vulkanFailedBefore();
-    in.hardwareAcceleration = QSettings("Zalos", "ZalosApp").value("render/hardwareAcceleration", true).toBool();
+    in.hardwareAcceleration = RenderGuard::hardwareAccelerationEnabled();
+    if (!in.hardwareAcceleration) in.hardwareFailed = RenderGuard::lastFailure();
     const QString meminfo = readTrimmed(QStringLiteral("/proc/meminfo"));
     for (const QString& line : meminfo.split('\n')) {
         if (line.startsWith(QLatin1String("MemTotal:"))) {
@@ -115,31 +126,48 @@ void RenderProfile::apply() const {
 
 namespace RenderGuard {
 
-constexpr int kRenderGuardVersion = 2;
+constexpr int kRenderGuardVersion = 3;
 
 void ensureGuardVersion(QSettings& s) {
-    if (s.value("render/guardVersion", 0).toInt() < kRenderGuardVersion) {
+    const int version = s.value("render/guardVersion", 0).toInt();
+    if (version >= kRenderGuardVersion) return;
+    if (version < 2) {
         s.remove("render/vulkanBroken");
         s.remove("render/pending");
-        s.setValue("render/guardVersion", kRenderGuardVersion);
-        s.sync();
     }
+    if (version < 3) {
+        s.setValue("render/hardwareAcceleration", false);
+        s.remove("render/hardwareFailed");
+    }
+    s.setValue("render/guardVersion", kRenderGuardVersion);
+    s.sync();
+}
+
+void writeFailure(QSettings& s, RenderProfile::Backend backend) {
+    if (backend == RenderProfile::Backend::Vulkan) s.setValue("render/vulkanBroken", true);
+    s.setValue("render/hardwareAcceleration", false);
+    s.setValue("render/hardwareFailed", RenderProfile::backendName(backend));
+    s.remove("render/pending");
+}
+
+void consumePending(QSettings& s) {
+    const QString pending = s.value("render/pending").toString();
+    if (pending.isEmpty()) return;
+    writeFailure(s, RenderProfile::backendFromName(pending));
+    s.sync();
 }
 
 bool vulkanFailedBefore() {
     QSettings s(QStringLiteral("Zalos"), QStringLiteral("ZalosApp"));
     ensureGuardVersion(s);
-    if (s.value("render/pending").toString() == QLatin1String("vulkan")) {
-        s.setValue("render/vulkanBroken", true);
-        s.remove("render/pending");
-    }
+    consumePending(s);
     return s.value("render/vulkanBroken", false).toBool();
 }
 
 void markAttempt(RenderProfile::Backend backend) {
     QSettings s(QStringLiteral("Zalos"), QStringLiteral("ZalosApp"));
     ensureGuardVersion(s);
-    if (backend == RenderProfile::Backend::Vulkan) s.setValue("render/pending", QStringLiteral("vulkan"));
+    if (backend != RenderProfile::Backend::Software) s.setValue("render/pending", RenderProfile::backendName(backend));
     else s.remove("render/pending");
     s.sync();
 }
@@ -147,6 +175,34 @@ void markAttempt(RenderProfile::Backend backend) {
 void markFirstFrame() {
     QSettings s(QStringLiteral("Zalos"), QStringLiteral("ZalosApp"));
     s.remove("render/pending");
+    s.sync();
+}
+
+void recordFailure(RenderProfile::Backend backend) {
+    if (backend == RenderProfile::Backend::Software) return;
+    QSettings s(QStringLiteral("Zalos"), QStringLiteral("ZalosApp"));
+    ensureGuardVersion(s);
+    writeFailure(s, backend);
+    s.sync();
+}
+
+QString lastFailure() {
+    QSettings s(QStringLiteral("Zalos"), QStringLiteral("ZalosApp"));
+    ensureGuardVersion(s);
+    return s.value("render/hardwareFailed").toString();
+}
+
+bool hardwareAccelerationEnabled() {
+    QSettings s(QStringLiteral("Zalos"), QStringLiteral("ZalosApp"));
+    ensureGuardVersion(s);
+    return s.value("render/hardwareAcceleration", false).toBool();
+}
+
+void setHardwareAccelerationEnabled(bool enabled) {
+    QSettings s(QStringLiteral("Zalos"), QStringLiteral("ZalosApp"));
+    ensureGuardVersion(s);
+    s.setValue("render/hardwareAcceleration", enabled);
+    if (enabled) s.remove("render/hardwareFailed");
     s.sync();
 }
 

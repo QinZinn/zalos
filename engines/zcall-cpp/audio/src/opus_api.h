@@ -18,6 +18,7 @@ public:
     static constexpr int kSignalVoice = 3001;
 
     static std::shared_ptr<OpusApi> load(std::string* error);
+    const std::string& origin() const { return m_origin; }
 
     void* (*decoderCreate)(int32_t, int, int*){nullptr};
     int (*decode)(void*, const unsigned char*, int32_t, int16_t*, int, int){nullptr};
@@ -29,6 +30,7 @@ public:
 
 private:
     void* m_handle{nullptr};
+    std::string m_origin;
 };
 
 class Decoder {

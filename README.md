@@ -25,8 +25,8 @@
 **Zalos** is an open-source native Linux client for Zalo, built with C++17 and Qt 6 QML
 with a lean, purpose-built architecture:
 
-- **Ultra-lightweight:** Compact native `.deb`/`.rpm` (~6 MB) or self-contained AppImage (~22 MB with Qt 6.4 fallback) and minimal memory footprint (~40–65 MB RAM, saving over 90% compared to 450–1,800+ MB on Electron wrappers).
-- **High performance:** Instant startup (<0.5s), hardware-accelerated 60 FPS graphics, multi-threaded C++ cryptographic decoding, and smooth responsiveness even on low-spec hardware.
+- **Ultra-lightweight:** Compact native `.deb`/`.rpm` (~2.5 MB) or self-contained AppImage (~22 MB with Qt 6.4 fallback) and minimal memory footprint (~40–65 MB RAM, saving over 90% compared to 450–1,800+ MB on Electron wrappers).
+- **High performance:** Instant startup (<0.5s), smooth Qt Quick rendering (a stable software renderer by default, optional GPU acceleration with automatic fallback), multi-threaded C++ cryptographic decoding, and smooth responsiveness even on low-spec hardware.
 - **Linux native:** Wayland & X11 support with system theme synchronization (light/dark), native desktop notifications, and seamless Vietnamese input.
 
 ### ⚡ Performance & Resource Benchmark
@@ -34,20 +34,23 @@ with a lean, purpose-built architecture:
 | Metric | Zalos (C++17 / Qt 6 QML) | Zalo PC / Electron Wrapper |
 |---|---|---|
 | **Runtime Memory (RAM)** | **~40 – 65 MB** (self-managed, >90% lighter) | 450 – 1,800+ MB (multiple Chromium processes) |
-| **Package / Binary Size** | **~6 MB (`.deb`/`.rpm`) · ~22 MB (AppImage)** | > 150 – 250 MB (bundled browser runtime) |
+| **Package / Binary Size** | **~2.5 MB (`.deb`/`.rpm`) · ~22 MB (AppImage)** | > 150 – 250 MB (bundled browser runtime) |
 | **Cold Startup Time** | **< 0.5s** (instantaneous launch) | 3 – 8s (V8 engine & browser init) |
-| **UI Rendering** | **Hardware-accelerated Qt Quick (60 FPS)** | Web DOM / Chromium compositor |
+| **UI Rendering** | **Native Qt Quick (software by default, optional GPU)** | Web DOM / Chromium compositor |
 | **Architecture** | **Pure Native C++17 & QML** | Electron / Node.js + Web wrapper |
 
 ---
 
 ## ✨ Features
 
-- **High performance & ultra-lightweight** — sub-second startup (<0.5s), smooth 60 FPS Qt Quick rendering, ~6 MB native `.deb`/`.rpm` (~22 MB self-contained AppImage), and minimal RAM usage (~40–65 MB).
-- **Wayland & X11** — runs on both, with native window controls on GNOME and KDE, plus a GPU hardware-acceleration toggle with instant restart in Settings.
+- **High performance & ultra-lightweight** — sub-second startup (<0.5s), smooth 60 FPS Qt Quick rendering, ~2.5 MB native `.deb`/`.rpm` (~22 MB self-contained AppImage), and minimal RAM usage (~40–65 MB).
+- **Wayland & X11** — runs on both, with native window controls on GNOME and KDE. Rendering uses software by default for stability; GPU acceleration can be turned on in Settings and falls back to software automatically if the graphics driver fails.
 - **Automatic light/dark theme** — follows your system colour scheme in real time.
 - **Messaging** — one-to-one and group chats, animated Stickers & GIFs, emoji, 54 Zalo reactions, rich formatting (with indent), replies,
-  forwards, polls, bank cards, pinned messages, labels, conversation filters (All / Groups / Direct / Friends / Strangers), and full-history search.
+  forwards, bank cards, pinned messages, labels, conversation filters (All / Groups / Direct / Friends / Strangers), and full-history search;
+  read status stays in sync with your phone and other devices.
+- **Polls like Zalo PC** — poll cards and activity lines in chat, a full vote dialog (single/multiple choice, change or remove votes,
+  add options, see who voted), every creation setting (pin, deadline, hide results, hide voters) and closing polls for creators/admins.
 - **Smart mobile history sync** — detects empty group histories on sign-in and offers encrypted phone sync.
 - **Voice & video calls** — 1-1 voice/video calls with OpenH264 video encoding, in-call screen sharing (X11 & Wayland), floating PiP minimize mode, and in-call device/mic-volume picker; group calls are in beta.
 - **My Documents** — the personal storage thread with instant filters for photos, videos, files and links.
@@ -66,18 +69,19 @@ with a lean, purpose-built architecture:
 
 ## 📥 Installation
 
-Pick the package for your distribution. Every release is built on the **oldest** release it supports and
-installed on the oldest and newest one in CI.
+Pick the package for your distribution. Every release is built on the **oldest** release it supports, and its
+clean install is tested in containers on the oldest and newest supported release, including minimal installs
+without optional packages, before it is published.
 
 ### Install Matrix
 
 | Method | Target Distributions | Arch | Auto-Update | Voice Calls | Video Calls (Camera) |
 |---|---|---|---|---|---|
-| [**APT Repository**](#ubuntu--debian--apt-repository-recommended) *(recommended)* | Ubuntu 24.04+, Mint, Pop!_OS, Zorin | `amd64` / `arm64` | ✅ `apt upgrade` | ✅ Ready | ➕ `libopenh264-7` |
-| [**DNF Repository**](#fedora--dnf-repository-recommended) *(recommended)* | Fedora 43+ | `x86_64` / `aarch64` | ✅ `dnf upgrade` | ✅ Ready | ➕ `openh264` |
-| [`.deb` (single file)](#ubuntu-2404-deb-single-file) | Ubuntu 24.04+, Debian/derivatives | `amd64` / `arm64` | 🔄 In-app prompt | ✅ Ready | ➕ `libopenh264-7` |
-| [`.rpm` (single file)](#fedora-43-rpm-single-file) | Fedora 43+ | `x86_64` / `aarch64` | 🔄 In-app prompt | ✅ Ready | ➕ `openh264` |
-| [**Snap**](#snap) | Ubuntu & distros with `snapd` | `amd64` / `arm64` / `armhf` / `riscv64` | ✅ Snap Store | ✅ Ready | ⚠️ Needs OpenH264 / permissions |
+| [**APT Repository**](#ubuntu--debian--apt-repository-recommended) *(recommended)* | Ubuntu 24.04+, Mint, Pop!_OS, Zorin | `amd64` / `arm64` | ✅ `apt upgrade` | ✅ Ready | ✅ recommended (`libopenh264-7`) |
+| [**DNF Repository**](#fedora--dnf-repository-recommended) *(recommended)* | Fedora 43+ | `x86_64` / `aarch64` | ✅ `dnf upgrade` | ✅ Ready | ✅ recommended (`openh264`) |
+| [`.deb` (single file)](#ubuntu-2404-deb-single-file) | Ubuntu 24.04+, Debian/derivatives | `amd64` / `arm64` | 🔄 In-app prompt | ✅ Ready | ✅ recommended (`libopenh264-7`) |
+| [`.rpm` (single file)](#fedora-43-rpm-single-file) | Fedora 43+ | `x86_64` / `aarch64` | 🔄 In-app prompt | ✅ Ready | ✅ recommended (`openh264`) |
+| [**Snap**](#snap) | Ubuntu & distros with `snapd` | `amd64` / `arm64` / `armhf` / `riscv64` | ✅ Snap Store | ✅ Ready | ⚠️ Grant camera permission |
 | [**Flatpak (Testing)**](#flatpak-testing) | Any distro with Flatpak | `x86_64` / `aarch64` | ✅ Flatpak | ✅ Ready | ✅ Bundled (`OpenH264`) |
 | [**Nix Flake**](#nixos--nix) | NixOS / Nix | `x86_64` / `aarch64` | 🔄 `nix profile upgrade` | ✅ Ready | ✅ Bundled |
 | [**AppImage**](#appimage-portable-glibc--235) | Ubuntu 22.04+, Debian 12+, Arch, openSUSE (`glibc ≥ 2.35`) | `x86_64` / `aarch64` | ✅ `zsync` / in-app | ✅ Ready *(desktop)* | ➕ `libopenh264-7` / `openh264` |
@@ -98,13 +102,13 @@ sudo dnf install -y zalos
 ### Ubuntu 24.04+ (`.deb` single file)
 ```bash
 ARCH=$(dpkg --print-architecture)
-wget "https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.2.8-1~ubuntu24.04_${ARCH}.deb"
-sudo apt install "./zalos_1.2.8-1~ubuntu24.04_${ARCH}.deb"
+wget "https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.2.9-1~ubuntu24.04_${ARCH}.deb"
+sudo apt install "./zalos_1.2.9-1~ubuntu24.04_${ARCH}.deb"
 ```
 
 ### Fedora 43+ (`.rpm` single file)
 ```bash
-sudo dnf install "https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.2.8-1.fc43.$(uname -m).rpm"
+sudo dnf install "https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.2.9-1.fc43.$(uname -m).rpm"
 ```
 
 ### Snap
@@ -132,9 +136,9 @@ nix profile install github:cpfriend1721994/zalos
 ### AppImage (portable, glibc ≥ 2.35)
 ```bash
 ARCH=$(uname -m)
-wget "https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.2.8-${ARCH}.AppImage"
-chmod +x "Zalos-1.2.8-${ARCH}.AppImage"
-"./Zalos-1.2.8-${ARCH}.AppImage"
+wget "https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.2.9-${ARCH}.AppImage"
+chmod +x "Zalos-1.2.9-${ARCH}.AppImage"
+"./Zalos-1.2.9-${ARCH}.AppImage"
 ```
 The AppImage (~22 MB) uses your host Qt 6 when available and automatically falls back to its bundled Qt 6.4 runtime on systems without Qt 6 (requiring only standard desktop libraries and `glibc ≥ 2.35`, e.g. Ubuntu 22.04+, Debian 12+, Fedora, openSUSE, Arch).
 
@@ -147,8 +151,10 @@ Voice and video calls run on Zalos's own C++ call engine (`zalos-call` and `zalo
 see `engines/zcall-cpp/LICENSE` for third-party BSD-3-Clause notices).
 Zalos has no Python or Node.js dependency at all:
 
-- **Voice calls work out of the box** on `.deb`, `.rpm`, `Nix`, and the **AppImage** (the AppImage bundles a `libopus.so.0` fallback and connects directly to PulseAudio / PipeWire via `libpulse-simple.so.0`, which is already preinstalled on standard desktop Linux distributions; only minimal systems without PulseAudio/PipeWire client libraries need `libpulse0` on Ubuntu/Debian or `pulseaudio-libs` on Fedora).
-- **Video calls** (seeing the other person's camera) additionally need **OpenH264** from your distribution (never bundled, for patent-licensing reasons): Ubuntu `sudo apt install libopenh264-7`, Fedora `sudo dnf install openh264`.
+- **Voice calls work out of the box** on `.deb`, `.rpm`, `Nix`, and the **AppImage**: Zalos uses your system's `libopus` and falls back to its own private copy when the system has none, and talks to PulseAudio / PipeWire through `libpulse-simple.so.0`, which every standard desktop already has (only minimal systems need `libpulse0` on Ubuntu/Debian or `pulseaudio-libs` on Fedora).
+- **Video calls** (seeing the other person's camera) additionally need **OpenH264** from your distribution (never bundled, for patent-licensing reasons): Ubuntu `sudo apt install libopenh264-7`, Fedora `sudo dnf install openh264`. The `.deb`/`.rpm` recommend it, so `apt`/`dnf` install it by default.
+- **Playing voice messages and videos** uses Qt Multimedia with your distribution's codecs. The `.deb` recommends `gstreamer1.0-plugins-good` and `gstreamer1.0-libav`; for the AppImage on a system without Qt 6, install GStreamer with its good plugins and libav from your distribution. Without them Zalos keeps working and tells you what is missing.
+- **Check what Zalos found:** `zalos --check-deps` (or `./Zalos-*.AppImage --check-deps`) prints which Qt, codecs, OpenH264 and audio libraries are in use — handy for bug reports.
 
 ---
 
@@ -170,7 +176,7 @@ docker compose run --rm package-rpm      # dist/*.x86_64.rpm
 docker compose run --rm package-nix      # dist/*-nixos.tar.gz
 ```
 
-Pushing a semantic tag (`git tag v1.2.8 && git push origin v1.2.8`) builds the full package set and publishes
+Pushing a semantic tag (`git tag v1.2.9 && git push origin v1.2.9`) builds the full package set and publishes
 a GitHub Release.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the contributor workflow.

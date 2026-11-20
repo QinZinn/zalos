@@ -360,15 +360,31 @@ Item {
                 onLoaded: blurLoader.item.source = bgAvatar
             }
 
-            VideoOutput {
+            Loader {
                 id: peerVideo
                 x: 0
                 y: 0
                 width: root.isSplitActive ? stage.width / 2 : stage.width
                 height: stage.height
-                fillMode: VideoOutput.PreserveAspectFit
                 visible: root.peerVideoShown
-                Component.onCompleted: if (ZaloClient.calls) ZaloClient.calls.setPeerVideoSink(peerVideo.videoSink)
+                active: ZaloClient.multimediaAvailable
+                source: active ? "ZVideoView.qml" : ""
+                onLoaded: if (ZaloClient.calls) ZaloClient.calls.setPeerVideoSink(peerVideo.item.videoSink)
+            }
+
+            Text {
+                visible: !ZaloClient.multimediaAvailable && !!ZaloClient.calls && ZaloClient.calls.peerVideoActive && !root.minimized
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.bottom: parent.bottom
+                anchors.bottomMargin: 120
+                width: Math.min(parent.width - 48, 420)
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.Wrap
+                text: I18n.t("Máy thiếu thành phần hiển thị video (Qt Multimedia) nên chỉ nghe được tiếng.",
+                             "This system lacks the video display components (Qt Multimedia), so the call is audio-only.")
+                font.family: Theme.fontFamily
+                font.pixelSize: 13
+                color: "#FFFFFF"
             }
 
             Text {
@@ -593,12 +609,18 @@ Item {
             border.color: "#40FFFFFF"
             visible: !!(ZaloClient.calls && (ZaloClient.calls.cameraOn || ZaloClient.calls.screenShareOn) && root.phase !== "ended")
             clip: true
-            VideoOutput {
+            Loader {
                 id: selfVideo
                 anchors.fill: parent
-                fillMode: ZaloClient.calls && ZaloClient.calls.screenShareOn ? VideoOutput.PreserveAspectFit : VideoOutput.PreserveAspectCrop
+                active: ZaloClient.multimediaAvailable
+                source: active ? "ZVideoView.qml" : ""
                 transform: Scale { origin.x: selfVideo.width / 2; xScale: ZaloClient.calls && ZaloClient.calls.screenShareOn ? 1 : -1 }
-                Component.onCompleted: if (ZaloClient.calls) ZaloClient.calls.setLocalVideoSink(selfVideo.videoSink)
+                onLoaded: {
+                    selfVideo.item.fillMode = Qt.binding(function() {
+                        return ZaloClient.calls && ZaloClient.calls.screenShareOn ? VideoOutput.PreserveAspectFit : VideoOutput.PreserveAspectCrop;
+                    });
+                    if (ZaloClient.calls) ZaloClient.calls.setLocalVideoSink(selfVideo.item.videoSink);
+                }
             }
         }
 

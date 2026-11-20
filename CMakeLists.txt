@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(zalos VERSION 1.2.8 LANGUAGES CXX)
+project(zalos VERSION 1.2.9 LANGUAGES CXX)
 option(BUILD_TESTING "Build unit tests" ON)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -147,6 +147,8 @@ set(ZALOS_SOURCES
     src/core/platform/icon_image_provider.h
     src/core/platform/icon_image_provider.cpp
     src/core/platform/render_profile.cpp
+    src/core/platform/dependency_report.cpp
+    src/core/platform/multimedia_support.cpp
     src/core/platform/app_updater.cpp
     src/core/platform/browser_session_reader.h
     src/core/platform/browser_session_reader.cpp
@@ -191,6 +193,7 @@ qt_add_qml_module(zalos
         src/qml/ZBlurEffect.qml
         src/qml/ChatJumpDownButton.qml
         src/qml/ChatUnreadBar.qml
+        src/qml/ChatPollBlock.qml
         src/qml/LockScreen.qml
         src/qml/ZButton.qml
         src/qml/ZTextField.qml
@@ -198,6 +201,8 @@ qt_add_qml_module(zalos
         src/qml/SyncPromptDialog.qml
         src/qml/ForwardMessageModal.qml
         src/qml/CreatePollModal.qml
+        src/qml/PollVoteDialog.qml
+        src/qml/ZVideoView.qml
         src/qml/GroupManageModal.qml
         src/qml/GroupJoinModal.qml
         src/qml/LabelManageModal.qml
@@ -417,6 +422,8 @@ if(BUILD_TESTING)
         src/core/platform/system_tray.cpp
         src/core/platform/sound_engine.cpp
         src/core/platform/render_profile.cpp
+        src/core/platform/dependency_report.cpp
+        src/core/platform/multimedia_support.cpp
     src/core/platform/app_updater.cpp
     )
     target_compile_definitions(zalos_test_core PUBLIC ZALOS_TESTING ZALOS_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"

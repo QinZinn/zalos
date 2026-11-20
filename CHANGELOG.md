@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.9] - 2026-11-20
+
+### Added
+- **Polls Like Zalo PC:** every poll event (created, voted, option added, closed, shared) now appears in the chat as an info line with the actor ("A member" for anonymous polls) and a "View" link, and the poll card sits under the latest event only. The card shows the poll settings, voter count, the top options with percentage bars, your choice and voter avatars.
+- **Poll Vote Dialog:** clicking a poll opens a full dialog to vote with single or multiple choices, change or remove your vote, add options (and vote for them), see who voted for each option, close the poll (creator and group admins, with confirmation) and share it to the group.
+- **Full Poll Creation Settings:** pin to top, multiple choices, members can add options, hide results until voted, hide voters and a voting deadline, with Zalo's limits (question up to 200 characters, options up to 120, 2–30 options, no duplicates). The dialog only closes once the server accepts the poll.
+- **Pinned Polls:** polls pinned in a group are now recognised and can be opened from the pinned item.
+
+### Fixed
+- **Read-on-Phone Sync:** chats read on the phone or another device no longer stay unread. Read points are kept per conversation, only move forward and survive restarts, so they apply even when they arrive before or with the messages they cover (typical after a network drop or at startup) and for groups that haven't loaded yet. Zalos also fetches the latest read points of unread chats (`get-last-seen`, like Zalo PC) after reconnecting, when the window is shown and every 15 minutes, and reads them from every payload shape (`clearUnreads`, `clearUnreadInfo`, `statusMap`) and from group seen events.
+- **Phone History Sync Failing Right After Confirmation:** a `transfer_error` with status 2 means the phone app went to the background, not that the sync failed; Zalos now asks you to keep Zalo open on the phone and keeps waiting instead of failing with code -1.
+- **Poll Voting:** votes now send your whole selection, so multiple-choice polls no longer replace your earlier choice and votes can be removed; adding an option no longer casts a second vote on single-choice polls; voting on a locked poll shows a clear message; no more placeholder poll card with a fake id after creating a poll.
+- **Image/Video Viewer Memory:** closing the viewer releases the video decoder and returns freed memory to the system, and full-size photos are no longer kept in the image cache.
+- **QML Warnings on Startup:** fixed "Window.window only supports types derived from Item" in the welcome carousel, sidebar clock, typing indicator and voice-recording dot, so these timers and animations really pause while the window is hidden.
+
+### Changed & Improved
+- **Fewer Required System Packages:** `.deb`/`.rpm` now only require Qt and core libraries; libopus, PulseAudio and OpenH264 became recommendations, and every format ships a private libopus copy that is used only when the system has none. The `.deb` now recommends the GStreamer plugins needed to play voice messages and videos. Browser sign-in reads the browser key over D-Bus (Secret Service/KWallet) instead of needing `secret-tool`/`kwallet-query`.
+- **No Crash Without Media Codecs:** on systems without Qt Multimedia's GStreamer/FFmpeg backend (e.g. the AppImage on a minimal distro) Zalos no longer aborts: notification sounds use the system player, voice/video playback and recording explain what is missing, and calls continue audio-only.
+- **AppImage Picks Its Qt More Safely:** the system Qt is used only when it has every needed plugin (platform, multimedia, SVG, SQLite, TLS); if it crashes at startup, the next launch switches to the bundled Qt automatically and retries after a system Qt update.
+- **Dependency Report:** `zalos --check-deps` (or `./Zalos-*.AppImage --check-deps`) lists which Qt, codecs, OpenH264 and audio libraries are found, to help with bug reports.
+- **Software Rendering by Default:** hardware acceleration (GPU) is now off by default, and existing installs are switched to software once; it can be turned back on in Settings › General.
+- **Automatic Software Fallback:** if a hardware renderer (Vulkan, OpenGL or the Qt default) crashes before its first frame or reports a scene graph error, Zalos turns acceleration off, restarts on the software renderer and explains why in Settings; after a Vulkan failure, re-enabling tries OpenGL. Settings › About now shows the renderer actually in use.
+
 ## [1.2.8] - 2026-11-19
 
 ### Fixed

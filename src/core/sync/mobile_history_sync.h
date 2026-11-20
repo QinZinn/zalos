@@ -71,6 +71,8 @@ public:
     static QJsonArray toMessages(const BackupConversation& conv, const QHash<QString, QString>& ids,
                                  const QString& myPlainUid, const QString& myNoisedUid, int* skipped = nullptr,
                                  int startRow = 0, int maxRows = -1);
+    enum class TransferErrorKind { Ignore, PhoneIdle, PhoneActive, Failed };
+    static TransferErrorKind classifyTransferError(const QJsonObject& data);
     static int downloadRetryDelayMs(int httpStatus, int networkError, int attempt, const QByteArray& retryAfter,
                                     const QDateTime& now);
 

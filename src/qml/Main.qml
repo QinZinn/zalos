@@ -448,6 +448,7 @@ ApplicationWindow {
     LazyOverlay { active: ZaloClient.showCreateGroupModal; sourceComponent: CreateGroupModal {} }
     LazyOverlay { active: ZaloClient.showForwardModal; sourceComponent: ForwardMessageModal {} }
     LazyOverlay { active: ZaloClient.showCreatePollModal; sourceComponent: CreatePollModal {} }
+    LazyOverlay { z: 905; active: ZaloClient.pollDialogId > 0; sourceComponent: PollVoteDialog {} }
     LazyOverlay { active: ZaloClient.groupAdmin.manageOpen; sourceComponent: GroupManageModal {} }
     LazyOverlay { active: ZaloClient.groupAdmin.joinOpen; sourceComponent: GroupJoinModal {} }
     LazyOverlay { active: ZaloClient.labels.manageOpen; sourceComponent: LabelManageModal {} }
@@ -479,6 +480,7 @@ ApplicationWindow {
         z: 1500
         active: ImageViewerState.open
         source: active ? Qt.resolvedUrl("ImageViewer.qml") : ""
+        onActiveChanged: if (!active) ZaloClient.requestMemoryTrim()
     }
 
     LazyOverlay {

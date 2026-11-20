@@ -1,5 +1,13 @@
 #include "browser_session_reader.h"
 
+#include <QDBusArgument>
+#include <QDBusConnection>
+#include <QDBusConnectionInterface>
+#include <QDBusInterface>
+#include <QDBusMetaType>
+#include <QDBusObjectPath>
+#include <QDBusReply>
+#include <QDBusVariant>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -21,6 +29,74 @@ struct BrowserDef {
     const char* appAttr;
     const char* kwalletFolder;
 };
+
+constexpr int kDbusTimeoutMs = 1500;
+
+bool serviceRegistered(const QDBusConnection& bus, const QString& service) {
+    return bus.isConnected() && bus.interface() && bus.interface()->isServiceRegistered(service).value();
+}
+
+QByteArray secretServiceLookup(const QString& application) {
+    const QString service = QStringLiteral("org.freedesktop.secrets");
+    QDBusConnection bus = QDBusConnection::sessionBus();
+    if (!serviceRegistered(bus, service)) return {};
+    qDBusRegisterMetaType<QMap<QString, QString>>();
+    QDBusInterface secrets(service, QStringLiteral("/org/freedesktop/secrets"),
+                           QStringLiteral("org.freedesktop.Secret.Service"), bus);
+    secrets.setTimeout(kDbusTimeoutMs);
+    const QDBusMessage opened = secrets.call(QStringLiteral("OpenSession"), QStringLiteral("plain"),
+                                             QVariant::fromValue(QDBusVariant(QString())));
+    if (opened.type() != QDBusMessage::ReplyMessage || opened.arguments().size() < 2) return {};
+    const QDBusObjectPath session = qdbus_cast<QDBusObjectPath>(opened.arguments().at(1));
+    QByteArray secret;
+    const QMap<QString, QString> attributes{{QStringLiteral("application"), application}};
+    const QDBusMessage found = secrets.call(QStringLiteral("SearchItems"), QVariant::fromValue(attributes));
+    if (found.type() == QDBusMessage::ReplyMessage && !found.arguments().isEmpty()) {
+        const auto unlocked = qdbus_cast<QList<QDBusObjectPath>>(found.arguments().at(0));
+        for (const QDBusObjectPath& item : unlocked) {
+            QDBusInterface entry(service, item.path(), QStringLiteral("org.freedesktop.Secret.Item"), bus);
+            entry.setTimeout(kDbusTimeoutMs);
+            const QDBusMessage reply = entry.call(QStringLiteral("GetSecret"), QVariant::fromValue(session));
+            if (reply.type() != QDBusMessage::ReplyMessage || reply.arguments().isEmpty()) continue;
+            const QDBusArgument arg = reply.arguments().at(0).value<QDBusArgument>();
+            QDBusObjectPath owner;
+            QByteArray parameters;
+            QByteArray value;
+            QString contentType;
+            arg.beginStructure();
+            arg >> owner >> parameters >> value >> contentType;
+            arg.endStructure();
+            if (!value.isEmpty()) {
+                secret = value;
+                break;
+            }
+        }
+    }
+    QDBusInterface(service, session.path(), QStringLiteral("org.freedesktop.Secret.Session"), bus)
+        .call(QDBus::NoBlock, QStringLiteral("Close"));
+    return secret.trimmed();
+}
+
+QByteArray kwalletLookup(const QString& folder, const QString& key) {
+    QDBusConnection bus = QDBusConnection::sessionBus();
+    const QString appId = QStringLiteral("Zalos");
+    for (const auto& [service, path] : {std::pair{"org.kde.kwalletd6", "/modules/kwalletd6"},
+                                        std::pair{"org.kde.kwalletd5", "/modules/kwalletd5"}}) {
+        if (!serviceRegistered(bus, QString::fromLatin1(service))) continue;
+        QDBusInterface wallet(QString::fromLatin1(service), QString::fromLatin1(path), QStringLiteral("org.kde.KWallet"), bus);
+        wallet.setTimeout(kDbusTimeoutMs);
+        const QDBusReply<QString> name = wallet.call(QStringLiteral("networkWallet"));
+        const QDBusReply<int> handle = wallet.call(QStringLiteral("open"),
+                                                   name.isValid() && !name.value().isEmpty() ? name.value()
+                                                                                             : QStringLiteral("kdewallet"),
+                                                   qlonglong(0), appId);
+        if (!handle.isValid() || handle.value() < 0) continue;
+        const QDBusReply<QString> password = wallet.call(QStringLiteral("readPassword"), handle.value(), folder, key, appId);
+        wallet.call(QDBus::NoBlock, QStringLiteral("close"), handle.value(), false, appId);
+        if (password.isValid() && !password.value().isEmpty()) return password.value().toUtf8();
+    }
+    return {};
+}
 
 const BrowserDef kBrowsers[] = {
     {"Thorium", "thorium", "thorium", "Thorium"},
@@ -83,6 +159,7 @@ QByteArray BrowserSessionReader::decryptAesCbc(const QByteArray& key, const QByt
 }
 
 QByteArray BrowserSessionReader::readSafeStorageKey(const QString& appAttr, const QString& folderName) {
+    if (const QByteArray viaDbus = secretServiceLookup(appAttr); !viaDbus.isEmpty()) return viaDbus;
     {
         QProcess proc;
         proc.start("secret-tool", {"lookup", "application", appAttr});
@@ -92,6 +169,8 @@ QByteArray BrowserSessionReader::readSafeStorageKey(const QString& appAttr, cons
         }
     }
 
+    if (const QByteArray viaDbus = kwalletLookup(folderName + " Keys", folderName + " Safe Storage"); !viaDbus.isEmpty())
+        return viaDbus;
     {
         QProcess proc;
         proc.start("kwallet-query", {"-f", folderName + " Keys", "-r", folderName + " Safe Storage", "kdewallet"});

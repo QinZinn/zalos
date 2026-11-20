@@ -1,4 +1,5 @@
 #include "camera_sender.h"
+#include "platform/multimedia_support.h"
 #include "core/media/media_utils.h"
 
 #include <QCamera>
@@ -56,6 +57,7 @@ CameraSender::~CameraSender() {
 }
 
 bool CameraSender::cameraAvailable() {
+    if (!Platform::MultimediaSupport::available()) return false;
     const auto inputs = QMediaDevices::videoInputs();
     for (const auto& dev : inputs) {
         if (!Media::MediaUtils::isIrCamera(dev.description())) return true;
@@ -102,6 +104,10 @@ bool CameraSender::start(QString* error) {
     if (m_screenTimer) stop();
     if (!encoderAvailable()) {
         if (error) *error = QStringLiteral("no_encoder");
+        return false;
+    }
+    if (!Platform::MultimediaSupport::available()) {
+        if (error) *error = QStringLiteral("no_multimedia");
         return false;
     }
     QCameraDevice device;

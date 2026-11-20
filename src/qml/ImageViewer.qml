@@ -42,7 +42,8 @@ Rectangle {
     readonly property bool videoPlaying: !!videoPlayer && videoPlayer.playbackState === MediaPlayer.PlayingState
     readonly property bool videoLoading: !!videoPlayer && (videoPlayer.mediaStatus === MediaPlayer.LoadingMedia
                                                            || videoPlayer.mediaStatus === MediaPlayer.BufferingMedia)
-    readonly property bool videoFailed: !!videoPlayer && videoPlayer.error !== MediaPlayer.NoError
+    readonly property bool videoFailed: (root.isVideo && !ZaloClient.multimediaAvailable)
+                                        || (!!videoPlayer && videoPlayer.error !== MediaPlayer.NoError)
     readonly property bool videoMuted: !videoPlayer || videoPlayer.audioOutput.muted
     readonly property real videoPosition: videoPlayer ? videoPlayer.position : 0
     readonly property real videoDuration: videoPlayer ? videoPlayer.duration : 0
@@ -91,7 +92,13 @@ Rectangle {
         else videoPlayer.play();
     }
     function stopVideo(): void { if (videoPlayer) videoPlayer.stop(); }
+    function releaseVideo(): void {
+        if (!videoPlayer) return;
+        videoPlayer.stop();
+        videoPlayer.source = "";
+    }
     function loadVideo(sourceUrl: url): void {
+        if (!ZaloClient.multimediaAvailable) return;
         if (!videoPlayer) videoPlayer = videoPlayerComponent.createObject(root);
         if (!videoPlayer) return;
         videoPlayer.source = sourceUrl;
@@ -108,7 +115,7 @@ Rectangle {
         forceActiveFocus();
         if (root.isVideo && root.currentUrl) loadVideo(root.currentUrl);
     }
-    Component.onDestruction: stopVideo()
+    Component.onDestruction: releaseVideo()
     Keys.onEscapePressed: { root.stopVideo(); ImageViewerState.close(); }
     Keys.onLeftPressed: go(-1)
     Keys.onRightPressed: go(1)
@@ -134,7 +141,7 @@ Rectangle {
         id: videoPlayerComponent
         MediaPlayer {
             audioOutput: AudioOutput { muted: false }
-            videoOutput: videoOut
+            videoOutput: videoOut.item ? videoOut.item.output : null
         }
     }
 
@@ -172,7 +179,7 @@ Rectangle {
                 visible: !photo.animReady
                 source: !root.isVideo ? MediaSource.toSource(root.currentUrl) : ""
                 asynchronous: true
-                cache: true
+                cache: false
                 fillMode: Image.PreserveAspectFit
                 smooth: true
                 mipmap: true
@@ -318,11 +325,17 @@ Rectangle {
                 }
             }
 
-        VideoOutput {
+        Loader {
             id: videoOut
             visible: root.isVideo
             anchors.fill: parent
-            fillMode: VideoOutput.PreserveAspectFit
+            active: ZaloClient.multimediaAvailable
+            source: active ? "ZVideoView.qml" : ""
+        }
+
+        Item {
+            visible: root.isVideo && ZaloClient.multimediaAvailable
+            anchors.fill: videoOut
 
             MouseArea {
                 anchors.fill: parent
@@ -358,7 +371,9 @@ Rectangle {
             spacing: 10
             Text {
                 Layout.alignment: Qt.AlignHCenter
-                text: root.isVideo ? I18n.t("Không phát được video trực tiếp trong ứng dụng", "Couldn't play the video in-app")
+                text: root.isVideo ? (ZaloClient.multimediaAvailable
+                                      ? I18n.t("Không phát được video trực tiếp trong ứng dụng", "Couldn't play the video in-app")
+                                      : I18n.t("Máy thiếu thành phần phát video (Qt Multimedia)", "This system lacks the video playback components (Qt Multimedia)"))
                                    : I18n.t("Không tải được ảnh", "Couldn't load the picture")
                 color: "#CFD3D8"
                 font.family: Theme.fontFamily

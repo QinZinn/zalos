@@ -39,6 +39,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="1.2.9" date="2026-11-20">
+      <description>
+        <p>Zalo PC-style polls with a full vote dialog and all creation settings, chats read on the phone now sync as read, phone history sync no longer fails when the phone app goes to the background, poll voting fixes, lower image/video viewer memory, software rendering by default with automatic fallback when the GPU renderer fails, fewer required system packages, no crash on systems without media codecs, and a safer choice between the system and bundled Qt in the AppImage.</p>
+      </description>
+    </release>
     <release version="1.2.8" date="2026-11-19">
       <description>
         <p>Fixed call hangup signaling so ending accepted 1-1 or group calls cleanly terminates the remote peer, fixed group chat sidebar previews and notifications missing sender names, fixed photo clicks not opening the image viewer, and added performance, media-engine, and packaging hardening.</p>

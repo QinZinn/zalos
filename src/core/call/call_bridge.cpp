@@ -1,4 +1,5 @@
 #include "call_bridge.h"
+#include "platform/multimedia_support.h"
 
 #include "h264_codec.h"
 #include "peer_video.h"
@@ -970,6 +971,7 @@ void CallBridge::resetUi() {
 
 QVariantList CallBridge::audioInputDevices() const {
     QVariantList out;
+    if (!Platform::MultimediaSupport::available()) return out;
     for (const QAudioDevice& dev : QMediaDevices::audioInputs()) {
         const QString id = QString::fromUtf8(dev.id());
         if (id.isEmpty() || id.endsWith(QLatin1String(".monitor")) || id.startsWith(QLatin1String("zcall_ec_"))
@@ -984,6 +986,7 @@ QVariantList CallBridge::audioInputDevices() const {
 
 QVariantList CallBridge::audioOutputDevices() const {
     QVariantList out;
+    if (!Platform::MultimediaSupport::available()) return out;
     for (const QAudioDevice& dev : QMediaDevices::audioOutputs()) {
         const QString id = QString::fromUtf8(dev.id());
         if (id.isEmpty() || id.endsWith(QLatin1String(".monitor")) || id.startsWith(QLatin1String("zcall_ec_"))
@@ -999,6 +1002,7 @@ QVariantList CallBridge::audioOutputDevices() const {
 QVariantList CallBridge::cameraDevices() const {
     QVariantList nonIr;
     QVariantList all;
+    if (!Platform::MultimediaSupport::available()) return all;
     for (const QCameraDevice& dev : QMediaDevices::videoInputs()) {
         const QString id = QString::fromUtf8(dev.id());
         const QString name = dev.description().isEmpty() ? id : dev.description();

@@ -67,10 +67,28 @@ for cand in "/usr/lib/${MULTIARCH}/libopus.so.0" "/lib/${MULTIARCH}/libopus.so.0
     fi
 done
 if [ -n "${OPUS_LIB}" ]; then
-    mkdir -p "${APP_DIR}/usr/lib/opus-fallback"
-    cp -L "${OPUS_LIB}" "${APP_DIR}/usr/lib/opus-fallback/libopus.so.0"
+    mkdir -p "${APP_DIR}/usr/lib/zalos/fallback"
+    cp -L "${OPUS_LIB}" "${APP_DIR}/usr/lib/zalos/fallback/libopus.so.0"
     echo "==> Bundled libopus.so.0"
 fi
+
+echo "==> Bundling matched libxkbcommon + libxkbcommon-x11 (only used when the host lacks libxkbcommon-x11)..."
+XKB_DIR="${APP_DIR}/usr/lib/xkb-fallback"
+mkdir -p "${XKB_DIR}"
+for xkb_lib in libxkbcommon.so.0 libxkbcommon-x11.so.0; do
+    xkb_src=""
+    for cand in "/usr/lib/${MULTIARCH}/${xkb_lib}" "/lib/${MULTIARCH}/${xkb_lib}" "/usr/lib64/${xkb_lib}" "/usr/lib/${xkb_lib}"; do
+        if [ -e "${cand}" ]; then
+            xkb_src="${cand}"
+            break
+        fi
+    done
+    if [ -z "${xkb_src}" ]; then
+        echo "❌ ${xkb_lib} not found in the build image" >&2
+        exit 1
+    fi
+    cp -L "${xkb_src}" "${XKB_DIR}/${xkb_lib}"
+done
 
 echo "==> Bundling WebP image plugin (animated stickers fallback)..."
 WEBP_DIR="${APP_DIR}/usr/lib/webp-fallback"
@@ -170,7 +188,7 @@ is_excluded_lib() {
         libglib-2.0.so*|libgobject-2.0.so*|libgio-2.0.so*|libgmodule-2.0.so*|libdbus-1.so*|libsystemd.so*|libudev.so*|\
         libcap.so*|libuuid.so*|libselinux.so*|libmount.so*|libblkid.so*|libapparmor.so*|libffi.so*|libpcre2-8.so*|\
         libfontconfig.so*|libfreetype.so*|libexpat.so*|libfribidi.so*|\
-        libz.so*|libzstd.so*|liblzma.so*|liblz4.so*|libbz2.so*|libbrotli*.so*|libpng16.so*|libxkbcommon.so*|\
+        libz.so*|libzstd.so*|liblzma.so*|liblz4.so*|libbz2.so*|libbrotli*.so*|libpng16.so*|libxkbcommon.so*|libxkbcommon-x11.so*|\
         libgssapi_krb5.so*|libkrb5*.so*|libk5crypto.so*|libcom_err.so*|libkeyutils.so*|libssl.so*|libcrypto.so*|\
         libpulse*.so*|libasound.so*|libsndfile.so*|libFLAC.so*|libvorbis*.so*|libogg.so*|libopus.so*|\
         libmp3lame.so*|libmpg123.so*|libasyncns.so*|libpipewire-*.so*|libjack*.so*|libgst*.so*|liborc-*.so*|\

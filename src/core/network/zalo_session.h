@@ -68,6 +68,7 @@ public:
     void fetchUserInfo(const QStringList& userIds, Callback cb);
     void fetchGroupHistory(const QString& groupId, int count, Callback cb);
     void fetchLastMessages(const QStringList& threadIds, const QSet<QString>& groupIds, Callback cb);
+    void fetchLastSeen(const QStringList& groupIds, const QStringList& userIds, Callback cb);
     void fetchCloudHistory(const QString& threadId, bool isMyCloud, const QString& beforeMsgId, int count,
                            Callback cb, bool useOldStorage = true);
     void sendText(const QString& threadId, bool isGroup, const QString& text, Callback cb,
@@ -136,7 +137,7 @@ public:
     QNetworkReply* getWithCookies(const QUrl& url);
 
     void createPoll(const QString& groupId, const QString& question, const QStringList& options,
-                    bool allowMultiChoices, Callback cb);
+                    const QVariantMap& settings, Callback cb);
     void votePoll(qint64 pollId, const QList<int>& optionIds, Callback cb);
     void addPollOptions(qint64 pollId, const QJsonArray& newOptions, const QList<int>& votedOptionIds, Callback cb);
     void sharePoll(qint64 pollId, Callback cb);
@@ -240,6 +241,7 @@ public:
 
     static QList<QPair<int, int>> queuesFromAuth(const QJsonObject& auth);
     static QJsonObject nextPullPage(const QJsonObject& data, int cmd, int subCmd);
+    static QJsonArray readPointsOf(const QJsonObject& data);
     static bool isFailoverError(int networkError, int httpStatus);
 
 signals:
@@ -324,6 +326,8 @@ private:
     int m_wsRequestId{0};
     QList<QPair<int, int>> m_serverQueues;
     QHash<int, int> m_pullPages;
+    QSet<int> m_unhandledCmdsLogged;
+    QString m_wsAttempt;
     QHash<QString, int> m_preferredHost;
     QHash<QString, std::function<void(const QJsonObject& fileData)>> m_uploadWaiters;
     QHash<QString, QJsonObject> m_earlyFileDone;

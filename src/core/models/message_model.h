@@ -36,6 +36,7 @@ struct MessageItem {
     QString status;
     bool isRecalled{false};
     QVariantMap pollData;
+    bool pollCard{true};
     QString cliMsgId;
     QString quoteMsgId;
     QString quoteSender;
@@ -71,6 +72,7 @@ public:
         StatusRole,
         IsRecalledRole,
         PollDataRole,
+        PollCardRole,
         QuoteMsgIdRole,
         QuoteSenderRole,
         QuoteTextRole,
@@ -148,6 +150,7 @@ public:
     static QString linkify(const QString& text, const QVector<MessageMention>& mentions);
     static QString styledHtml(const QString& text, const QVector<MessageMention>& mentions, const QVariantList& styles);
     void setPollData(qint64 pollId, const QVariantMap& data);
+    void refreshPollCards(const QString& convId);
     Q_INVOKABLE QVariantList sharedItems(const QString& kind, int limit = 60) const;
 
     Q_INVOKABLE QList<int> searchMessages(const QString& query) const;

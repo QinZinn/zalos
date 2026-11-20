@@ -26,7 +26,7 @@ Rectangle {
 
     Timer {
         interval: 6000
-        running: root.visible && (Window.window ? (Window.window.visible && Window.window.visibility !== Window.Minimized) : true)
+        running: root.visible && (root.Window.window ? (root.Window.window.visible && root.Window.window.visibility !== Window.Minimized) : true)
         repeat: true
         onTriggered: root.nextSlide()
     }

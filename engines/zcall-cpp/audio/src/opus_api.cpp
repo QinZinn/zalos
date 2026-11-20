@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 #include "opus_api.h"
+#include "native_lib.h"
 
 #include <dlfcn.h>
 
@@ -14,20 +15,16 @@ bool bind(void* handle, const char* name, T& out) {
 }
 
 std::shared_ptr<OpusApi> OpusApi::load(std::string* error) {
-    void* handle = nullptr;
-    for (const char* name : {"libopus.so.0", "libopus.so"}) {
-        handle = ::dlopen(name, RTLD_NOW | RTLD_LOCAL);
-        if (handle) break;
-    }
+    std::string origin;
+    std::string openError;
+    void* handle = openNativeLib({"libopus.so.0", "libopus.so"}, &origin, &openError);
     if (!handle) {
-        if (error) {
-            const char* e = ::dlerror();
-            *error = e ? e : "libopus.so.0: cannot open shared object file";
-        }
+        if (error) *error = openError.empty() ? "libopus.so.0: cannot open shared object file" : openError;
         return nullptr;
     }
     auto api = std::shared_ptr<OpusApi>(new OpusApi);
     api->m_handle = handle;
+    api->m_origin = origin;
     const bool ok = bind(handle, "opus_decoder_create", api->decoderCreate) && bind(handle, "opus_decode", api->decode)
         && bind(handle, "opus_decoder_destroy", api->decoderDestroy)
         && bind(handle, "opus_encoder_create", api->encoderCreate) && bind(handle, "opus_encode", api->encode)

@@ -258,6 +258,8 @@ bool ZaloOfflineStore::initializeDatabase(const QString& customPath) {
            "SELECT msg_id, uid, icon, 'legacy:' || uid, ts FROM reactions;");
     q.exec("DELETE FROM reactions;");
 
+    q.exec("CREATE TABLE IF NOT EXISTS read_points (conv_id TEXT PRIMARY KEY, msg_id TEXT NOT NULL);");
+
     q.exec("CREATE TABLE IF NOT EXISTS profiles ("
            "id TEXT PRIMARY KEY, name TEXT, avatar TEXT, is_group INTEGER DEFAULT 0, "
            "member_count INTEGER DEFAULT 0, is_friend INTEGER DEFAULT 0);");
@@ -640,11 +642,29 @@ void ZaloOfflineStore::clearCache() {
     m_ownerUid.clear();
     m_ownerUidLoaded = true;
     QSqlQuery q(m_db);
-    for (const char* table : {"messages", "reactions", "reaction_events", "conversations", "profiles"}) {
+    for (const char* table : {"messages", "reactions", "reaction_events", "conversations", "profiles", "read_points"}) {
         q.exec(QStringLiteral("DELETE FROM %1;").arg(QLatin1String(table)));
     }
     q.exec("DELETE FROM meta WHERE key NOT IN "
            "('fts_version', 'ttl_version', 'media_label_cleanup', 'dedup_cli_version', 'raw_codec');");
+}
+
+QHash<QString, QString> ZaloOfflineStore::loadReadPoints() {
+    QHash<QString, QString> points;
+    if (!m_db.isOpen()) return points;
+    QSqlQuery q(m_db);
+    if (!q.exec(QStringLiteral("SELECT conv_id, msg_id FROM read_points;"))) return points;
+    while (q.next()) points.insert(q.value(0).toString(), q.value(1).toString());
+    return points;
+}
+
+bool ZaloOfflineStore::saveReadPoint(const QString& convId, const QString& msgId) {
+    if (!m_db.isOpen() || convId.isEmpty() || msgId.isEmpty()) return false;
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral("INSERT OR REPLACE INTO read_points (conv_id, msg_id) VALUES (:c, :m);"));
+    q.bindValue(QStringLiteral(":c"), convId);
+    q.bindValue(QStringLiteral(":m"), msgId);
+    return q.exec();
 }
 
 bool ZaloOfflineStore::saveConversation(const Models::ConversationItem& item) {

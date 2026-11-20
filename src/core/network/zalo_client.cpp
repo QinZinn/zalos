@@ -19,10 +19,12 @@
 #include "platform/storage_manager.h"
 #include "platform/system_tray.h"
 #include "platform/render_profile.h"
+#include "platform/multimedia_support.h"
 #include "platform/app_updater.h"
 #include "qrcodegen.hpp"
 #include <QClipboard>
 #include <QGuiApplication>
+#include <QQuickWindow>
 #include <QVersionNumber>
 #include <QProcess>
 #include <QAudioOutput>
@@ -457,12 +459,20 @@ ZaloClient::ZaloClient(QObject* parent)
     m_labelDebounce->setSingleShot(true);
     m_labelDebounce->setInterval(1000);
     connect(m_labelDebounce, &QTimer::timeout, this, &ZaloClient::loadLabels);
+    m_memoryTrimTimer = new QTimer(this);
+    m_memoryTrimTimer->setSingleShot(true);
+    m_memoryTrimTimer->setInterval(1500);
+    connect(m_memoryTrimTimer, &QTimer::timeout, this, &ZaloClient::memoryTrimRequested);
+    m_readPointSyncTimer = new QTimer(this);
+    m_readPointSyncTimer->setSingleShot(true);
+    connect(m_readPointSyncTimer, &QTimer::timeout, this, &ZaloClient::syncReadPoints);
     m_profileRefreshTimer = new QTimer(this);
     m_profileRefreshTimer->setInterval(15 * 60 * 1000);
     connect(m_profileRefreshTimer, &QTimer::timeout, this, [this]() {
         if (!m_isLoggedIn) return;
         loadAccountData();
         loadAliases();
+        scheduleReadPointSync();
     });
 
     m_scheduler = new MessageScheduler(this);
@@ -620,6 +630,9 @@ ZaloClient::ZaloClient(QObject* parent)
     });
     connect(m_voiceRecorder, &Media::VoiceRecorder::failed, this, [this](const QString& reason) {
         if (reason == QLatin1String("no_microphone")) emit notice(L("Không tìm thấy micro.", "No microphone found."));
+        else if (reason == QLatin1String("no_multimedia"))
+            emit notice(L("Máy thiếu thành phần ghi âm của Qt Multimedia (GStreamer/FFmpeg) nên chưa ghi âm được.",
+                          "This system lacks the Qt Multimedia recording components (GStreamer/FFmpeg), so recording is unavailable."));
         else if (reason == QLatin1String("no_aac_encoder"))
             emit notice(L("Thiếu bộ mã hóa AAC trong Qt Multimedia nên chưa ghi âm được.",
                           "Qt Multimedia has no AAC encoder, so recording is unavailable."));
@@ -753,6 +766,7 @@ ZaloClient::ZaloClient(QObject* parent)
         m_offlineStore->setOfflineActive(!connected);
         if (connected && m_realtimeWasUp) resyncAfterReconnect();
         if (connected) m_realtimeWasUp = true;
+        if (connected) scheduleReadPointSync();
         if (connected && !m_brokenMedia.isEmpty()) {
             m_brokenMedia.clear();
             ++m_brokenMediaRevision;
@@ -859,8 +873,9 @@ void ZaloClient::loadSession() {
     m_showLabelFolders = settings.value("settings/showLabelFolders", false).toBool();
     m_showBusinessButton = settings.value("settings/showBusinessButton", true).toBool();
     m_showKikiButton = settings.value("settings/showKikiButton", true).toBool();
-    m_hardwareAcceleration = settings.value("render/hardwareAcceleration", true).toBool();
+    m_hardwareAcceleration = Platform::RenderGuard::hardwareAccelerationEnabled();
     m_startupHardwareAcceleration = m_hardwareAcceleration;
+    m_hardwareAccelerationFailed = !m_hardwareAcceleration && !Platform::RenderGuard::lastFailure().isEmpty();
     m_hiddenDismissedAt = settings.value("settings/hiddenUnreadDismissedAt", 0).toLongLong();
     m_startHiddenInTray = settings.value("settings/startHiddenInTray", false).toBool();
     m_closeToTray = settings.value("settings/closeToTray", true).toBool();
@@ -897,7 +912,6 @@ void ZaloClient::saveSession() {
     settings.setValue("settings/showLabelFolders", m_showLabelFolders);
     settings.setValue("settings/showBusinessButton", m_showBusinessButton);
     settings.setValue("settings/showKikiButton", m_showKikiButton);
-    settings.setValue("render/hardwareAcceleration", m_hardwareAcceleration);
     settings.setValue("settings/startHiddenInTray", m_startHiddenInTray);
     settings.setValue("settings/closeToTray", m_closeToTray);
     settings.setValue("settings/language", m_appLanguage);
@@ -995,6 +1009,7 @@ void ZaloClient::onSessionLoggedIn() {
         m_rawMessages.clear();
         m_messageThread.clear();
         m_cacheMerged.clear();
+        resetReadPoints();
     }
     m_cachedUid = m_myUid;
     m_isLoggedIn = true;
@@ -1095,6 +1110,7 @@ void ZaloClient::onSessionLoginFailed(const QString& reason) {
         m_rawMessages.clear();
         m_messageThread.clear();
         m_cacheMerged.clear();
+        resetReadPoints();
         openWelcomeScreen();
         emit offlineModeChanged();
     }
@@ -1136,6 +1152,7 @@ void ZaloClient::logout() {
     if (m_offlineStore) m_offlineStore->clearCache();
     m_cachedUid.clear();
     m_cacheMerged.clear();
+    resetReadPoints();
     m_residentThreads.clear();
     m_recentIds.clear();
     m_recentIdOrder.clear();
@@ -1193,6 +1210,8 @@ void ZaloClient::logout() {
     m_archivedThreads.clear();
     m_autoDeleteTtl.clear();
     m_pollFetchedAt.clear();
+    m_pollDetails.clear();
+    m_pollGroups.clear();
     m_quickMessages.clear();
     m_serverSettings.clear();
     m_reminders.clear();
@@ -1786,31 +1805,204 @@ void ZaloClient::refreshPoll(qint64 pollId, bool force) {
     if (!m_pollFetchedAt.contains(pollId)) dropOldestIfFull(m_pollFetchedAt);
     m_pollFetchedAt.insert(pollId, now);
     m_apiClient->session()->fetchPollDetail(pollId, [this, pollId](bool ok, const QJsonValue& data, const QString&, int) {
-        if (!ok) return;
-        const QJsonObject d = data.toObject();
-        QVariantMap poll{
-            {"poll_id", pollId},
-            {"question", d.value("question").toString()},
-            {"closed", d.value("closed").toBool()},
-            {"num_vote", d.value("num_vote").toInt()},
-            {"allow_multi_choices", d.value("allow_multi_choices").toBool()},
-            {"allow_add_new_option", d.value("allow_add_new_option").toBool(true)},
-            {"is_anonymous", d.value("is_anonymous").toBool()},
-            {"expired_time", d.value("expired_time").toVariant().toLongLong()},
-            {"creator", idOf(d.value("creator"))},
-            {"loaded", true},
-        };
-        QVariantList options;
-        for (const QJsonValue& v : d.value("options").toArray()) {
-            const QJsonObject o = v.toObject();
-            options.append(QVariantMap{{"option_id", o.value("option_id").toInt()},
-                                       {"content", o.value("content").toString()},
-                                       {"votes", o.value("votes").toInt()},
-                                       {"voted", o.value("voted").toBool()}});
+        if (!ok) {
+            if (m_pollDialogId == pollId)
+                emit notice(L("Có lỗi xảy ra khi lấy thông tin bình chọn", "Couldn't load the poll"));
+            return;
         }
-        poll["options"] = options;
-        m_messageModel->setPollData(pollId, poll);
+        storePollDetail(pollId, data.toObject());
     });
+}
+
+void ZaloClient::storePollDetail(qint64 pollId, const QJsonObject& detail) {
+    if (pollId <= 0 || detail.isEmpty()) return;
+    if (!m_pollDetails.contains(pollId)) dropOldestIfFull(m_pollDetails);
+    m_pollDetails.insert(pollId, detail);
+    m_messageModel->setPollData(pollId, pollView(pollId));
+    ++m_pollRevision;
+    emit pollRevisionChanged();
+}
+
+bool ZaloClient::canManagePoll(qint64 pollId, const QJsonObject& detail) const {
+    if (m_myUid.isEmpty()) return false;
+    if (idOf(detail.value("creator")) == m_myUid) return true;
+    const QString gid = m_pollGroups.value(pollId, m_pollDialogGroupId);
+    const auto roster = m_groupRosters.constFind(gid);
+    return roster != m_groupRosters.cend() && (roster->creator == m_myUid || roster->admins.contains(m_myUid));
+}
+
+QVariantMap ZaloClient::pollView(qint64 pollId) const {
+    const auto it = m_pollDetails.constFind(pollId);
+    if (it == m_pollDetails.cend()) return {{"poll_id", pollId}, {"loaded", false}};
+    return buildPollView(it.value(), m_myUid, canManagePoll(pollId, it.value()), QDateTime::currentMSecsSinceEpoch(),
+                         [this](const QString& uid) {
+                             if (uid == m_myUid) return qMakePair(m_userName, m_userAvatar);
+                             return qMakePair(displayNameOf(uid), avatarOf(uid));
+                         });
+}
+
+QVariantMap ZaloClient::buildPollView(const QJsonObject& d, const QString& myUid, bool canManage, qint64 nowMs,
+                                      const PersonLookup& person) {
+    const bool closed = d.value("closed").toBool();
+    const bool joined = d.value("joined").toBool();
+    const bool hidePreview = d.value("is_hide_vote_preview").toBool();
+    const bool anonymous = d.value("is_anonymous").toBool();
+    const qint64 expiredTime = d.value("expired_time").toVariant().toLongLong();
+    const bool expired = expiredTime > 0 && expiredTime <= nowMs;
+    const QString creator = idOf(d.value("creator"));
+    const QJsonArray rawOptions = d.value("options").toArray();
+    int totalVotes = 0;
+    QSet<QString> distinctVoters;
+    for (const QJsonValue& v : rawOptions) {
+        const QJsonObject o = v.toObject();
+        totalVotes += o.value("votes").toInt();
+        for (const QJsonValue& u : o.value("voters").toArray()) distinctVoters.insert(idOf(u));
+    }
+    int voterCount = d.value("num_vote").toInt();
+    if (voterCount <= 0) voterCount = int(distinctVoters.size());
+    const bool hideResults = hidePreview && !joined;
+    const bool afterVoteLock = joined && hidePreview;
+    const bool canVote = !closed && !expired && !afterVoteLock;
+
+    QVariantList options;
+    for (const QJsonValue& v : rawOptions) {
+        const QJsonObject o = v.toObject();
+        const int votes = o.value("votes").toInt();
+        QVariantList voters;
+        for (const QJsonValue& u : o.value("voters").toArray()) {
+            const QString uid = idOf(u);
+            if (uid.isEmpty()) continue;
+            const auto who = person ? person(uid) : qMakePair(QString(), QString());
+            voters.append(QVariantMap{{"uid", uid}, {"name", who.first.isEmpty() ? uid : who.first},
+                                      {"avatar", who.second}, {"isMe", uid == myUid}});
+        }
+        const double weight = totalVotes > 0 ? double(votes) / totalVotes : 0.0;
+        options.append(QVariantMap{{"option_id", o.value("option_id").toInt()},
+                                   {"content", o.value("content").toString()},
+                                   {"votes", votes},
+                                   {"voted", o.value("voted").toBool()},
+                                   {"weight", weight},
+                                   {"percent", qRound(weight * 100)},
+                                   {"voters", voters},
+                                   {"preview", voters.mid(0, 2)}});
+    }
+    const QString lockReason = closed ? QStringLiteral("closed")
+                             : expired ? QStringLiteral("expired")
+                             : afterVoteLock ? QStringLiteral("after_vote") : QString();
+    const QString action = !canVote ? QStringLiteral("view") : joined ? QStringLiteral("change") : QStringLiteral("vote");
+    const auto creatorInfo = (person && !creator.isEmpty()) ? person(creator) : qMakePair(QString(), QString());
+    QStringList cardVi, cardEn, fullVi, fullEn;
+    if (expiredTime > 0) {
+        const QString at = QDateTime::fromMSecsSinceEpoch(expiredTime).toString(QStringLiteral("HH:mm dd/MM/yyyy"));
+        cardVi << QStringLiteral("Kết thúc lúc ") + at;
+        cardEn << QStringLiteral("Ends at ") + at;
+    }
+    fullVi = cardVi;
+    fullEn = cardEn;
+    const bool multi = d.value("allow_multi_choices").toBool();
+    if (multi) {
+        cardVi << QStringLiteral("Chọn nhiều phương án");
+        cardEn << QStringLiteral("Multiple choices");
+    }
+    fullVi << (multi ? QStringLiteral("Chọn nhiều phương án") : QStringLiteral("Chỉ chọn một phương án"));
+    fullEn << (multi ? QStringLiteral("Multiple choices") : QStringLiteral("Single choice"));
+    if (d.value("allow_add_new_option").toBool()) {
+        fullVi << QStringLiteral("Có thể thêm phương án");
+        fullEn << QStringLiteral("Options can be added");
+    }
+    if (anonymous) {
+        cardVi << QStringLiteral("Ẩn người bình chọn");
+        cardEn << QStringLiteral("Voters hidden");
+        fullVi << QStringLiteral("Ẩn người bình chọn");
+        fullEn << QStringLiteral("Voters hidden");
+    }
+    if (hidePreview) {
+        cardVi << QStringLiteral("Ẩn kết quả khi chưa bình chọn");
+        cardEn << QStringLiteral("Results hidden until you vote");
+        fullVi << QStringLiteral("Ẩn kết quả khi chưa bình chọn");
+        fullEn << QStringLiteral("Results hidden until you vote");
+    }
+    const QString sep = QStringLiteral(" · ");
+    return {
+        {"poll_id", d.value("poll_id").toVariant().toLongLong()},
+        {"loaded", true},
+        {"question", d.value("question").toString()},
+        {"closed", closed},
+        {"joined", joined},
+        {"expired", expired},
+        {"expired_time", expiredTime},
+        {"created_time", d.value("created_time").toVariant().toLongLong()},
+        {"creator", creator},
+        {"creator_name", creatorInfo.first},
+        {"creator_is_me", !creator.isEmpty() && creator == myUid},
+        {"allow_multi_choices", d.value("allow_multi_choices").toBool()},
+        {"allow_add_new_option", d.value("allow_add_new_option").toBool()},
+        {"is_anonymous", anonymous},
+        {"is_hide_vote_preview", hidePreview},
+        {"total_votes", totalVotes},
+        {"voter_count", voterCount},
+        {"hide_results", hideResults},
+        {"can_vote", canVote},
+        {"can_add_option", canVote && d.value("allow_add_new_option").toBool() && rawOptions.size() < 30},
+        {"can_manage", canManage},
+        {"can_view_voters", !anonymous && !hideResults && voterCount > 0},
+        {"lock_reason", lockReason},
+        {"action", action},
+        {"settings_card_vi", cardVi.join(sep)},
+        {"settings_card_en", cardEn.join(sep)},
+        {"settings_full_vi", fullVi.join(sep)},
+        {"settings_full_en", fullEn.join(sep)},
+        {"options", options},
+    };
+}
+
+QString ZaloClient::pollDraftCode(const QString& question, const QStringList& options) {
+    const QString q = question.trimmed();
+    if (q.isEmpty()) return QStringLiteral("question");
+    if (q.size() > 200) return QStringLiteral("question_length");
+    QStringList clean;
+    QSet<QString> seen;
+    for (const QString& o : options) {
+        const QString t = o.trimmed();
+        if (t.isEmpty()) continue;
+        if (t.size() > 120) return QStringLiteral("option_length");
+        const QString key = t.simplified().toCaseFolded();
+        if (seen.contains(key)) return QStringLiteral("duplicate");
+        seen.insert(key);
+        clean.append(t);
+    }
+    if (clean.size() < 2) return QStringLiteral("min_options");
+    if (clean.size() > 30) return QStringLiteral("max_options");
+    return {};
+}
+
+QString ZaloClient::pollDraftError(const QString& question, const QStringList& options) const {
+    const QString code = pollDraftCode(question, options);
+    if (code == QLatin1String("question")) return L("Vui lòng đặt câu hỏi cho bình chọn.", "Please enter a poll question.");
+    if (code == QLatin1String("question_length"))
+        return L("Câu hỏi bình chọn tối đa 200 ký tự.", "The poll question can be at most 200 characters.");
+    if (code == QLatin1String("option_length"))
+        return L("Mỗi phương án tối đa 120 ký tự.", "Each option can be at most 120 characters.");
+    if (code == QLatin1String("duplicate")) return L("Bạn đã tạo trùng phương án.", "You entered the same option twice.");
+    if (code == QLatin1String("min_options"))
+        return L("Bạn không thể tạo bình chọn ít hơn 2 phương án.", "A poll needs at least 2 options.");
+    if (code == QLatin1String("max_options"))
+        return L("Bạn đã tạo quá số lựa chọn cho phép (30).", "A poll can have at most 30 options.");
+    return {};
+}
+
+QString ZaloClient::pollTemplateText(const QString& raw) {
+    QString t = raw;
+    t.remove(QStringLiteral("%1$s"));
+    t.remove(QStringLiteral("%2$s"));
+    t.remove(QStringLiteral("\"\""));
+    t.remove(QStringLiteral("“”"));
+    return t.simplified();
+}
+
+QString ZaloClient::pollErrorText(const QString& prefix, const QString& err, int code) const {
+    if (code == 166) return L("Bình chọn đã bị khóa nên không thể thay đổi.", "The poll is closed, so it can't be changed.");
+    return prefix + friendlyError(err, code);
 }
 
 qint64 ZaloClient::voicePosition() const {
@@ -1840,6 +2032,11 @@ void ZaloClient::toggleVoice(const QString& msgId, const QString& url) {
     if (msgId.isEmpty() || url.isEmpty()) return;
     if (m_voicePlayer && m_playingVoiceId == msgId) {
         m_voicePlayer->stop();
+        return;
+    }
+    if (!m_voicePlayer && !Platform::MultimediaSupport::available()) {
+        emit notice(L("Máy thiếu thành phần phát âm thanh (GStreamer/FFmpeg cho Qt Multimedia) nên chưa phát được tin nhắn thoại.",
+                      "This system lacks the Qt Multimedia playback components (GStreamer/FFmpeg), so voice messages can't play."));
         return;
     }
     if (!m_voicePlayer) {
@@ -2710,33 +2907,32 @@ Models::MessageItem ZaloClient::toMessageItem(const QJsonObject& msg, bool isGro
                                        ? QJsonDocument::fromJson(rawParams.toString().toUtf8()).object()
                                        : rawParams.toObject();
         const QString action = obj.value("action").toString();
-        item.messageType = (action.isEmpty() || action == QLatin1String("create")) ? QStringLiteral("poll")
-                                                                                  : QStringLiteral("poll_update");
-        QString q = obj.value("question").toString(params.value("question").toString());
+        item.messageType = QStringLiteral("poll");
+        const QString q = obj.value("question").toString(params.value("question").toString());
         item.text = q.isEmpty() ? L("Cuộc bình chọn", "Poll") : q;
         label = L("[Bình chọn] ", "[Poll] ") + item.text;
-        QVariantMap pData;
         qint64 pollId = obj.value("poll_id").toVariant().toLongLong();
         if (pollId <= 0) pollId = params.value("pollId").toVariant().toLongLong();
         if (pollId <= 0) pollId = params.value("poll_id").toVariant().toLongLong();
-        pData["poll_id"] = pollId;
-        pData["question"] = item.text;
-        pData["closed"] = obj.value("closed").toBool(false);
-        pData["num_vote"] = obj.value("num_vote").toInt(0);
-        pData["allow_multi_choices"] = obj.value("allow_multi_choices").toBool(false);
-        QVariantList optList;
-        const QJsonArray optionsArr = obj.value("options").toArray();
-        for (const QJsonValue& ov : optionsArr) {
-            const QJsonObject oObj = ov.toObject();
-            QVariantMap optMap;
-            optMap["option_id"] = oObj.value("option_id").toInt();
-            optMap["content"] = oObj.value("content").toString();
-            optMap["votes"] = oObj.value("votes").toInt();
-            optMap["voted"] = oObj.value("voted").toBool(false);
-            optList.append(optMap);
-        }
-        pData["options"] = optList;
-        item.pollData = pData;
+        item.pollData = QVariantMap{{"poll_id", pollId}, {"question", item.text}, {"loaded", false}};
+        const bool created = action.isEmpty() || action == QLatin1String("create");
+        const QJsonObject templates = params.value("msg").toObject();
+        QString vi = templates.value("vi").toString();
+        QString en = templates.value("en").toString();
+        if (vi.isEmpty()) vi = en;
+        if (en.isEmpty()) en = vi;
+        const bool anonymousActor = params.value("isAnonymous").toBool() && !vi.contains(QStringLiteral("%1$s"))
+                                    && !en.contains(QStringLiteral("%1$s"));
+        QString viText = pollTemplateText(vi);
+        QString enText = pollTemplateText(en);
+        viText.remove(QStringLiteral("Có thành viên"));
+        enText.remove(QStringLiteral("A member"));
+        if (viText.trimmed().isEmpty()) viText = created ? QStringLiteral("tạo cuộc bình chọn mới") : QStringLiteral("cập nhật cuộc bình chọn");
+        if (enText.trimmed().isEmpty()) enText = created ? QStringLiteral("created a new poll") : QStringLiteral("updated the poll");
+        item.extra.insert(QStringLiteral("pollTextVi"), viText.simplified());
+        item.extra.insert(QStringLiteral("pollTextEn"), enText.simplified());
+        item.extra.insert(QStringLiteral("pollAnonActor"), anonymousActor);
+        if (!created) item.extra.insert(QStringLiteral("pollEvent"), action);
     } else if (type == "chat.contact" || msg.value("msgType").toInt() == 6 || obj.contains("contactUid")) {
         item.messageType = "card";
         const QString uid = idOf(obj.value("contactUid"));
@@ -2814,6 +3010,7 @@ Models::MessageItem ZaloClient::toMessageItem(const QJsonObject& msg, bool isGro
 
 void ZaloClient::handleIncomingMessages(const QJsonArray& messages, bool isGroup, bool isOld) {
     if (isOld) setSyncing(false);
+    if (!isOld && m_readPointSyncTimer && m_readPointSyncTimer->isActive()) m_readPointSyncTimer->start();
     m_conversationModel->beginBatch();
     struct BatchGuard {
         Models::ConversationModel* model;
@@ -2866,9 +3063,13 @@ void ZaloClient::handleIncomingMessages(const QJsonArray& messages, bool isGroup
             if (m_offlineStore) m_offlineStore->deleteMessage(item.id);
             continue;
         }
-        if (item.messageType == QLatin1String("poll_update")) {
-            refreshPoll(item.pollData.value("poll_id").toLongLong(), true);
-            continue;
+        if (item.messageType == QLatin1String("poll")) {
+            const qint64 pollId = item.pollData.value(QStringLiteral("poll_id")).toLongLong();
+            if (pollId > 0) {
+                m_pollGroups.insert(pollId, threadId);
+                if (m_pollDetails.contains(pollId)) item.pollData = pollView(pollId);
+                if (item.extra.contains(QStringLiteral("pollEvent")) && !isOld) refreshPoll(pollId, true);
+            }
         }
         const bool alreadySeen = m_messageThread.contains(item.id) || m_recentIds.contains(item.id);
         rememberMessageId(item.id);
@@ -2911,8 +3112,12 @@ void ZaloClient::handleIncomingMessages(const QJsonArray& messages, bool isGroup
         }
         const bool fresh = !isOld && !item.isMine && !alreadySeen;
         if (fresh) receiptCandidates.append(msg);
-        const bool quiet = isQuietMessageType(msg.value("msgType").toString());
-        const bool unread = fresh && !quiet && threadId != m_currentConvId;
+        const bool quiet = isQuietMessageType(msg.value("msgType").toString())
+                           || item.extra.contains(QStringLiteral("pollEvent"));
+        bool numericId = false;
+        const qulonglong numericMsgId = item.id.toULongLong(&numericId);
+        const bool alreadyRead = numericId && numericMsgId > 0 && numericMsgId <= readPointOf(threadId);
+        const bool unread = fresh && !quiet && threadId != m_currentConvId && !alreadyRead;
         bool hasMention = false;
         if (unread && !m_myUid.isEmpty()) {
             for (const auto& men : item.mentions) {
@@ -3885,6 +4090,10 @@ void ZaloClient::evictColdThreads(int maxResident) {
     releaseFreedMemory();
 }
 
+void ZaloClient::requestMemoryTrim() {
+    if (m_memoryTrimTimer) m_memoryTrimTimer->start();
+}
+
 void ZaloClient::trimMemoryForBackground() {
     if (cacheUsable()) {
         m_rawMessages.clear();
@@ -3912,6 +4121,7 @@ void ZaloClient::setWindowVisible(bool visible) {
     m_windowVisible = visible;
     if (!m_presenceTimer) return;
     if (visible && m_isLoggedIn) {
+        scheduleReadPointSync(1000);
         refreshPresence();
         if (!m_presenceTimer->isActive()) m_presenceTimer->start();
     } else {
@@ -4726,6 +4936,7 @@ void ZaloClient::applyReadPoints(const QJsonArray& clearUnreads) {
         if (id.isEmpty() || id == "0" || point.isEmpty() || point == "0") continue;
         const QJsonValue g = e.value("isGroup");
         const bool isGroup = g.toBool() || g.toInt() == 1 || isGroupThread(id);
+        advanceReadPoint(id, point);
         if (!m_conversationModel->contains(id)) {
             if (isGroup) continue;
             ensureConversation(id, false);
@@ -4739,7 +4950,82 @@ void ZaloClient::applyReadPoints(const QJsonArray& clearUnreads) {
             continue;
         }
 
-        m_conversationModel->setUnreadCount(id, serverIncoming);
+        const int unread = m_messageModel->countIncomingAfter(id, QString::number(readPointOf(id)));
+        if (unread == conv.unreadCount) continue;
+        m_conversationModel->setUnreadCount(id, unread);
+        if (m_offlineStore) m_offlineStore->saveConversation(m_conversationModel->conversation(id));
+    }
+}
+
+qulonglong ZaloClient::readPointOf(const QString& convId) {
+    if (!m_readPointsLoaded) {
+        m_readPointsLoaded = true;
+        if (m_offlineStore) {
+            const auto stored = m_offlineStore->loadReadPoints();
+            for (auto it = stored.cbegin(); it != stored.cend(); ++it) {
+                bool ok = false;
+                const qulonglong point = it.value().toULongLong(&ok);
+                if (ok && point > 0) m_readPoints.insert(it.key(), qMax(point, m_readPoints.value(it.key())));
+            }
+        }
+    }
+    return m_readPoints.value(convId, 0);
+}
+
+bool ZaloClient::advanceReadPoint(const QString& convId, const QString& msgId) {
+    bool ok = false;
+    const qulonglong point = msgId.toULongLong(&ok);
+    if (convId.isEmpty() || !ok || point == 0 || point <= readPointOf(convId)) return false;
+    m_readPoints.insert(convId, point);
+    if (m_offlineStore) m_offlineStore->saveReadPoint(convId, QString::number(point));
+    return true;
+}
+
+void ZaloClient::resetReadPoints() {
+    m_readPoints.clear();
+    m_readPointsLoaded = false;
+    m_readPointSyncRetries = 0;
+    m_readPointSyncInFlight = 0;
+    if (m_readPointSyncTimer) m_readPointSyncTimer->stop();
+}
+
+void ZaloClient::scheduleReadPointSync(int delayMs) {
+    if (!m_readPointSyncTimer || !m_isLoggedIn) return;
+    if (m_readPointSyncTimer->isActive() && m_readPointSyncTimer->remainingTime() <= delayMs) return;
+    m_readPointSyncTimer->start(delayMs);
+}
+
+void ZaloClient::syncReadPoints() {
+    if (!m_isLoggedIn || m_readPointSyncInFlight > 0) return;
+    QStringList groups;
+    QStringList users;
+    const QString cloudId = myCloudId();
+    for (const auto& c : m_conversationModel->conversations()) {
+        if (c.unreadCount <= 0 || c.id.isEmpty() || c.id == QLatin1String("0") || m_markedUnread.contains(c.id)) continue;
+        if (c.id == cloudId) continue;
+        (c.isGroup || isGroupThread(c.id) ? groups : users).append(c.id);
+    }
+    if (groups.isEmpty() && users.isEmpty()) return;
+    constexpr int kBatch = 50;
+    const QString owner = m_myUid;
+    for (int i = 0; i * kBatch < qMax(groups.size(), users.size()); ++i) {
+        ++m_readPointSyncInFlight;
+        m_apiClient->session()->fetchLastSeen(groups.mid(i * kBatch, kBatch), users.mid(i * kBatch, kBatch),
+            [this, owner](bool ok, const QJsonValue& data, const QString&, int) {
+                if (m_readPointSyncInFlight > 0) --m_readPointSyncInFlight;
+                if (owner != m_myUid || !m_isLoggedIn) return;
+                if (!ok) {
+                    if (m_readPointSyncRetries < 3) {
+                        ++m_readPointSyncRetries;
+                        scheduleReadPointSync(30000);
+                    }
+                    return;
+                }
+                m_readPointSyncRetries = 0;
+                QJsonObject obj = data.toObject();
+                if (data.isString()) obj = QJsonDocument::fromJson(data.toString().toUtf8()).object();
+                applyReadPoints(ZaloSession::readPointsOf(obj));
+            });
     }
 }
 
@@ -4861,6 +5147,13 @@ void ZaloClient::openConversationById(const QString& id) {
 
 void ZaloClient::markThreadRead(const QString& convId) {
     if (convId.isEmpty()) return;
+    qulonglong newest = 0;
+    for (const auto& m : m_messageModel->threadOf(convId)) {
+        bool ok = false;
+        const qulonglong id = m.id.toULongLong(&ok);
+        if (ok && id > newest) newest = id;
+    }
+    if (newest > 0) advanceReadPoint(convId, QString::number(newest));
     m_conversationModel->clearUnread(convId);
     if (m_offlineStore) m_offlineStore->saveConversation(m_conversationModel->conversation(convId));
     if (m_markedUnread.contains(convId)) toggleUnreadMark(convId);
@@ -5373,108 +5666,119 @@ void ZaloClient::closeCreatePollModal() {
     emit createPollModalChanged();
 }
 
-void ZaloClient::createPoll(const QString& groupId, const QString& question, const QStringList& options, bool allowMultiChoices) {
-    if (groupId.isEmpty() || question.trimmed().isEmpty()) return;
-    QStringList validOpts;
-    for (const QString& opt : options) {
-        if (!opt.trimmed().isEmpty()) validOpts.append(opt.trimmed());
-    }
-    if (validOpts.size() < 2) {
-        emit notice(L("Cần ít nhất 2 phương án bình chọn", "At least 2 poll options are required"));
+void ZaloClient::createPoll(const QString& groupId, const QString& question, const QStringList& options,
+                            const QVariantMap& settings) {
+    if (groupId.isEmpty()) return;
+    const QString problem = pollDraftError(question, options);
+    if (!problem.isEmpty()) {
+        emit notice(problem);
         return;
     }
-
-    const qint64 now = QDateTime::currentMSecsSinceEpoch();
-    const qint64 pollId = now;
-    Models::MessageItem local;
-    local.id = QStringLiteral("local-poll-%1").arg(now);
-    local.text = question.trimmed();
-    local.messageType = QStringLiteral("poll");
-    local.ts = now;
-    local.timeStr = QDateTime::fromMSecsSinceEpoch(now).toString("HH:mm");
-    local.isMine = true;
-    local.senderId = m_myUid;
-    local.senderName = m_userName;
-    local.senderAvatar = m_userAvatar;
-    local.status = QStringLiteral("sent");
-
-    QVariantMap pData;
-    pData["poll_id"] = pollId;
-    pData["question"] = local.text;
-    pData["closed"] = false;
-    pData["num_vote"] = 0;
-    pData["allow_multi_choices"] = allowMultiChoices;
-    QVariantList optList;
-    for (int i = 0; i < validOpts.size(); ++i) {
-        QVariantMap oMap;
-        oMap["option_id"] = i + 1;
-        oMap["content"] = validOpts[i];
-        oMap["votes"] = 0;
-        oMap["voted"] = false;
-        optList.append(oMap);
+    if (!m_isLoggedIn) {
+        emit notice(L("Cần kết nối để tạo bình chọn", "Creating a poll needs a connection"));
+        return;
     }
-    pData["options"] = optList;
-    local.pollData = pData;
-
-    m_messageModel->mergeMessages(groupId, {local});
-    m_conversationModel->recordMessage(groupId, L("[Bình chọn] ", "[Poll] ") + local.text, L("Bạn: ", "You: "), now, false);
-
-    if (m_isLoggedIn && m_apiClient->session()) {
-        m_apiClient->session()->createPoll(groupId, question.trimmed(), validOpts, allowMultiChoices,
-            [this, groupId](bool ok, const QJsonValue&, const QString& err, int) {
-                if (!ok) {
-                    emit notice(L("Tạo bình chọn thất bại: ", "Create poll failed: ") + friendlyError(err));
-                } else {
-                    emit notice(L("Đã tạo cuộc bình chọn thành công", "Poll created successfully"));
-                }
-            });
+    QStringList clean;
+    for (const QString& o : options) {
+        if (!o.trimmed().isEmpty()) clean.append(o.trimmed());
     }
-
-    closeCreatePollModal();
+    m_apiClient->session()->createPoll(groupId, question.trimmed(), clean, settings,
+        [this, groupId](bool ok, const QJsonValue& data, const QString& err, int code) {
+            if (!ok) {
+                emit notice(pollErrorText(L("Tạo bình chọn thất bại: ", "Couldn't create the poll: "), err, code));
+                return;
+            }
+            const QJsonObject detail = data.toObject();
+            const qint64 pollId = detail.value("poll_id").toVariant().toLongLong();
+            if (pollId > 0) {
+                m_pollGroups.insert(pollId, groupId);
+                storePollDetail(pollId, detail);
+            }
+            closeCreatePollModal();
+        });
 }
 
-void ZaloClient::votePoll(qint64 pollId, int optionId) {
-    if (pollId <= 0 || optionId <= 0) return;
+void ZaloClient::openPollDialog(qint64 pollId, const QString& groupId, bool voters) {
+    if (pollId <= 0) return;
+    if (!groupId.isEmpty()) m_pollGroups.insert(pollId, groupId);
+    m_pollDialogId = pollId;
+    m_pollDialogGroupId = groupId.isEmpty() ? m_pollGroups.value(pollId) : groupId;
+    m_pollDialogVoters = voters;
+    emit pollDialogChanged();
+    refreshPoll(pollId, true);
+}
+
+void ZaloClient::closePollDialog() {
+    if (m_pollDialogId == 0) return;
+    m_pollDialogId = 0;
+    m_pollDialogVoters = false;
+    emit pollDialogChanged();
+}
+
+void ZaloClient::submitPollChoices(qint64 pollId, const QVariantList& selectedIds, const QStringList& newOptions,
+                                   const QVariantList& newVoted) {
+    if (pollId <= 0) return;
     if (!m_isLoggedIn) {
         emit notice(L("Cần kết nối để bình chọn", "Voting needs a connection"));
         return;
     }
-    m_apiClient->session()->votePoll(pollId, {optionId}, [this, pollId](bool ok, const QJsonValue&, const QString& err, int code) {
-        if (!ok) {
-            emit notice(L("Bình chọn thất bại: ", "Vote failed: ") + friendlyError(err, code));
+    const QJsonObject detail = m_pollDetails.value(pollId);
+    const bool multi = detail.value("allow_multi_choices").toBool();
+    QList<int> ids;
+    for (const QVariant& v : selectedIds) {
+        const int id = v.toInt();
+        if (id > 0 && !ids.contains(id)) ids.append(id);
+    }
+    QSet<QString> existing;
+    const QJsonArray currentOptions = detail.value("options").toArray();
+    for (const QJsonValue& v : currentOptions)
+        existing.insert(v.toObject().value("content").toString().simplified().toCaseFolded());
+    QJsonArray added;
+    int newVotedCount = 0;
+    for (int i = 0; i < newOptions.size(); ++i) {
+        const QString text = newOptions.at(i).trimmed();
+        if (text.isEmpty()) continue;
+        const QString key = text.simplified().toCaseFolded();
+        if (text.size() > 120) {
+            emit notice(L("Mỗi phương án tối đa 120 ký tự.", "Each option can be at most 120 characters."));
             return;
         }
-        refreshPoll(pollId, true);
-    });
-}
-
-void ZaloClient::addPollOption(qint64 pollId, const QString& content) {
-    const QString trimmed = content.trimmed();
-    if (pollId <= 0 || trimmed.isEmpty()) return;
-    if (!m_isLoggedIn) {
-        emit notice(L("Cần kết nối để thêm lựa chọn", "Adding options needs a connection"));
+        if (existing.contains(key)) {
+            emit notice(L("Phương án được thêm đã tồn tại", "That option already exists"));
+            return;
+        }
+        existing.insert(key);
+        const bool voted = i < newVoted.size() && newVoted.at(i).toBool();
+        if (voted) ++newVotedCount;
+        added.append(QJsonObject{{"voted", voted}, {"content", text}});
+    }
+    if (currentOptions.size() + added.size() > 30) {
+        emit notice(L("Bạn đã tạo quá số lựa chọn cho phép (30).", "A poll can have at most 30 options."));
         return;
     }
-    QList<int> votedIds;
-    if (m_messageModel && !m_currentConvId.isEmpty()) {
-        for (const auto& msg : m_messageModel->threadOf(m_currentConvId)) {
-            if (msg.messageType == QLatin1String("poll") && msg.pollData.value("poll_id").toLongLong() == pollId) {
-                for (const QVariant& ov : msg.pollData.value("options").toList()) {
-                    const QVariantMap om = ov.toMap();
-                    if (om.value("voted").toBool()) votedIds.append(om.value("option_id").toInt());
-                }
-                break;
-            }
-        }
+    if (!multi && ids.size() + newVotedCount > 1) {
+        emit notice(L("Bình chọn này chỉ cho chọn một phương án.", "This poll allows only one choice."));
+        return;
     }
-    const QJsonArray newOpts{QJsonObject{{"voted", true}, {"content", trimmed}}};
-    m_apiClient->session()->addPollOptions(pollId, newOpts, votedIds, [this, pollId](bool ok, const QJsonValue&, const QString& err, int code) {
+    auto done = [this, pollId](bool ok, const QJsonValue& data, const QString& err, int code) {
         if (!ok) {
-            emit notice(L("Không thêm được lựa chọn: ", "Failed to add option: ") + friendlyError(err, code));
+            emit notice(pollErrorText(L("Bình chọn thất bại: ", "Vote failed: "), err, code));
+            refreshPoll(pollId, true);
             return;
         }
+        const QJsonArray options = data.toObject().value("options").toArray();
+        if (!options.isEmpty() && m_pollDetails.contains(pollId)) {
+            QJsonObject merged = m_pollDetails.value(pollId);
+            merged["options"] = options;
+            bool joined = false;
+            for (const QJsonValue& v : options) joined = joined || v.toObject().value("voted").toBool();
+            merged["joined"] = joined;
+            storePollDetail(pollId, merged);
+        }
         refreshPoll(pollId, true);
-    });
+    };
+    if (!added.isEmpty()) m_apiClient->session()->addPollOptions(pollId, added, ids, done);
+    else m_apiClient->session()->votePoll(pollId, ids, done);
 }
 
 void ZaloClient::sharePoll(qint64 pollId) {
@@ -5490,9 +5794,13 @@ void ZaloClient::sharePoll(qint64 pollId) {
 
 void ZaloClient::lockPoll(qint64 pollId) {
     if (pollId <= 0 || !m_isLoggedIn) return;
+    if (m_pollDetails.contains(pollId) && !canManagePoll(pollId, m_pollDetails.value(pollId))) {
+        emit notice(L("Bạn không có quyền khóa bình chọn này", "You can't close this poll"));
+        return;
+    }
     m_apiClient->session()->lockPoll(pollId, [this, pollId](bool ok, const QJsonValue&, const QString& err, int code) {
         if (!ok) {
-            emit notice(L("Không khóa được bình chọn: ", "Failed to close poll: ") + friendlyError(err, code));
+            emit notice(pollErrorText(L("Không khóa được bình chọn: ", "Couldn't close the poll: "), err, code));
             return;
         }
         refreshPoll(pollId, true);
@@ -6053,11 +6361,11 @@ void ZaloClient::setShowKikiButton(bool val) {
 }
 
 void ZaloClient::setHardwareAcceleration(bool val) {
-    if (m_hardwareAcceleration != val) {
-        m_hardwareAcceleration = val;
-        saveSession();
-        emit settingsChanged();
-    }
+    if (m_hardwareAcceleration == val) return;
+    m_hardwareAcceleration = val;
+    if (val) m_hardwareAccelerationFailed = false;
+    Platform::RenderGuard::setHardwareAccelerationEnabled(val);
+    emit settingsChanged();
 }
 
 void ZaloClient::restartApp() {
@@ -6076,16 +6384,18 @@ QString ZaloClient::qtRuntimeVersion() const {
     return QString::fromLatin1(qVersion());
 }
 
+bool ZaloClient::multimediaAvailable() const {
+    return Platform::MultimediaSupport::available();
+}
+
 QString ZaloClient::rendererBackend() const {
-    const auto profile = Platform::RenderProfile::decide(Platform::RenderProfile::probeSystem());
-    switch (profile.backend) {
-    case Platform::RenderProfile::Backend::Vulkan:
+    switch (QQuickWindow::graphicsApi()) {
+    case QSGRendererInterface::Vulkan:
         return QStringLiteral("Vulkan");
-    case Platform::RenderProfile::Backend::OpenGL:
+    case QSGRendererInterface::OpenGL:
         return QStringLiteral("OpenGL");
-    case Platform::RenderProfile::Backend::Software:
+    case QSGRendererInterface::Software:
         return L("Phần mềm (Software)", "Software");
-    case Platform::RenderProfile::Backend::Default:
     default:
         return L("Mặc định (OpenGL/Qt)", "Default (OpenGL/Qt)");
     }
@@ -7805,7 +8115,11 @@ void ZaloClient::handleDeliveredReceipt(const QString& threadId, const QString& 
 }
 
 void ZaloClient::handleSeen(const QString& threadId, const QString& msgId, const QString& userId, bool isGroup) {
-    if (userId == m_myUid) return;
+    if (userId == m_myUid) {
+        if (isGroup && !threadId.isEmpty() && !msgId.isEmpty())
+            applyReadPoints({QJsonObject{{"idTo", threadId}, {"lastMsgId", msgId}, {"isGroup", 1}}});
+        return;
+    }
     if (isGroup && !userId.isEmpty()) {
         m_messageModel->recordGroupSeen(threadId, msgId, userId);
         if (m_offlineStore) m_offlineStore->recordGroupSeen(msgId, userId);

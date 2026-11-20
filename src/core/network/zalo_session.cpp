@@ -17,9 +17,11 @@
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QPointer>
+#include <QScopeGuard>
 #include <QSaveFile>
 #include <QThreadPool>
 #include <QUrl>
+#include <QUrlQuery>
 #include <QWebSocket>
 #include <QtEndian>
 #include <QCryptographicHash>
@@ -557,6 +559,23 @@ void ZaloSession::fetchLastMessages(const QStringList& threadIds, const QSet<QSt
     }
     apiGet("conversation", "/api/preloadconvers/get-last-msgs",
            {{"threadIdLocalMsgId", compactJson(map)}, {"imei", m_imei}}, cb);
+}
+
+void ZaloSession::fetchLastSeen(const QStringList& groupIds, const QStringList& userIds, Callback cb) {
+    const QJsonObject param{{"group", QJsonArray::fromStringList(groupIds)}, {"oneone", QJsonArray::fromStringList(userIds)}};
+    apiGet("chat", "/api/preloadconvers/get-last-seen", {{"param", compactJson(param)}}, cb);
+}
+
+QJsonArray ZaloSession::readPointsOf(const QJsonObject& data) {
+    QJsonArray points;
+    auto take = [&points](const QJsonValue& v) {
+        for (const QJsonValue& e : v.toArray()) points.append(e);
+    };
+    take(data.value("clearUnreads"));
+    take(data.value("clearUnreadInfo"));
+    take(data.value("statusMap").toObject().value("clearUnreads"));
+    if (points.isEmpty() && data.value("data").isObject()) return readPointsOf(data.value("data").toObject());
+    return points;
 }
 
 void ZaloSession::fetchCloudHistory(const QString& threadId, bool isMyCloud, const QString& beforeMsgId, int count,
@@ -1770,7 +1789,7 @@ void ZaloSession::removeFriendAlias(const QString& friendId, Callback cb) {
 }
 
 void ZaloSession::createPoll(const QString& groupId, const QString& question, const QStringList& options,
-                             bool allowMultiChoices, Callback cb) {
+                             const QVariantMap& settings, Callback cb) {
     QJsonArray optArr;
     for (const QString& opt : options) {
         const QString trimmed = opt.trimmed();
@@ -1782,12 +1801,12 @@ void ZaloSession::createPoll(const QString& groupId, const QString& question, co
         {"group_id", groupId},
         {"question", question},
         {"options", optArr},
-        {"expired_time", 0},
-        {"pinAct", false},
-        {"allow_multi_choices", allowMultiChoices},
-        {"allow_add_new_option", true},
-        {"is_hide_vote_preview", false},
-        {"is_anonymous", false},
+        {"expired_time", settings.value("expiredTime").toLongLong()},
+        {"pinAct", settings.value("pinAct").toBool()},
+        {"allow_multi_choices", settings.value("allowMultiChoices").toBool()},
+        {"allow_add_new_option", settings.value("allowAddNewOption").toBool()},
+        {"is_hide_vote_preview", settings.value("hideVotePreview").toBool()},
+        {"is_anonymous", settings.value("isAnonymous").toBool()},
         {"poll_type", 0},
         {"src", 1},
         {"imei", m_imei}
@@ -2111,7 +2130,7 @@ void ZaloSession::connectRealtime() {
 #else
     connect(m_ws, QOverload<QAbstractSocket::SocketError>::of(&QWebSocket::error), this, [this](QAbstractSocket::SocketError e) {
 #endif
-        logRealtime(QStringLiteral("socket error %1: %2").arg(int(e)).arg(m_ws ? m_ws->errorString() : QString()));
+        logRealtime(QStringLiteral("socket error %1: %2 [%3]").arg(int(e)).arg(m_ws ? m_ws->errorString() : QString(), m_wsAttempt));
     });
     connect(m_ws, &QWebSocket::disconnected, this, [this]() {
         const bool wasReady = m_realtimeReady;
@@ -2159,6 +2178,15 @@ void ZaloSession::connectRealtime() {
         cookieParts << QStringLiteral("zpw_sek=") + sek;
     }
     req.setRawHeader("Cookie", cookieParts.join("; ").toUtf8());
+    QStringList queryKeys;
+    for (const auto& item : QUrlQuery(req.url()).queryItems()) queryKeys << item.first;
+    int headerBytes = 0;
+    for (const QByteArray& name : req.rawHeaderList()) headerBytes += int(name.size() + req.rawHeader(name).size()) + 4;
+    m_wsAttempt = QStringLiteral("host=%1 path=%2 query=%3 cookies=%4 headerBytes=%5 qt=%6")
+                      .arg(req.url().host(), req.url().path(), queryKeys.join(','))
+                      .arg(cookieParts.size())
+                      .arg(headerBytes)
+                      .arg(QString::fromLatin1(qVersion()));
     m_ws->open(req);
     m_pongWatchdog.start(20000);
 }
@@ -2439,7 +2467,21 @@ void ZaloSession::onWsBinary(const QByteArray& frame) {
             return false;
         }
     };
-    if (!isKnownCommand()) return;
+    if (!isKnownCommand()) {
+        bool decoded = false;
+        const QByteArray raw = ZaloCrypto::decodeEventData(parsed.value("data").toString(),
+                                                           parsed.value("encrypt").toInt(-1), m_cipherKey, &decoded);
+        const QJsonArray points = decoded
+            ? readPointsOf(QJsonDocument::fromJson(raw).object().value("data").toObject()) : QJsonArray();
+        if (!points.isEmpty()) {
+            logRealtime(QStringLiteral("read points via cmd %1/%2: %3").arg(cmd).arg(subCmd).arg(points.size()));
+            emit readPointsReceived(points);
+        } else if (!m_unhandledCmdsLogged.contains((cmd << 8) | subCmd)) {
+            m_unhandledCmdsLogged.insert((cmd << 8) | subCmd);
+            logRealtime(QStringLiteral("unhandled cmd %1/%2").arg(cmd).arg(subCmd));
+        }
+        return;
+    }
 
     bool ok = false;
     const QByteArray json = ZaloCrypto::decodeEventData(parsed.value("data").toString(),
@@ -2466,7 +2508,12 @@ void ZaloSession::onWsBinary(const QByteArray& frame) {
         m_pullPages.remove(queueKey);
     }
 
-    if (data.contains("clearUnreads")) emit readPointsReceived(data.value("clearUnreads").toArray());
+    const QJsonArray readPoints = readPointsOf(data);
+    const auto flushReadPoints = qScopeGuard([this, &readPoints, cmd, subCmd]() {
+        if (readPoints.isEmpty()) return;
+        logRealtime(QStringLiteral("read points via cmd %1/%2: %3").arg(cmd).arg(subCmd).arg(readPoints.size()));
+        emit readPointsReceived(readPoints);
+    });
 
     if (userLive || groupLive || userOld || groupOld) {
         const bool isGroup = groupLive || groupOld;

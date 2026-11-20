@@ -58,6 +58,8 @@ public:
     bool bindOwner(const QString& uid);
     void clearCache();
     bool saveConversation(const Models::ConversationItem& item);
+    QHash<QString, QString> loadReadPoints();
+    bool saveReadPoint(const QString& convId, const QString& msgId);
     QVector<Models::ConversationItem> loadConversations();
     bool saveMessage(const QString& convId, const Models::MessageItem& item, const QJsonObject& raw = {},
                      bool isGroup = false);

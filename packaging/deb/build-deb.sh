@@ -11,7 +11,7 @@ WORKSPACE_DIR="${WORKSPACE_DIR:-/workspace}"
 BUILD_DIR="${WORKSPACE_DIR}/build-deb"
 PKG_DIR="${BUILD_DIR}/pkg"
 OUTPUT_DIR="${WORKSPACE_DIR}/dist"
-ZALOS_VERSION="1.2.8"
+ZALOS_VERSION="1.2.9"
 REVISION="1"
 ARCH="$(dpkg --print-architecture)"
 . /etc/os-release
@@ -59,6 +59,16 @@ qml6-module-qtquick-templates, qml6-module-qtquick-window, qml6-module-qtquick-s
 qml6-module-qtqml-workerscript, qml6-module-qtmultimedia, qml6-module-qtcore, qt6-wayland, \
 libqt6svg6 (>= 6.4), libqt6sql6-sqlite, qt6-image-formats-plugins" # libqt6svg6: SVG plugins; image-formats: WebP (animated stickers)
 
+echo "==> Bundling fallback libraries (used only when the system copy is missing)..."
+FALLBACK_DIR="${PKG_DIR}/usr/lib/zalos/fallback"
+mkdir -p "${FALLBACK_DIR}"
+OPUS_LIB="$(ldconfig -p | sed -n 's/^[[:space:]]*libopus\.so\.0 (.*) => //p' | head -n1)"
+if [ -z "${OPUS_LIB}" ] || [ ! -e "${OPUS_LIB}" ]; then
+    echo "❌ libopus.so.0 not found in the build image" >&2
+    exit 1
+fi
+install -m 0644 "$(readlink -f "${OPUS_LIB}")" "${FALLBACK_DIR}/libopus.so.0"
+
 INSTALLED_SIZE=$(du -sk "${PKG_DIR}" | cut -f1)
 mkdir -p "${PKG_DIR}/DEBIAN"
 cat > "${PKG_DIR}/DEBIAN/control" <<CONTROL
@@ -70,13 +80,16 @@ Installed-Size: ${INSTALLED_SIZE}
 Section: net
 Priority: optional
 Homepage: https://github.com/cpfriend1721994/zalos
-Depends: ${SHLIB_DEPENDS}, ${QML_DEPENDS}, libopus0, libpulse0
-Recommends: libopenh264-7 | libopenh264-8, qt6-xdgdesktopportal-platformtheme
+Depends: ${SHLIB_DEPENDS}, ${QML_DEPENDS}
+Recommends: libopus0, libpulse0, gstreamer1.0-plugins-good, gstreamer1.0-libav, libopenh264-7 | libopenh264-8, qt6-xdgdesktopportal-platformtheme
+Suggests: cups-client
 Description: Native Qt6 (C++/QML) messaging client for Zalo on Linux
  Zalos is an open-source Qt 6 desktop client for Zalo:
  QR sign-in, messaging, groups, media and calls. Calls run on the bundled C++ call
  engine (zalos-call and zalos-call-audio in /usr/libexec/zalos); audio uses PulseAudio/
- PipeWire (libpulse0) and libopus. Call video uses the system's OpenH264, which is never bundled.
+ PipeWire (libpulse0) and the system libopus, with a private fallback copy in /usr/lib/zalos/fallback.
+ Voice and video playback use Qt Multimedia's GStreamer plugins. Call video uses the system's OpenH264,
+ which is never bundled.
 CONTROL
 
 echo "==> Building ${DEB_NAME}..."

@@ -28,6 +28,7 @@
 #include "core/platform/avatar_image_provider.h"
 #include "core/platform/icon_image_provider.h"
 #include "core/platform/render_profile.h"
+#include "core/platform/dependency_report.h"
 #include "core/platform/single_instance.h"
 
 #ifdef __GLIBC__
@@ -298,6 +299,17 @@ void markColdAnonymousMappings() {
 
 }
 
+static void markHostQtHealthy() {
+    const QByteArray path = qgetenv("ZALOS_HOST_QT_GUARD");
+    if (path.isEmpty()) return;
+    QFile file(QString::fromLocal8Bit(path));
+    if (!file.open(QIODevice::ReadOnly)) return;
+    const QByteArray state = file.readLine().trimmed();
+    file.close();
+    if (!state.startsWith("pending ")) return;
+    if (file.open(QIODevice::WriteOnly | QIODevice::Truncate)) file.write("ok " + state.mid(8) + '\n');
+}
+
 int main(int argc, char* argv[]) {
 #ifdef __GLIBC__
     mallopt(M_ARENA_MAX, 2);
@@ -311,6 +323,14 @@ int main(int argc, char* argv[]) {
 
     QCoreApplication::setOrganizationName("Zalos");
     QCoreApplication::setApplicationName("Zalos");
+    for (int i = 1; i < argc; ++i) {
+        if (QByteArray(argv[i]) != "--check-deps") continue;
+        if (qEnvironmentVariableIsEmpty("QT_QPA_PLATFORM")) qputenv("QT_QPA_PLATFORM", "offscreen");
+        QApplication probe(argc, argv);
+        const int code = Zalos::Core::Platform::DependencyReport::run();
+        if (code == 0) markHostQtHealthy();
+        return code;
+    }
     bool foregroundRun = qEnvironmentVariableIsSet("ZALOS_DEBUG");
     for (int i = 1; i < argc && !foregroundRun; ++i) {
         const QByteArray a(argv[i]);
@@ -491,6 +511,7 @@ int main(int argc, char* argv[]) {
 #else
     engine.load(QUrl(QStringLiteral("qrc:/Zalos/src/qml/Main.qml")));
 #endif
+    if (!engine.rootObjects().isEmpty()) markHostQtHealthy();
 
     QObject::connect(&app, &QCoreApplication::aboutToQuit, zaloClient, [zaloClient]() {
         Zalos::Core::Platform::RenderGuard::markFirstFrame();
@@ -502,7 +523,7 @@ int main(int argc, char* argv[]) {
         if (!window) continue;
         auto attemptMarked = std::make_shared<bool>(false);
         auto firstFrameSwapped = std::make_shared<bool>(false);
-        if (window->isVisible()) {
+        if (window->isVisible() && renderProfile.guarded()) {
             *attemptMarked = true;
             Zalos::Core::Platform::RenderGuard::markAttempt(renderProfile.backend);
         }
@@ -534,7 +555,7 @@ int main(int argc, char* argv[]) {
         zaloClient->setWindowVisible(window->isVisible());
         QObject::connect(window, &QWindow::visibleChanged, bgTrimTimer,
                          [bgTrimTimer, zaloClient, attemptMarked, firstFrameSwapped, renderProfile](bool visible) {
-            if (visible && !*attemptMarked && !*firstFrameSwapped) {
+            if (visible && !*attemptMarked && !*firstFrameSwapped && renderProfile.guarded()) {
                 *attemptMarked = true;
                 Zalos::Core::Platform::RenderGuard::markAttempt(renderProfile.backend);
             }
@@ -553,12 +574,20 @@ int main(int argc, char* argv[]) {
         QObject::connect(window, &QQuickWindow::sceneGraphError, &app,
                          [renderProfile, &singleInstance, restartArgs](QQuickWindow::SceneGraphError, const QString& message) {
             std::cerr << "[zalos] scene graph error: " << message.toStdString() << std::endl;
-            if (renderProfile.backend != RenderProfile::Backend::Vulkan) return;
-            Zalos::Core::Platform::RenderGuard::vulkanFailedBefore();
+            if (!renderProfile.guarded()) return;
+            Zalos::Core::Platform::RenderGuard::recordFailure(renderProfile.backend);
             const QString exe = qEnvironmentVariable("APPIMAGE", QCoreApplication::applicationFilePath());
             singleInstance.release();
             QProcess::startDetached(exe, restartArgs());
             QCoreApplication::exit(0);
+        });
+        QObject::connect(zaloClient, &Zalos::Core::Network::ZaloClient::memoryTrimRequested, window, [window, &engine]() {
+            engine.collectGarbage();
+            engine.trimComponentCache();
+            window->releaseResources();
+#ifdef __GLIBC__
+            malloc_trim(0);
+#endif
         });
         QObject::connect(zaloClient, &Zalos::Core::Network::ZaloClient::restartRequested, &app,
                          [&singleInstance, restartArgs]() {

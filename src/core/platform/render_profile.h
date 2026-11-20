@@ -8,6 +8,7 @@ struct RenderProfile {
     enum class Backend { Default, Vulkan, OpenGL, Software };
     Backend backend{Backend::Default};
     bool basicRenderLoop{false};
+    bool fromOverride{false};
     QString reason;
 
     struct Inputs {
@@ -16,7 +17,8 @@ struct RenderProfile {
         bool mesaVulkanIcd{false};
         bool qtHasVulkan{false};
         bool vulkanFailedBefore{false};
-        bool hardwareAcceleration{true};
+        bool hardwareAcceleration{false};
+        QString hardwareFailed;
         qint64 memTotalKb{0};
         int cpuCores{0};
         QString override;
@@ -25,7 +27,9 @@ struct RenderProfile {
     static RenderProfile decide(const Inputs& in);
     static Inputs probeSystem();
     static QString backendName(Backend b);
+    static Backend backendFromName(const QString& name);
 
+    bool guarded() const { return backend != Backend::Software && !fromOverride; }
     void apply() const;
 };
 
@@ -33,6 +37,10 @@ namespace RenderGuard {
 bool vulkanFailedBefore();
 void markAttempt(RenderProfile::Backend backend);
 void markFirstFrame();
+void recordFailure(RenderProfile::Backend backend);
+QString lastFailure();
+bool hardwareAccelerationEnabled();
+void setHardwareAccelerationEnabled(bool enabled);
 }
 
 }

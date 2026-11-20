@@ -24,8 +24,8 @@
 
 **Zalos** là ứng dụng mã nguồn mở dành cho Zalo trên Linux, được xây dựng bằng C++17 và Qt 6 QML, kết hợp giữa **hiệu năng cao** (high performance) và **dung lượng siêu nhẹ** (ultra-lightweight):
 
-- **Siêu nhẹ (Ultra-lightweight):** Gói `.deb`/`.rpm` chỉ **~6 MB** (hoặc AppImage tự chứa **~22 MB** kèm Qt 6.4 fallback) và mức tiêu thụ RAM tối giản chỉ **~40–65 MB** (tiết kiệm hơn 90% bộ nhớ so với mức 450–1.800+ MB của bản Electron).
-- **Hiệu năng cao (High performance):** Khởi động tức thì dưới 0,5 giây, giao diện tăng tốc phần cứng 60 FPS mượt mà, giải mã mã hóa đa luồng C++ siêu tốc và phản hồi nhạy bén ngay cả trên máy cấu hình yếu.
+- **Siêu nhẹ (Ultra-lightweight):** Gói `.deb`/`.rpm` chỉ **~2.5 MB** (hoặc AppImage tự chứa **~22 MB** kèm Qt 6.4 fallback) và mức tiêu thụ RAM tối giản chỉ **~40–65 MB** (tiết kiệm hơn 90% bộ nhớ so với mức 450–1.800+ MB của bản Electron).
+- **Hiệu năng cao (High performance):** Khởi động tức thì dưới 0,5 giây, giao diện Qt Quick mượt mà (mặc định kết xuất phần mềm ổn định, có thể bật GPU và tự quay về phần mềm khi lỗi), giải mã mã hóa đa luồng C++ siêu tốc và phản hồi nhạy bén ngay cả trên máy cấu hình yếu.
 - **Tự nhiên trên Linux:** Chạy mượt mà trên cả Wayland và X11, tự động đồng bộ giao diện sáng/tối theo hệ thống, tích hợp khay hệ thống và hỗ trợ bộ gõ tiếng Việt hoàn hảo.
 
 ### ⚡ So sánh hiệu năng & tài nguyên thực tế
@@ -33,20 +33,23 @@
 | Tiêu chí kỹ thuật | Zalos (C++17 / Qt 6 QML) | Zalo PC / Electron Wrapper |
 |---|---|---|
 | **Bộ nhớ RAM hoạt động** | **~40 – 65 MB** (tự giải phóng, nhẹ hơn 90%) | 450 – 1.800+ MB (nhiều tiến trình Chromium) |
-| **Dung lượng gói cài đặt** | **~6 MB (`.deb`/`.rpm`) · ~22 MB (AppImage)** | > 150 – 250 MB (kèm nguyên trình duyệt) |
+| **Dung lượng gói cài đặt** | **~2.5 MB (`.deb`/`.rpm`) · ~22 MB (AppImage)** | > 150 – 250 MB (kèm nguyên trình duyệt) |
 | **Tốc độ khởi động nguội** | **< 0,5s** (mở tức thì trong chớp mắt) | 3 – 8s (chờ tải runtime Node/Chromium) |
-| **Kết xuất đồ họa UI** | **Qt Quick Native tăng tốc (60 FPS)** | Web DOM / Chromium compositor |
+| **Kết xuất đồ họa UI** | **Qt Quick Native (mặc định phần mềm, tùy chọn GPU)** | Web DOM / Chromium compositor |
 | **Kiến trúc mã nguồn** | **C++17 & QML thuần native** | Electron / Node.js + Web wrapper |
 
 ---
 
 ## ✨ Tính năng
 
-- **Hiệu năng cao & Siêu nhẹ** — khởi động tức thì (<0,5s), đồ họa 60 FPS mượt mà, gói `.deb`/`.rpm` chỉ ~6 MB (~22 MB AppImage tự chứa) và chỉ chiếm ~40–65 MB RAM.
-- **Wayland & X11** — chạy trên cả hai, nút điều khiển cửa sổ chuẩn trên GNOME và KDE, kèm tùy chọn bật/tắt tăng tốc phần cứng (GPU) trong Cài đặt.
+- **Hiệu năng cao & Siêu nhẹ** — khởi động tức thì (<0,5s), đồ họa 60 FPS mượt mà, gói `.deb`/`.rpm` chỉ ~2.5 MB (~22 MB AppImage tự chứa) và chỉ chiếm ~40–65 MB RAM.
+- **Wayland & X11** — chạy trên cả hai, nút điều khiển cửa sổ chuẩn trên GNOME và KDE. Mặc định kết xuất bằng phần mềm cho ổn định; có thể bật tăng tốc phần cứng (GPU) trong Cài đặt và Zalos tự quay về chế độ phần mềm nếu driver đồ họa lỗi.
 - **Tự đổi giao diện sáng/tối** — bám theo màu hệ thống theo thời gian thực.
 - **Nhắn tin** — chat đơn và nhóm, Sticker & ảnh GIF động, emoji, 54 cảm xúc Zalo, định dạng chữ (kèm thụt lề), trả lời, chuyển tiếp,
-  bình chọn, thẻ ngân hàng, ghim tin nhắn, nhãn hội thoại, bộ lọc phân loại hội thoại (Tất cả / Nhóm / Cá nhân / Bạn bè / Người lạ), và tìm kiếm toàn bộ lịch sử.
+  thẻ ngân hàng, ghim tin nhắn, nhãn hội thoại, bộ lọc phân loại hội thoại (Tất cả / Nhóm / Cá nhân / Bạn bè / Người lạ), và tìm kiếm toàn bộ lịch sử;
+  trạng thái đã đọc đồng bộ với điện thoại và các thiết bị khác.
+- **Bình chọn như Zalo PC** — thẻ bình chọn và dòng hoạt động ngay trong chat, cửa sổ bình chọn đầy đủ (chọn một/nhiều, đổi hoặc bỏ bình chọn,
+  thêm phương án, xem ai đã chọn), đủ thiết lập khi tạo (ghim, thời hạn, ẩn kết quả, ẩn người bình chọn) và khóa bình chọn cho người tạo/quản trị viên.
 - **Đồng bộ lịch sử điện thoại thông minh** — tự nhận diện khi nhóm chưa có tin nhắn sau đăng nhập để gợi ý đồng bộ mã hóa từ điện thoại.
 - **Gọi thoại và gọi video** — gọi thoại/video 1-1 với mã hóa OpenH264, chia sẻ màn hình (X11 & Wayland), thu nhỏ nổi PiP để vừa gọi vừa chat, và chọn Micro/Loa/Camera + âm lượng Micro ngay trong cuộc gọi; gọi nhóm đang ở giai đoạn thử nghiệm.
 - **My Documents** — luồng lưu trữ cá nhân với bộ lọc nhanh ảnh, video, tệp và liên kết.
@@ -66,16 +69,17 @@
 ## 📥 Cài đặt
 
 Chọn gói theo bản phân phối của bạn. Mỗi bản phát hành được build trên bản phân phối **cũ nhất** mà nó hỗ trợ,
-và được kiểm tra cài đặt trên cả bản cũ nhất lẫn mới nhất trong CI.
+và được kiểm tra cài đặt sạch trong container trên cả bản cũ nhất lẫn mới nhất (kể cả cài tối giản không kèm gói tùy chọn)
+trước khi phát hành.
 
 ### Bảng ma trận cài đặt (Install Matrix)
 
 | Cách cài đặt | Hệ điều hành hỗ trợ | Kiến trúc | Tự cập nhật | Gọi thoại | Gọi video (Camera) |
 |---|---|---|---|---|---|
-| [**Kho APT**](#ubuntu--debian--kho-apt-khuyên-dùng) *(khuyên dùng)* | Ubuntu 24.04+, Mint, Pop!_OS, Zorin | `amd64` / `arm64` | ✅ `apt upgrade` | ✅ Dùng luôn | ➕ `libopenh264-7` |
-| [**Kho DNF**](#fedora--kho-dnf-khuyên-dùng) *(khuyên dùng)* | Fedora 43+ | `x86_64` / `aarch64` | ✅ `dnf upgrade` | ✅ Dùng luôn | ➕ `openh264` |
-| [File `.deb` lẻ](#ubuntu-2404-file-deb-lẻ) | Ubuntu 24.04+, Debian & phái sinh | `amd64` / `arm64` | 🔄 Báo trong app | ✅ Dùng luôn | ➕ `libopenh264-7` |
-| [File `.rpm` lẻ](#fedora-43-file-rpm-lẻ) | Fedora 43+ | `x86_64` / `aarch64` | 🔄 Báo trong app | ✅ Dùng luôn | ➕ `openh264` |
+| [**Kho APT**](#ubuntu--debian--kho-apt-khuyên-dùng) *(khuyên dùng)* | Ubuntu 24.04+, Mint, Pop!_OS, Zorin | `amd64` / `arm64` | ✅ `apt upgrade` | ✅ Dùng luôn | ✅ đề xuất sẵn (`libopenh264-7`) |
+| [**Kho DNF**](#fedora--kho-dnf-khuyên-dùng) *(khuyên dùng)* | Fedora 43+ | `x86_64` / `aarch64` | ✅ `dnf upgrade` | ✅ Dùng luôn | ✅ đề xuất sẵn (`openh264`) |
+| [File `.deb` lẻ](#ubuntu-2404-file-deb-lẻ) | Ubuntu 24.04+, Debian & phái sinh | `amd64` / `arm64` | 🔄 Báo trong app | ✅ Dùng luôn | ✅ đề xuất sẵn (`libopenh264-7`) |
+| [File `.rpm` lẻ](#fedora-43-file-rpm-lẻ) | Fedora 43+ | `x86_64` / `aarch64` | 🔄 Báo trong app | ✅ Dùng luôn | ✅ đề xuất sẵn (`openh264`) |
 | [**Snap**](#snap) | Ubuntu & distro có `snapd` | `amd64` / `arm64` / `armhf` / `riscv64` | ✅ Snap Store | ✅ Dùng luôn | ⚠️ Cấp quyền mic/cam |
 | [**Flatpak (Testing)**](#flatpak-testing) | Mọi distro có Flatpak | `x86_64` / `aarch64` | ✅ Flatpak | ✅ Dùng luôn | ✅ Đóng gói sẵn (`OpenH264`) |
 | [**Nix Flake**](#nixos--nix) | NixOS / Nix | `x86_64` / `aarch64` | 🔄 `nix profile upgrade` | ✅ Dùng luôn | ✅ Đóng gói sẵn |
@@ -97,13 +101,13 @@ sudo dnf install -y zalos
 ### Ubuntu 24.04+ (file `.deb` lẻ)
 ```bash
 ARCH=$(dpkg --print-architecture)
-wget "https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.2.8-1~ubuntu24.04_${ARCH}.deb"
-sudo apt install "./zalos_1.2.8-1~ubuntu24.04_${ARCH}.deb"
+wget "https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos_1.2.9-1~ubuntu24.04_${ARCH}.deb"
+sudo apt install "./zalos_1.2.9-1~ubuntu24.04_${ARCH}.deb"
 ```
 
 ### Fedora 43+ (file `.rpm` lẻ)
 ```bash
-sudo dnf install "https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.2.8-1.fc43.$(uname -m).rpm"
+sudo dnf install "https://github.com/cpfriend1721994/zalos/releases/latest/download/zalos-1.2.9-1.fc43.$(uname -m).rpm"
 ```
 
 ### Snap
@@ -131,9 +135,9 @@ nix profile install github:cpfriend1721994/zalos
 ### AppImage (di động, glibc ≥ 2.35)
 ```bash
 ARCH=$(uname -m)
-wget "https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.2.8-${ARCH}.AppImage"
-chmod +x "Zalos-1.2.8-${ARCH}.AppImage"
-"./Zalos-1.2.8-${ARCH}.AppImage"
+wget "https://github.com/cpfriend1721994/zalos/releases/latest/download/Zalos-1.2.9-${ARCH}.AppImage"
+chmod +x "Zalos-1.2.9-${ARCH}.AppImage"
+"./Zalos-1.2.9-${ARCH}.AppImage"
 ```
 AppImage (~22 MB) ưu tiên dùng Qt 6 sẵn có trên máy và tự chuyển sang runtime Qt 6.4 nhúng sẵn khi hệ thống chưa cài Qt 6 (chỉ cần các thư viện desktop cơ bản và `glibc ≥ 2.35` như Ubuntu 22.04+, Debian 12+, Fedora, openSUSE, Arch).
 
@@ -146,8 +150,10 @@ Gọi thoại và video chạy trên engine gọi C++ của chính Zalos (`zalos
 xem `engines/zcall-cpp/LICENSE` cho thông báo giấy phép BSD-3-Clause).
 Zalos không phụ thuộc Python hay Node.js:
 
-- **Gọi thoại hoạt động ngay** trên `.deb`, `.rpm`, `Nix` và **AppImage** (AppImage đã đóng gói sẵn `libopus.so.0` dự phòng và kết nối trực tiếp tới PulseAudio / PipeWire qua `libpulse-simple.so.0`, thư viện vốn có sẵn trên hầu hết các bản Linux desktop; chỉ các hệ thống tối giản chưa cài PulseAudio/PipeWire client mới cần thêm `libpulse0` trên Ubuntu/Debian hoặc `pulseaudio-libs` trên Fedora).
-- **Gọi video** (thấy camera của người bên kia) cần thêm **OpenH264** từ bản phân phối của bạn (không bao giờ đóng gói kèm, vì lý do bản quyền sáng chế): Ubuntu `sudo apt install libopenh264-7`, Fedora `sudo dnf install openh264`.
+- **Gọi thoại hoạt động ngay** trên `.deb`, `.rpm`, `Nix` và **AppImage**: Zalos dùng `libopus` của hệ thống và tự dùng bản dự phòng riêng khi hệ thống không có, kết nối PulseAudio / PipeWire qua `libpulse-simple.so.0` vốn có sẵn trên mọi bản desktop (chỉ hệ thống tối giản mới cần thêm `libpulse0` trên Ubuntu/Debian hoặc `pulseaudio-libs` trên Fedora).
+- **Gọi video** (thấy camera của người bên kia) cần thêm **OpenH264** từ bản phân phối của bạn (không bao giờ đóng gói kèm, vì lý do bản quyền sáng chế): Ubuntu `sudo apt install libopenh264-7`, Fedora `sudo dnf install openh264`. Gói `.deb`/`.rpm` đã đề xuất sẵn nên `apt`/`dnf` mặc định sẽ cài kèm.
+- **Phát tin nhắn thoại và video** dùng Qt Multimedia với codec của bản phân phối. Gói `.deb` đã đề xuất sẵn `gstreamer1.0-plugins-good` và `gstreamer1.0-libav`; với AppImage trên máy chưa có Qt 6, hãy cài GStreamer kèm plugin good và libav từ bản phân phối. Nếu thiếu, Zalos vẫn chạy và báo rõ đang thiếu gì.
+- **Kiểm tra Zalos đang dùng gì:** `zalos --check-deps` (hoặc `./Zalos-*.AppImage --check-deps`) in ra Qt, codec, OpenH264 và thư viện âm thanh đang được dùng — tiện khi báo lỗi.
 
 ---
 
@@ -169,7 +175,7 @@ docker compose run --rm package-rpm      # dist/*.x86_64.rpm
 docker compose run --rm package-nix      # dist/*-nixos.tar.gz
 ```
 
-Đẩy một tag theo chuẩn semantic (`git tag v1.2.8 && git push origin v1.2.8`) sẽ build toàn bộ gói và phát hành
+Đẩy một tag theo chuẩn semantic (`git tag v1.2.9 && git push origin v1.2.9`) sẽ build toàn bộ gói và phát hành
 một GitHub Release.
 
 Xem [CONTRIBUTING.md](CONTRIBUTING.md) để biết quy trình đóng góp.
